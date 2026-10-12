@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+*.tsbuildinfo
+.env*
+!.env.example
+.DS_Store
+
+# Local scratch / recycle bin — never part of the project
+.trash/
+*.bak
+*.orig
