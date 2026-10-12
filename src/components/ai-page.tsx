@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Brain, Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, Loader2, Layers, Search, Server, ShieldCheck, Timer, TrendingUp, Wrench, X, Zap } from "lucide-react";
+import { Activity, Brain, Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, Loader2, Layers, Search, Server, ShieldCheck, Timer, TrendingUp, Wrench, X, Zap, RefreshCw } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { ProviderMark } from "@/components/provider-mark";
+import { Modal } from "@/components/modal";
 import { formatPrice } from "@/lib/credits";
 import { CLERK_ENABLED } from "@/lib/clerk-config";
 
@@ -151,6 +152,12 @@ export default function AIPage() {
   const [credStatus, setCredStatus] = useState<Status>("loading");
   const [credError, setCredError] = useState("");
   const [test, setTest] = useState<"idle" | "testing" | "success" | "failed">("idle");
+  // Rotation state. Kept separate from credStatus so the key stays visible while the
+  // confirm dialog is open — only the button reflects the in-flight request.
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [rotateError, setRotateError] = useState("");
+  const [rotated, setRotated] = useState(false);
 
   // Credentials come from the backend that owns them, so rotating the upstream key
   // never needs a frontend deploy. useCallback so a failed load can be retried in
@@ -182,6 +189,45 @@ export default function AIPage() {
     } catch {
       setCredStatus("error");
       setCredError("Could not reach the gateway.");
+    }
+  }, [getToken]);
+
+  /**
+   * Replace the key. The old value stops working immediately, so the dialog says so
+   * before the request goes out rather than after.
+   *
+   * On success the new key is shown straight away and the reveal state is reset to
+   * hidden — the value would otherwise be left on screen from the previous key, which
+   * reads as if nothing changed.
+   */
+  const rotateKey = useCallback(async () => {
+    if (!CLERK_ENABLED) return;
+    setRotating(true);
+    setRotateError("");
+    try {
+      const token = await getToken();
+      if (!token) {
+        setRotateError("Your session expired. Sign in again.");
+        return;
+      }
+      const res = await fetch("/backend/api/v1/ai/credentials/rotate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setRotateError(reasonFor(res.status));
+        return;
+      }
+      const data = await res.json() as Credentials;
+      setCredentials({ apiKey: data.apiKey, baseUrl: data.baseUrl });
+      setVisible(false);
+      setRotated(true);
+      setRotateOpen(false);
+      setTest("idle");   // the old key was the one under test
+    } catch {
+      setRotateError("Could not reach the gateway.");
+    } finally {
+      setRotating(false);
     }
   }, [getToken]);
 
@@ -299,7 +345,7 @@ export default function AIPage() {
 
     <section className="console-section usage-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Usage</h2><p>All-time request activity for this account.</p></div></div><span className="period-badge">All time</span></div>{usageStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading usage…</div>}{usageStatus === "error" && <p className="success-line row-fail" role="status"><X size={14}/> {usageError}</p>}{usageStatus === "ready" && usage && <><div className="usage-grid"><article className="usage-stat"><div className="stat-top"><span>Requests</span><Activity size={16}/></div><strong>{formatCount(usage.requests)}</strong><small><TrendingUp size={13}/> <span>{usage.requests === 0 ? "no requests yet" : `${plural(usage.errors, "error")}${usage.interrupted > 0 ? `, ${plural(usage.interrupted, "interrupted")}` : ""}`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Tokens</span><Zap size={16}/></div><strong>{formatTokens(usage.totalTokens)}</strong><small><TrendingUp size={13}/> <span>{`${formatTokens(usage.promptTokens)} in · ${formatTokens(usage.completionTokens)} out`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Credits used</span><span className="cost-icon">◈</span></div><strong>{trimCredits(usage.chargedCredits)}</strong><small><Timer size={13}/> {usage.lastRequestAt ? `last used ${new Date(usage.lastRequestAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "never used"}</small></article></div>{usage.models.length > 0 && <div className="usage-breakdown"><div className="breakdown-head"><span>Model</span><span>Requests</span><span>Tokens</span><span>Credits</span></div>{(allModels ? usage.models : usage.models.slice(0, MODELS_PREVIEW)).map(m => <div className="breakdown-row" key={m.model}><span className="breakdown-model" title={m.model}>{shortModel(m.model)}</span><span data-label="Requests">{formatCount(m.requests)}{m.errors > 0 && <em className="breakdown-errors">{m.errors} failed</em>}</span><span data-label="Tokens">{formatTokens(m.totalTokens)}</span><span data-label="Credits">{trimCredits(m.chargedCredits)}</span></div>)}{usage.models.length > MODELS_PREVIEW && <button className="breakdown-more" onClick={() => setAllModels(v => !v)}>{allModels ? `Show fewer` : `Show all ${formatCount(usage.models.length)} models`}</button>}</div>}</>}</section>
 
-    <section className="console-section keys-section"><div className="section-title-row"><div><span className="section-index">03</span><div><h2>API Keys</h2><p>Manage the keys your clients use to authenticate.</p></div></div><div className="key-label"><ShieldCheck size={15}/> KEEP SECRET</div></div><div className="key-card"><div className="key-card-info"><div className="key-icon"><KeyRound size={17}/></div><div><strong>Devora gateway key</strong><small>One key per account</small></div></div><div className="key-value">{credStatus === "ready" && credentials ? <><code>{visible ? credentials.apiKey : `${credentials.apiKey.slice(0, 10)}${"•".repeat(24)}`}</code><button className="icon-button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide key" : "Reveal key"}>{visible ? <EyeOff size={16}/> : <Eye size={16}/>}</button><CopyButton text={credentials.apiKey} label="Copy key"/></> : <RowState status={credStatus} message={credError} onRetry={() => void loadCredentials()}/>}</div></div></section>
+    <section className="console-section keys-section"><div className="section-title-row"><div><span className="section-index">03</span><div><h2>API Keys</h2><p>Manage the keys your clients use to authenticate.</p></div></div><div className="key-label"><ShieldCheck size={15}/> KEEP SECRET</div></div><div className="key-card"><div className="key-card-info"><div className="key-icon"><KeyRound size={17}/></div><div><strong>Devora gateway key</strong><small>One key per account</small></div></div><div className="key-value">{credStatus === "ready" && credentials ? <><code>{visible ? credentials.apiKey : `${credentials.apiKey.slice(0, 10)}${"•".repeat(24)}`}</code><button className="icon-button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide key" : "Reveal key"}>{visible ? <EyeOff size={16}/> : <Eye size={16}/>}</button><CopyButton text={credentials.apiKey} label="Copy key"/></> : <RowState status={credStatus} message={credError} onRetry={() => void loadCredentials()}/>}</div><div className="key-rotate"><button className="button button-outline" type="button" onClick={() => { setRotateError(""); setRotateOpen(true); }} disabled={credStatus !== "ready" || !credentials}><RefreshCw size={14}/> Rotate key</button><small>Issues a new key and revokes this one immediately.</small></div></div>{rotated && <p className="key-rotated-note"><Check size={14}/> New key issued. Anything still using the old one now gets 401.</p>}</section>
 
     <section className="console-section models-section"><div className="section-title-row models-heading"><div><span className="section-index">04</span><div><h2>Models</h2><p>Models available to your workspace.</p></div></div><div className="models-toolbar"><label className="search-field"><Search size={14}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search models…" aria-label="Search models"/></label>{modelsStatus === "ready" && <span className="model-count">{visibleModels.length} of {models.length}</span>}</div></div><div className="model-table-wrap">
         {modelsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading models…</strong><p>Reading the catalogue.</p></div>}
@@ -323,5 +369,27 @@ export default function AIPage() {
               <td><CopyButton text={m.id} label="Copy ID"/></td>
             </tr>)}</tbody></table>)}
       </div><div className="table-note"><Server size={14}/> Call these ids against your base URL — the gateway resolves the provider.</div></section>
+  <Modal
+    open={rotateOpen}
+    tone="danger"
+    title="Rotate gateway key?"
+    subtitle="The current key stops working the moment you confirm."
+    busy={rotating}
+    onClose={() => { if (!rotating) { setRotateOpen(false); setRotateError(""); } }}
+    footer={<>
+      <button className="button button-outline" type="button" onClick={() => { setRotateOpen(false); setRotateError(""); }} disabled={rotating}>Cancel</button>
+      <button className="button button-ink" type="button" onClick={() => void rotateKey()} disabled={rotating}>
+        {rotating ? <><Loader2 size={14} className="row-spinner"/> Rotating…</> : <><RefreshCw size={14}/> Rotate key</>}
+      </button>
+    </>}
+  >
+    <p className="modal-hint">
+      Any client still authenticating with the old key will start receiving 401 responses.
+      Copy the new key from this page once it is issued — you will need to update every
+      deployment that calls the gateway.
+    </p>
+    {rotateError && <p className="modal-warning">{rotateError}</p>}
+  </Modal>
+
   </div>;
 }

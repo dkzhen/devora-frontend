@@ -38,6 +38,7 @@ const EMPTY_FORM = {
   priceInputCredits: "",
   priceOutputCredits: "",
   accessPlans: ["STANDARD", "SUBSCRIPTION"] as string[],
+  status: "active" as string,
   supportsVision: false,
   supportsReasoning: false,
   supportsTools: false,
@@ -151,6 +152,10 @@ export default function AdminModelsPage() {
       priceInputCredits: String(row.priceInputCredits ?? 0),
       priceOutputCredits: String(row.priceOutputCredits ?? 0),
       accessPlans: [...(row.accessPlans ?? [])],
+      // Carried through the form. Omitting it here would send no status on save, the
+      // backend would default to active, and editing a disabled model would quietly
+      // republish it — a write the operator did not ask for.
+      status: row.status === "inactive" ? "inactive" : "active",
       supportsVision: row.supportsVision,
       supportsReasoning: row.supportsReasoning,
       supportsTools: row.supportsTools,
@@ -221,6 +226,7 @@ export default function AdminModelsPage() {
           priceInputCredits: priceIn === "" ? 0 : Number(priceIn),
           priceOutputCredits: priceOut === "" ? 0 : Number(priceOut),
           accessPlans: form.accessPlans,
+          status: form.status,
           supportsVision: form.supportsVision,
           supportsReasoning: form.supportsReasoning,
           supportsTools: form.supportsTools,
@@ -281,6 +287,23 @@ export default function AdminModelsPage() {
         </div>
       </div>
 
+      {/* Two states, not a checkbox. A checkbox would read as "is this thing on?" and leave
+          the other state unnamed; the pair says what each one does, which is what makes the
+          consequence legible before saving. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Status</span>
+        <p className="admin-subfield-hint">A model that is inactive leaves the catalogue and stops routing.</p>
+        <div className="md-status-pills">
+          {(["active", "inactive"] as const).map(next => <button
+            key={next}
+            type="button"
+            className={form.status === next ? `md-status-pill md-status-pill-on md-status-pill-${next}` : "md-status-pill"}
+            aria-pressed={form.status === next}
+            onClick={() => setForm(f => ({ ...f, status: next }))}
+          >{next}</button>)}
+        </div>
+      </div>
+
       <div className="admin-subfield">
         <span className="admin-subfield-label">Plan access</span>
         <p className="admin-subfield-hint">Which account plans may call this model.</p>
@@ -322,16 +345,17 @@ export default function AdminModelsPage() {
       </div>
     </section>
 
-    <section className="console-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Active models</h2><p>Everything currently published in the catalogue.</p></div></div><button className="button button-outline compact-button" type="button" onClick={() => void loadModels()}><RefreshCw size={15}/> Refresh</button></div>
+    <section className="console-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Models</h2><p>Active entries are live; inactive ones are hidden and return 404.</p></div></div><button className="button button-outline compact-button" type="button" onClick={() => void loadModels()}><RefreshCw size={15}/> Refresh</button></div>
       <div className="model-table-wrap">
         {status === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading models…</strong><p>Reading the catalogue.</p></div>}
         {status === "error" && <div className="table-empty"><X size={19}/><strong>Could not load models</strong><p>The catalogue is unavailable right now.</p></div>}
         {status === "ready" && (models.length === 0
           ? <div className="table-empty"><Layers size={19}/><strong>No models yet</strong><p>Add the first model above.</p></div>
-          : <table className="model-table"><thead><tr><th>PROVIDER</th><th>MODEL</th><th>NODE</th><th>PLANS</th><th>CAPABILITIES</th><th>PRICING /1M</th><th>UPSTREAM ID</th><th>CONTEXT</th><th></th></tr></thead><tbody>{models.map(m => <tr key={m.id}>
+          : <table className="model-table"><thead><tr><th>PROVIDER</th><th>MODEL</th><th>NODE</th><th>STATUS</th><th>PLANS</th><th>CAPABILITIES</th><th>PRICING /1M</th><th>UPSTREAM ID</th><th>CONTEXT</th><th></th></tr></thead><tbody>{models.map(m => <tr key={m.id}>
             <td><ProviderMark provider={m.provider}/></td>
             <td><strong>{m.displayName}</strong><small className="cell-sub"><code>{m.id}</code></small></td>
             <td>{m.node ? <code>{m.node}</code> : "—"}</td>
+            <td><span className={m.status === "inactive" ? "md-status-tag md-status-tag-off" : "md-status-tag"}>{m.status === "inactive" ? "inactive" : "active"}</span></td>
             <td><span className="plan-list">{(m.accessPlans ?? []).map(p => <span key={p} className="plan-tag">{p}</span>)}</span></td>
             <td><span className="cap-list">
               {m.supportsVision && <span className="cap-badge" title="Vision"><Eye size={14}/></span>}

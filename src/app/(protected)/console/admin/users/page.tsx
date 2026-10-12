@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Check, Coins, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X,
-} from "lucide-react";
+  AlertTriangle, Check, Coins, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 import { Modal } from "@/components/modal";
@@ -27,6 +26,9 @@ type AccountRow = {
 };
 
 type Status = "loading" | "ready" | "error";
+
+/** Thousands separators, because these figures are read at a glance. */
+const formatCount = (n: number): string => n.toLocaleString("en-US");
 
 /** Compact token counts: 1500000 -> "1.5M". */
 const compact = (n: number): string => {
@@ -56,23 +58,28 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState<Plan | "">("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  // Its own pager state. Filters reset it because a narrowed list has fewer pages, and
+  // staying on page 7 of a 1-page result would render an empty table.
+  const [page, setPage] = useState(1);
+  const [pager, setPager] = useState({ total: 0, perPage: 25, totalPages: 1 });
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
     return { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
   }, [getToken]);
 
-  const load = useCallback(async (term: string, plan: Plan | "") => {
+  const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1) => {
     setStatus("loading");
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: String(pageNo), limit: "25" });
       if (term.trim()) params.set("search", term.trim());
       if (plan) params.set("plan", plan);
       const qs = params.toString();
-      const res = await fetch(`/backend/api/v1/admin/users${qs ? `?${qs}` : ""}`, { headers: await authHeaders() });
+      const res = await fetch(`/backend/api/v1/admin/users?${qs}`, { headers: await authHeaders() });
       if (!res.ok) { setError("Could not load accounts."); setStatus("error"); return; }
       const data = await res.json() as {
         users?: unknown; actorUserId?: string;
+        page?: number; perPage?: number; total?: number; totalPages?: number;
         synced?: { imported: number; total: number } | null;
       };
       const rows = Array.isArray(data.users) ? data.users as AccountRow[] : [];
@@ -83,6 +90,19 @@ export default function AdminUsersPage() {
         status: String(row.status ?? "ACTIVE"),
       })));
       setActorUserId(data.actorUserId ?? null);
+      const total = Number(data.total ?? 0);
+      const perPage = Number(data.perPage ?? 25);
+      const totalPages = Number(data.totalPages ?? 1);
+      setPager({ total, perPage, totalPages });
+
+      // Landing past the end happens naturally: deleting the last row of the last page
+      // leaves the requested page empty. Step back one and refetch rather than showing an
+      // empty table, which would read as "there are no accounts" — the opposite of true.
+      if (rows.length === 0 && total > 0 && pageNo > totalPages) {
+        setPage(totalPages);
+        void load(term, plan, totalPages);
+        return;
+      }
       // Say when the Clerk sync actually brought something in, so a sudden jump in the
       // list is explained rather than surprising.
       if (data.synced && data.synced.imported > 0) {
@@ -95,9 +115,9 @@ export default function AdminUsersPage() {
     }
   }, [authHeaders]);
 
-  useEffect(() => { void load("", ""); }, [load]);
+  useEffect(() => { void load("", "", 1); }, [load]);
 
-  const applySearch = () => { setAppliedSearch(search); void load(search, planFilter); };
+  const applySearch = () => { setAppliedSearch(search); setPage(1); void load(search, planFilter, 1); };
 
   /** Confirm a plan change. The dialog sets `dialog`, this performs it. */
   const changePlan = async (row: AccountRow, plan: Plan) => {
@@ -111,7 +131,9 @@ export default function AdminUsersPage() {
       if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not change the plan." }); return; }
       setNotice({ kind: "ok", text: `${row.email} is now ${plan}.` });
       setDialog(null);
-      await load(appliedSearch, planFilter);
+      // Stay on the page being viewed: a plan change or a credit top-up should not move
+      // the operator back to page 1 and lose their place in the list.
+      await load(appliedSearch, planFilter, page);
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
     } finally {
@@ -134,7 +156,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not adjust credits." }); return; }
       setNotice({ kind: "ok", text: `${row.email} credits ${delta > 0 ? "+" : ""}${delta} → ${body?.user?.credits ?? "?"}.` });
       setDialog(null);
-      await load(appliedSearch, planFilter);
+      await load(appliedSearch, planFilter, page);
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
     } finally {
@@ -152,7 +174,7 @@ export default function AdminUsersPage() {
       if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not delete the account." }); return; }
       setNotice({ kind: "ok", text: `${row.email} deleted.` });
       setDialog(null);
-      await load(appliedSearch, planFilter);
+      await load(appliedSearch, planFilter, page);
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
     } finally {
@@ -226,11 +248,11 @@ function deltaPreview(raw: string, current: string): string {
         </label>
         <button className="button button-ink compact-button" type="button" onClick={applySearch}>Search</button>
         <div className="plan-pills">
-          <button type="button" className={planFilter === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); void load(appliedSearch, ""); }}>ALL</button>
+          <button type="button" className={planFilter === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); setPage(1); void load(appliedSearch, "", 1); }}>ALL</button>
           {ALL_PLANS.map(p => <button
             key={p} type="button"
             className={planFilter === p ? "plan-pill plan-pill-on" : "plan-pill"}
-            onClick={() => { setPlanFilter(p); void load(appliedSearch, p); }}
+            onClick={() => { setPlanFilter(p); setPage(1); void load(appliedSearch, p, 1); }}
           >{p}</button>)}
         </div>
       </div>
@@ -276,6 +298,21 @@ function deltaPreview(raw: string, current: string): string {
                 </span></td>
               </tr>)}</tbody>
             </table>)}
+
+        {/* Outside the ready/empty branches so a page past the end still renders the pager
+            — otherwise it would strand the operator with no way back. */}
+        {status === "ready" && pager.total > 0 && (
+          <div className="pagination">
+            <span className="pagination-summary">
+              {formatCount((page - 1) * pager.perPage + 1)}–{formatCount(Math.min(page * pager.perPage, pager.total))} of {formatCount(pager.total)}
+            </span>
+            <div className="pagination-controls">
+              <button className="icon-button" type="button" onClick={() => { setPage(page - 1); void load(appliedSearch, planFilter, page - 1); }} disabled={page <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
+              <span className="page-number page-current">{page}</span>
+              <button className="icon-button" type="button" onClick={() => { setPage(page + 1); void load(appliedSearch, planFilter, page + 1); }} disabled={page >= pager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
+            </div>
+          </div>
+        )}
       </div>
       <div className="table-note"><AlertTriangle size={14}/> Deleting an account also removes its keys and usage history — the confirmation says how much.</div>
     </section>

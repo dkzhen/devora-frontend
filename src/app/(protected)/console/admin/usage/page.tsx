@@ -77,6 +77,11 @@ type GrandTotals = {
 
 type Page = {
   totals: GrandTotals;
+  /** Pager for the accounts rollup, separate from the request list's own pager. */
+  accountsPage: number;
+  accountsPerPage: number;
+  accountsTotal: number;
+  accountsTotalPages: number;
   accounts: AccountRollup[];
   rows: UsageRow[];
   page: number;
@@ -140,6 +145,9 @@ export default function AdminUsagePage() {
   // input, because picking the account by name is the intent.
   const [applied, setApplied] = useState({ search: "", model: "", status: "", userId: "" });
   const [page, setPage] = useState(1);
+  // Its own page number. The two lists paginate independently — sharing one would make
+  // switching pages above reset the history below, which the operator did not ask for.
+  const [accountsPage, setAccountsPage] = useState(1);
   /** Confirmation gate for the bulk delete. A destructive action behind one click is a trap. */
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -153,7 +161,7 @@ export default function AdminUsagePage() {
     setStatus("loading");
     try {
       const token = await getToken();
-      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      const params = new URLSearchParams({ page: String(page), limit: "50", accountsPage: String(accountsPage) });
       if (applied.search) params.set("search", applied.search);
       if (applied.model) params.set("model", applied.model);
       if (applied.status) params.set("status", applied.status);
@@ -172,7 +180,7 @@ export default function AdminUsagePage() {
       setError("Could not reach the backend.");
       setStatus("error");
     }
-  }, [getToken, page, applied]);
+  }, [getToken, page, accountsPage, applied]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -312,6 +320,22 @@ export default function AdminUsagePage() {
                 ))}
               </tbody>
             </table></div>)}
+
+        {/* The pager sits outside the ready/empty branches so it also shows on an empty
+            page — otherwise landing past the last page would strand the operator with no
+            way back. */}
+        {status === "ready" && data && data.accountsTotal > 0 && (
+          <div className="pagination">
+            <span className="pagination-summary">
+              {formatCount((data.accountsPage - 1) * data.accountsPerPage + 1)}–{formatCount(Math.min(data.accountsPage * data.accountsPerPage, data.accountsTotal))} of {formatCount(data.accountsTotal)}
+            </span>
+            <div className="pagination-controls">
+              <button className="icon-button" onClick={() => setAccountsPage(p => Math.max(p - 1, 1))} disabled={data.accountsPage <= 1} aria-label="Previous accounts page"><ChevronLeft size={15}/></button>
+              <span className="page-number page-current">{data.accountsPage}</span>
+              <button className="icon-button" onClick={() => setAccountsPage(p => Math.min(p + 1, data.accountsTotalPages))} disabled={data.accountsPage >= data.accountsTotalPages} aria-label="Next accounts page"><ChevronRight size={15}/></button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="console-section">

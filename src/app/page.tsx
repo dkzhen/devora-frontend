@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Blocks, Boxes, Code2, Fingerprint, Layers3, Zap } from "lucide-react";
 import { Brand, DemoNote, PrimaryLink } from "@/components/brand";
 import { LandingEvents, LandingPricing } from "@/components/landing-sections";
+import { LandingSpotlight } from "@/components/landing-spotlight";
 
 const features = [
   { icon: Code2, color: "mint", tag: "01 / ROUTE", title: "One endpoint.\nEvery model.", body: "Bring the models you already love together behind one clean, familiar API." },
@@ -54,12 +55,13 @@ function ProductPeek() {
 }
 
 export default function Home() {
-  return <main className="landing"><nav className="landing-nav"><Brand/><div className="landing-links"><Link href="#why">Why Devora</Link><Link href="#how">How it works</Link></div><PrimaryLink href="/console/billing">Open console</PrimaryLink></nav>
+  return <main className="landing"><nav className="landing-nav"><Brand/><div className="landing-links"><Link href="#why">Why Devora</Link><Link href="#how">How it works</Link><Link href="/stats">Stats</Link></div><PrimaryLink href="/console/billing">Open console</PrimaryLink></nav>
     <section className="hero"><div className="hero-content"><div className="eyebrow"><span className="eyebrow-mark">✳</span> A calmer way to build with AI</div><h1>One platform.<br/><span>More ways</span> to build.</h1><p className="hero-copy">Your AI stack, billing, and workspace tools. All in one place, so your ideas can move a little faster.</p><div className="hero-actions"><PrimaryLink href="/auth?next=%2Fconsole%2Fbilling">Get started</PrimaryLink><Link className="text-link" href="#how">Take a look <ArrowDownRight size={16}/></Link></div><div className="hero-proof"><span className="proof-avatars"><i>R</i><i>M</i><i>A</i></span><span>Built for people who make things.</span><span className="proof-line"/></div></div>
       <div className="hero-art"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="hero-star star-one">✳</div><div className="hero-star star-two">✦</div><div className="hero-cube"><div className="cube-face cube-top">✳</div><div className="cube-face cube-front">✦</div><div className="cube-face cube-side"/></div><div className="art-label art-label-top">ONE PLATFORM<br/>MORE WAYS</div><div className="art-label art-label-bottom">LESS CONTEXT<br/>SWITCHING</div><div className="hero-bubble">✳</div></div>
     </section>
     <section className="peek-section" id="how"><div className="section-intro"><div className="section-tag">MEET YOUR NEW WORKSPACE</div><h2>A little less scattered.<br/><span>A lot more focused.</span></h2><p>One thoughtful home for the tools and services behind your next big thing.</p></div><ProductPeek/></section>
     <section className="ticker" aria-label="Devora product values"><div className="ticker-track">{[0,1].map(x=><div className="ticker-run" key={x}><span>AI GATEWAY</span><i>✳</i><span>CREDITS THAT MAKE SENSE</span><i>✳</i><span>ONE CLEAR VIEW</span><i>✳</i><span>ROOM TO BUILD</span><i>✳</i></div>)}</div></section>
+    <LandingSpotlight/>
     <LandingEvents/>
     <section className="features-section" id="why"><div className="features-heading"><div><div className="section-tag">MADE TO WORK TOGETHER</div><h2>The moving parts,<br/>moving <span>in sync.</span></h2></div><p>Good tools should get out of your way. Devora brings the essentials into one friendly workspace.</p></div><div className="feature-grid">{features.map(f=>{const Icon=f.icon;return <article key={f.tag} className={`feature-card feature-${f.color}`}><div className="feature-top"><div className="feature-icon"><Icon size={20}/></div><span>{f.tag}</span><ArrowUpRight size={18}/></div><h3>{f.title.split("\n").map((line,i)=><span key={i}>{line}{i===0&&f.title.includes("\n")?<br/>:null}</span>)}</h3><p>{f.body}</p><div className="feature-decoration">{f.color==="mint"?<Fingerprint size={38}/>:f.color==="coral"?<Zap size={40}/>:<Boxes size={40}/>}</div></article>})}</div></section>
     <LandingPricing/>

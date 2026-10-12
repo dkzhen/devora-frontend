@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowRight, CalendarClock, Flame, Gift, Loader2, Zap } from "lucide-react";
+import { ArrowDownRight, ArrowRight, CalendarClock, Flame, Gift, Loader2, Plus, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { ProviderMark } from "@/components/provider-mark";
 import { formatTokens } from "@/lib/tokens";
@@ -71,6 +71,77 @@ const STATE_LABEL: Record<EventState, string> = {
   ended: "Finished",
 };
 
+/* Six questions, each answer traceable to the backend rather than invented here.
+   The accordion is a real disclosure: a button with aria-expanded rather than a
+   div with a click handler, so it works from the keyboard and reads correctly to
+   a screen reader. */
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "What counts as an event?",
+    a: "Two kinds. A model event frees one specific model for a while, drawing on a token budget. An announcement is anything else the workspace wants to publish — a launch, a maintenance window — and has no effect on requests or prices.",
+  },
+  {
+    q: "How do I use a free model?",
+    a: "Call it the way you call any other model, on the same endpoint, with the same API key. Nothing changes in your code. While the event is running, requests to that model are not billed to your credits. Switch the model id and you are done.",
+  },
+  {
+    q: "Does free mean unlimited?",
+    a: "No. Every model event carries a token budget. Usage is counted as you go, and once the budget is used up the event is exhausted and the model goes back to its listed price. The progress bar on a card shows how much is left.",
+  },
+  {
+    q: "Who counts the tokens?",
+    a: "The provider running the model reports them, and we meter what comes back. That is also why the budget is tracked in tokens rather than credits — credits are our unit, tokens are the provider's.",
+  },
+  {
+    q: "What happens to requests I made during the event?",
+    a: "They stay free. A request is judged by whether the event was running when it was made, so the event ending mid-stream does not retroactively bill you. The tokens it used do come out of the budget.",
+  },
+  {
+    q: "Why did a model in an event disappear?",
+    a: "Because the model itself stopped being available. A giveaway for a model nobody can reach would be a promise we cannot keep, so an event is hidden and its model is not flagged free whenever the model is not active. The event is not deleted — it returns if the model does.",
+  },
+];
+
+function EventsFaq() {
+  const [open, setOpen] = useState<number | null>(0);
+
+  return (
+    <div className="ev-faq-wrap">
+    <section className="ev-faq" id="faq" style={{ scrollMarginTop: 88 }}>
+      <div className="ev-faq-head">
+        <span className="ev-faq-tag">FAQ</span>
+        <h2>How events work</h2>
+        <p>Free models are the part people ask about most, so the rules are written out here rather than buried in a support reply.</p>
+      </div>
+      <div className="ev-faq-list">
+        {FAQ.map((item, i) => {
+          const isOpen = open === i;
+          return (
+            <div className={isOpen ? "ev-faq-item is-open" : "ev-faq-item"} key={item.q}>
+              <h3>
+                <button
+                  className="ev-faq-q"
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={`faq-a-${i}`}
+                  onClick={() => setOpen(isOpen ? null : i)}
+                >
+                  <span>{item.q}</span>
+                  <Plus className="ev-faq-icon" size={18} aria-hidden="true" />
+                </button>
+              </h3>
+              <div className="ev-faq-a" id={`faq-a-${i}`} role="region" hidden={!isOpen}>
+                <p>{item.a}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+    </div>
+  );
+}
+
 export function EventsPage() {
   const [events, setEvents] = useState<EventCard[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -97,7 +168,7 @@ export function EventsPage() {
         the product. "Open console" stays: most visitors have an account already. */}
     <nav className="landing-nav">
       <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/#how">How it works</Link><Link href="/events">Events</Link></div>
+      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="#faq">How it works</Link><Link href="/events">Events</Link></div>
       <PrimaryLink href="/console/billing">Open console</PrimaryLink>
     </nav>
 
@@ -115,7 +186,7 @@ export function EventsPage() {
         </p>
         <div className="hero-actions">
           <PrimaryLink href="/auth?next=%2Fconsole%2Fbilling">Get an API key</PrimaryLink>
-          <Link className="text-link" href="/#how">How it works <ArrowDownRight size={16}/></Link>
+          <Link className="text-link" href="#faq">How it works <ArrowDownRight size={16}/></Link>
         </div>
       </div>
       <div className="ev-hero-art">
@@ -211,6 +282,8 @@ export function EventsPage() {
         <Zap size={15}/> Budgets are measured in tokens as reported by the model provider.
       </div>
     </section>
+
+    <EventsFaq />
 
     <footer className="landing-footer">
       <Brand/>
