@@ -1240,3 +1240,46 @@
 .billing-badge-warn{background:var(--coral);color:var(--ink)}
 .billing-sub-days{font:700 9px var(--display);color:#8b857a;white-space:nowrap}
 @media(max-width:640px){.billing-sub-facts{grid-template-columns:1fr 1fr}}
+
+/* ---------- Top up credits (QRIS) ----------
+   Appended as one contiguous block at end-of-file rather than inserted, because a range
+   replace in this minified file has silently deleted unrelated rules three times. Adding at
+   the end cannot land inside another rule, and the block is self-contained.
+   Reuses the existing tokens (--ink, --coral, --mint, --cream) rather than inventing shades,
+   and the .modal-danger-note trio for the sandbox warning. */
+.topup-amount{margin-left:0}
+.topup-presets{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 4px}
+/* The panel is 440px wide with ~385px of content, and a 232px QR plus a figures column does not
+   fit beside it — measured, the figures wrapped under the code. So the stack is deliberate:
+   a centred QR on top, then the figures as a two-column grid, which is how a QRIS prompt reads
+   anyway (scan first, then check the amount). */
+.topup-pay{display:flex;flex-direction:column;gap:15px;align-items:center}
+.topup-qr{flex:0 0 auto;padding:11px;background:#fff;border:2px solid var(--ink);line-height:0}
+.topup-qr canvas{display:block}
+.topup-facts{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:11px 14px}
+.topup-fact{display:flex;flex-direction:column;gap:3px;border-bottom:1px solid #eae4d8;padding-bottom:9px}
+.topup-fact small{font:700 8px var(--display);letter-spacing:.6px;color:#8b857a}
+.topup-fact strong{font:700 19px var(--display);letter-spacing:-.4px;color:var(--ink)}
+.topup-fact strong span{font:400 10px var(--body);letter-spacing:0;color:#8b857a}
+/* Spans both columns: the breakdown is a sentence, not a third figure. */
+.topup-fact-sub{grid-column:1/-1;border-bottom:0;padding-bottom:0}
+.topup-fact-sub strong{font-size:11px;font-weight:600;color:#6f695d}
+.topup-expiry{grid-column:1/-1;justify-self:start;display:inline-flex;align-items:center;gap:6px;font:700 9px var(--display);letter-spacing:.4px;color:#6f695d}
+.topup-expiry-out{color:#7a2320}
+.topup-status{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:10px;color:#6f695d}
+.topup-raw{margin-top:12px;border-top:1px solid #eae4d8;padding-top:10px}
+.topup-raw summary{font:700 9px var(--display);letter-spacing:.4px;color:#6f695d;cursor:pointer}
+.topup-raw-row{display:flex;gap:9px;align-items:flex-start;margin-top:9px}
+.topup-raw-row code{flex:1 1 auto;min-width:0;font-size:8px;line-height:1.5;word-break:break-all;color:#6f695d;background:var(--cream);border:1px solid #eae4d8;padding:8px 9px;max-height:74px;overflow:auto}
+.topup-settled{display:flex;align-items:center;gap:14px;padding:16px 15px;border:2px solid var(--ink);background:var(--mint)}
+.topup-settled-mark{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;border:2px solid var(--ink);background:#fff;color:var(--ink)}
+.topup-settled-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.topup-settled-copy strong{font:700 21px var(--display);letter-spacing:-.4px;color:var(--ink)}
+.topup-settled-copy small{font-size:9px;color:#4a463d}
+.topup-settled-copy code{font-size:8px}
+.topup-note{margin-top:14px}
+@media(max-width:640px){
+  .topup-qr{padding:9px}
+  .topup-qr canvas{width:200px;height:200px}
+  .topup-facts{grid-template-columns:1fr}
+}

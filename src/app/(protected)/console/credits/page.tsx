@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Lock, Plus, Wallet, X } from "lucide-react";
+import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, Wallet, X } from "lucide-react";
 import { formatCredits, formatCharge } from "@/lib/credits";
+import { TopupDialog } from "@/components/topup-dialog";
 
 /**
  * Credits page.
@@ -103,6 +104,7 @@ export default function CreditsPage() {
   const [page, setPage] = useState(1);
   /** Rows on the server, which may exceed what was fetched. Paging is sized from this. */
   const [total, setTotal] = useState(0);
+  const [topupOpen, setTopupOpen] = useState(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -167,7 +169,9 @@ export default function CreditsPage() {
               </>}
         </div>
         <p>Available for AI Gateway requests</p>
-        <button className="button button-ink" type="button" disabled aria-disabled="true" title="Top-ups are locked"><Lock size={15}/> Add credits <Plus size={16}/></button>
+        <button className="button button-ink" type="button" onClick={() => setTopupOpen(true)}>
+          Add credits <Plus size={16}/>
+        </button>
       </div>
       <div className="credit-graphic">
         <div className="credit-ring ring-one"/><div className="credit-ring ring-two"/>
@@ -218,5 +222,14 @@ export default function CreditsPage() {
 
       <div className="table-note"><AlertTriangle size={14}/> Charges are sub-credit for most requests, so amounts are shown to six decimals.</div>
     </section>
+
+    {/* Paying for credits. The dialog prices the order server-side and polls the gateway for
+        settlement, so a completed payment lands in the balance without a page reload. */}
+    <TopupDialog
+      open={topupOpen}
+      onClose={() => setTopupOpen(false)}
+      onSettled={() => void load()}
+      balance={balance}
+    />
   </div>;
 }
