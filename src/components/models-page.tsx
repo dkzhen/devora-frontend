@@ -189,15 +189,22 @@ export function ModelsPage() {
           </div>
 
           {/* The numbers, each with the icon that says what it is — a label would repeat the
-              word already implied and cost a line on every row. */}
+              word already implied and cost a line on every row.
+              A free model is an *event*, not a zero price, so the catalogue price stays
+              visible struck through beside the word "free" — it shows what the model costs
+              once the event ends, and reads as a saving rather than as missing data. */}
           <dl className="mp-item-facts">
             <div>
               <dt><ArrowDownToLine size={13}/> Input</dt>
-              <dd>{isFreePrice(m, m.pricing.input) ? <em>free</em> : <>{m.pricing.input}<small>/ 1M</small></>}</dd>
+              <dd>{isFreePrice(m, m.pricing.input)
+                ? <span className="mp-was-free"><em>free</em>{Number(m.pricing.input) > 0 && <><del>{m.pricing.input}</del><small>/ 1M</small></>}</span>
+                : <>{m.pricing.input}<small>/ 1M</small></>}</dd>
             </div>
             <div>
               <dt><ArrowUpFromLine size={13}/> Output</dt>
-              <dd>{isFreePrice(m, m.pricing.output) ? <em>free</em> : <>{m.pricing.output}<small>/ 1M</small></>}</dd>
+              <dd>{isFreePrice(m, m.pricing.output)
+                ? <span className="mp-was-free"><em>free</em>{Number(m.pricing.output) > 0 && <><del>{m.pricing.output}</del><small>/ 1M</small></>}</span>
+                : <>{m.pricing.output}<small>/ 1M</small></>}</dd>
             </div>
             <div>
               <dt><Ruler size={13}/> Context</dt>

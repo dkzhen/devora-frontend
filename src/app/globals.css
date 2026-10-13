@@ -1156,3 +1156,9 @@
      number, and the number is the point. */
   .spot-grid{grid-template-columns:1fr;gap:9px}
 }
+
+/* Free-via-event pricing: the catalogue price stays visible, struck through, beside the word
+   "free" — so the row says what the model costs once the event ends, and the saving reads as a
+   saving rather than as a price of zero. */
+.mp-was-free{display:flex;align-items:baseline;gap:8px}
+.mp-was-free del{font:700 11px var(--display);letter-spacing:-.2px;color:#bdb6a7;text-decoration:line-through;text-decoration-thickness:1.4px}
