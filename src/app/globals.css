@@ -1171,3 +1171,8 @@
 .ev-page-btn:disabled{opacity:.35;cursor:not-allowed}
 .ev-page-info{display:flex;flex-direction:column;align-items:center;font:700 12px var(--display);color:var(--ink)}
 .ev-page-info small{font:600 9.5px var(--body);letter-spacing:.2px;color:#8b857a;margin-top:2px}
+
+/* Voucher kind picker: a native select styled to match .admin-field input, so the mint card
+   reads as one form. (A custom listbox was overkill here — the options are two.) */
+.voucher-kind-select{height:39px;border:1px solid #d8d1c5;background:#fff;padding:0 9px;font-size:11px;color:var(--ink);width:100%}
+.voucher-kind-select:focus{outline:2px solid var(--mint);outline-offset:1px}

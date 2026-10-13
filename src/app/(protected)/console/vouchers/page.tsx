@@ -49,8 +49,14 @@ type Voucher = {
   claimedAt: string | null;
   /** Whether the pool can be taken back right now. Decided by the backend. */
   claimable: boolean;
+  /** "credits" = a pool; "subscription" = grants a package. */
+  kind: "credits" | "subscription";
+  packageId: string | null;
+  packageName: string | null;
   state: "active" | "disabled" | "expired" | "exhausted" | "closed";
 };
+
+type PackageOption = { id: string; name: string; category: string; tier: string };
 
 type Status = "idle" | "loading" | "ready" | "error";
 
@@ -187,16 +193,33 @@ export default function VouchersPage() {
   const [creating, setCreating] = useState(false);
   // No code field: the backend generates it. An operator-chosen code is a namespace they
   // can collide in, and the collision is a dead end for someone who just wants a voucher.
-  const [draft, setDraft] = useState({ label: "", credits: "", maxUses: "", expiresAt: "" });
+  const [draft, setDraft] = useState<{ label: string; kind: "credits" | "subscription"; credits: string; maxUses: string; expiresAt: string; packageId: string }>(
+    { label: "", kind: "credits", credits: "", maxUses: "", expiresAt: "", packageId: "" });
   const [createError, setCreateError] = useState("");
+  const [packages, setPackages] = useState<PackageOption[]>([]);
+
+  useEffect(() => {
+    if (!isOperator) return;
+    void (async () => {
+      try {
+        const res = await fetch("/backend/api/v1/admin/packages", { headers: await authHeaders(), cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json() as { packages?: PackageOption[] };
+        setPackages(Array.isArray(data.packages) ? data.packages : []);
+      } catch { /* the mint card still works for credit vouchers */ }
+    })();
+  }, [isOperator, authHeaders]);
 
   const create = async () => {
     setCreateError("");
-    const credits = Number(draft.credits);
     const maxUses = Number(draft.maxUses);
     if (!draft.label.trim()) { setCreateError("Label is required."); return; }
-    if (!Number.isFinite(credits) || credits <= 0) { setCreateError("Credits must be a positive number."); return; }
     if (!Number.isInteger(maxUses) || maxUses < 1) { setCreateError("Max users must be a whole number, at least 1."); return; }
+    if (draft.kind === "subscription" && !draft.packageId) { setCreateError("Pick the package this voucher grants."); return; }
+    const credits = Number(draft.credits);
+    if (draft.kind === "credits" && (!Number.isFinite(credits) || credits <= 0)) {
+      setCreateError("Credits must be a positive number."); return;
+    }
     setCreating(true);
     try {
       const res = await fetch("/backend/api/v1/admin/vouchers", {
@@ -204,7 +227,9 @@ export default function VouchersPage() {
         headers: await authHeaders(),
         body: JSON.stringify({
           label: draft.label.trim(),
-          credits,
+          // A subscription voucher names a package and moves no credits; a credit voucher funds
+          // a pool. The backend branches on packageId, so send only the one that applies.
+          ...(draft.kind === "subscription" ? { packageId: draft.packageId } : { credits }),
           maxUses,
           expiresAt: draft.expiresAt.trim() === "" ? null : draft.expiresAt,
         }),
@@ -212,10 +237,12 @@ export default function VouchersPage() {
       const body = await res.json().catch(() => null) as
         { code?: string; perUser?: string; error?: { message?: string } } | null;
       if (!res.ok) { setCreateError(body?.error?.message ?? "Could not create the voucher."); return; }
-      setNotice(`Voucher ${body?.code ?? ""} created — ${body?.perUser ?? ""} credits per user.`);
-      setDraft({ label: "", credits: "", maxUses: "", expiresAt: "" });
+      setNotice(draft.kind === "subscription"
+        ? `Subscription voucher ${body?.code ?? ""} created for ${draft.packageId}.`
+        : `Voucher ${body?.code ?? ""} created — ${body?.perUser ?? ""} credits per user.`);
+      setDraft({ label: "", kind: "credits", credits: "", maxUses: "", expiresAt: "", packageId: "" });
       await loadVouchers();
-      await loadIdentity(); // the operator's own balance was debited
+      await loadIdentity(); // the operator's own balance was debited (credit vouchers only)
     } catch {
       setCreateError("Could not reach the gateway.");
     } finally {
@@ -285,27 +312,40 @@ export default function VouchersPage() {
       {notice && <p className="voucher-message voucher-ok" role="status"><Check size={14}/> {notice}</p>}
       <div className="voucher-create">
         <label className="admin-field"><span>LABEL</span>
-          <input value={draft.label} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} placeholder="Gift credits"/>
+          <input value={draft.label} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} placeholder="Gift credits"/></label>
+        <label className="admin-field"><span>TYPE</span>
+          <select value={draft.kind} onChange={e => setDraft(d => ({ ...d, kind: e.target.value as "credits" | "subscription" }))}
+            className="voucher-kind-select">
+            <option value="credits">Credits</option>
+            <option value="subscription">Subscription</option>
+          </select>
+          <small>A subscription grants a package; credits fund a pool.</small>
         </label>
-        <label className="admin-field"><span>CREDITS TO FUND</span>
-          <input value={draft.credits} onChange={e => setDraft(d => ({ ...d, credits: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100" inputMode="decimal"/>
-        </label>
+        {draft.kind === "subscription"
+          ? <label className="admin-field"><span>PACKAGE</span>
+              <select value={draft.packageId} onChange={e => setDraft(d => ({ ...d, packageId: e.target.value }))} className="voucher-kind-select">
+                <option value="">Select a package…</option>
+                {packages.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+              </select>
+              <small>{packages.length === 0 ? "No packages yet — create one on the Packages page." : "The allowance each redeemer receives."}</small>
+            </label>
+          : <label className="admin-field"><span>CREDITS TO FUND</span>
+              <input value={draft.credits} onChange={e => setDraft(d => ({ ...d, credits: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100" inputMode="decimal"/></label>}
         <label className="admin-field"><span>MAX USERS</span>
-          <input value={draft.maxUses} onChange={e => setDraft(d => ({ ...d, maxUses: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="10" inputMode="numeric"/>
-        </label>
+          <input value={draft.maxUses} onChange={e => setDraft(d => ({ ...d, maxUses: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="10" inputMode="numeric"/></label>
         <label className="admin-field"><span>EXPIRES <small>optional</small></span>
-          <input type="date" value={draft.expiresAt} onChange={e => setDraft(d => ({ ...d, expiresAt: e.target.value }))}/>
-        </label>
+          <input type="date" value={draft.expiresAt} onChange={e => setDraft(d => ({ ...d, expiresAt: e.target.value }))}/></label>
         <div className="voucher-create-actions">
           <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating}>
-            {creating ? <><Loader2 size={13} className="row-spinner"/> Creating…</> : <><Plus size={13}/> Create &amp; fund</>}
+            {creating ? <><Loader2 size={13} className="row-spinner"/> Creating…</> : <><Plus size={13}/> {draft.kind === "subscription" ? "Create voucher" : "Create & fund"}</>}
           </button>
           <span className="voucher-balance">Balance <strong>{trim(balance)}</strong></span>
           {createError && <span className="voucher-error voucher-inline-error"><AlertTriangle size={13}/> {createError}</span>}
         </div>
         {/* What the pool works out to before committing to it — the arithmetic is the part
-            an operator would otherwise do in their head. */}
-        <p className="voucher-split">{splitPreview(draft.credits, draft.maxUses, balance)}</p>
+            an operator would otherwise do in their head. A subscription moves no credits, so
+            the preview only applies to a credit voucher. */}
+        {draft.kind === "credits" && <p className="voucher-split">{splitPreview(draft.credits, draft.maxUses, balance)}</p>}
       </div>
     </section>}
 
@@ -325,13 +365,17 @@ export default function VouchersPage() {
                 {vouchers.map(v => <tr key={v.id}>
                   <td><code className="ref-chip">{v.code}</code></td>
                   <td>{v.label}<small className="cell-sub">by {v.createdBy}</small></td>
-                  <td className="cell-num">{trim(v.perUser)}<small className="cell-sub">pool {trim(v.fundedTotal)}</small></td>
+                  <td className="cell-num">{v.kind === "subscription"
+                    ? <><span className="plan-tag">SUBSCRIPTION</span><small className="cell-sub">{v.packageName ?? v.packageId}</small></>
+                    : <>{trim(v.perUser)}<small className="cell-sub">pool {trim(v.fundedTotal)}</small></>}</td>
                   <td className="cell-num">{v.uses}<small className="cell-sub">of {v.maxUses}</small></td>
-                  <td className="cell-num">{trim(v.remaining)}{v.claimedBack !== "0.000000" && <small className="cell-sub">{trim(v.claimedBack)} claimed</small>}</td>
+                  <td className="cell-num">{v.kind === "subscription"
+                    ? <span className="cell-none">—</span>
+                    : <>{trim(v.remaining)}{v.claimedBack !== "0.000000" && <small className="cell-sub">{trim(v.claimedBack)} claimed</small>}</>}</td>
                   <td className="cell-muted">{v.expiresAt ? stamp(v.expiresAt) : "never"}</td>
                   <td><span className={`outcome-pill state-${v.state}`}>{v.state}</span></td>
                   <td><span className="row-actions">
-                    {v.claimable && <button className="button button-ink compact-button claim-button" type="button" title="Return the unclaimed pool to your balance" onClick={() => void claim(v)} disabled={busyId === v.id}>Claim {trim(v.remaining)}</button>}
+                    {v.claimable && v.kind === "credits" && <button className="button button-ink compact-button claim-button" type="button" title="Return the unclaimed pool to your balance" onClick={() => void claim(v)} disabled={busyId === v.id}>Claim {trim(v.remaining)}</button>}
                     <button className="row-action" type="button" title={v.disabled ? "Re-enable" : "Disable"} aria-label={`${v.disabled ? "Enable" : "Disable"} ${v.code}`} onClick={() => void toggleDisabled(v)} disabled={busyId === v.id}>
                       {busyId === v.id ? <Loader2 size={14} className="row-spinner"/> : v.disabled ? <Check size={14}/> : <Ban size={14}/>}
                     </button>
