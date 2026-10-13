@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCounter } from "@/lib/format-counter";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -93,13 +94,6 @@ type Page = {
 
 type Status = "loading" | "ready" | "error";
 
-/** Compact token counts: 1500000 -> "1.5M". */
-const compact = (n: number): string => {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${Math.floor(n / 100) / 10}K`;
-  if (n < 1_000_000_000) return `${Math.floor(n / 100_000) / 10}M`;
-  return `${Math.floor(n / 1_000_000_000) / 10}B`;
-};
 
 const formatCount = (n: number): string => n.toLocaleString("en-US");
 
@@ -278,8 +272,8 @@ export default function AdminUsagePage() {
           </article>
           <article className="usage-stat">
             <div className="stat-top"><span>Tokens</span><Zap size={16}/></div>
-            <strong>{compact(data.totals.totalTokens)}</strong>
-            <small>{compact(data.totals.promptTokens)} in · {compact(data.totals.completionTokens)} out</small>
+            <strong>{formatCounter(data.totals.totalTokens)}</strong>
+            <small>{formatCounter(data.totals.promptTokens)} in · {formatCounter(data.totals.completionTokens)} out</small>
           </article>
           <article className="usage-stat">
             <div className="stat-top"><span>Credits used</span><Coins size={16}/></div>
@@ -313,7 +307,7 @@ export default function AdminUsagePage() {
                     <td><button className="account-link" onClick={() => { const same = applied.userId === a.userId; setSearch(same ? "" : a.email); setPage(1); setApplied({ ...applied, userId: same ? "" : a.userId, search: same ? "" : a.email }); }}>{a.email}</button></td>
                     <td><span className={`plan-tag plan-${a.plan.toLowerCase()}`}>{a.plan}</span></td>
                     <td className="cell-num">{formatCount(a.requests)}{a.errors > 0 && <span className="cell-sub">{a.errors} failed</span>}</td>
-                    <td className="cell-num">{compact(a.totalTokens)}</td>
+                    <td className="cell-num">{formatCounter(a.totalTokens)}</td>
                     <td className="cell-num">{trimCredits(a.chargedCredits)}</td>
                     <td className="cell-muted">{stamp(a.lastRequestAt)}</td>
                   </tr>
@@ -413,8 +407,8 @@ export default function AdminUsagePage() {
                           {row.isStream && <span className="cell-sub">stream{row.ttftMs !== null ? ` · ${row.ttftMs}ms ttft` : ""}</span>}
                         </td>
                         <td className="cell-num">
-                          {compact(row.totalTokens)}
-                          <span className="cell-sub">{compact(row.promptTokens)} in · {compact(row.completionTokens)} out</span>
+                          {formatCounter(row.totalTokens)}
+                          <span className="cell-sub">{formatCounter(row.promptTokens)} in · {formatCounter(row.completionTokens)} out</span>
                         </td>
                         <td className="cell-num">{trimCredits(row.chargedCredits)}</td>
                         <td>

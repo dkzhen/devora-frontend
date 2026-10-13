@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCounter } from "@/lib/format-counter";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowUpRight, Layers } from "lucide-react";
@@ -16,14 +17,6 @@ import { Activity, ArrowUpRight, Layers } from "lucide-react";
  * there to show. */
 
 type Spotlight = { requests: number; totalTokens: number; models: number };
-
-const compact = (n: number): string => {
-  if (!Number.isFinite(n)) return "—";
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
-  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
-  return `${(n / 1_000_000_000).toFixed(1)}B`;
-};
 
 const full = (n: number): string => n.toLocaleString("en-US");
 
@@ -42,8 +35,8 @@ export function LandingSpotlight() {
   if (!data) return null;
 
   const cells = [
-    { icon: Activity, label: "Requests served", value: compact(data.requests), sub: `${full(data.requests)} in total` },
-    { icon: Layers, label: "Tokens processed", value: compact(data.totalTokens), sub: `${full(data.totalTokens)} input and output` },
+    { icon: Activity, label: "Requests served", value: formatCounter(data.requests), sub: `${full(data.requests)} in total` },
+    { icon: Layers, label: "Tokens processed", value: formatCounter(data.totalTokens), sub: `${full(data.totalTokens)} input and output` },
     { icon: ArrowUpRight, label: "Models live", value: full(data.models), sub: "Behind one endpoint" },
   ];
 

@@ -30,13 +30,6 @@ type Status = "loading" | "ready" | "error";
 /** Thousands separators, because these figures are read at a glance. */
 const formatCount = (n: number): string => n.toLocaleString("en-US");
 
-/** Compact token counts: 1500000 -> "1.5M". */
-const compact = (n: number): string => {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${Math.floor(n / 100) / 10}K`;
-  if (n < 1_000_000_000) return `${Math.floor(n / 100_000) / 10}M`;
-  return `${Math.floor(n / 1_000_000_000) / 10}B`;
-};
 
 const shortDate = (iso: string): string => {
   const d = new Date(iso);

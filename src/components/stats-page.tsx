@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCounter } from "@/lib/format-counter";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, Boxes, Layers, Loader2, RefreshCw, Server, X, Zap } from "lucide-react";
@@ -55,14 +56,6 @@ type Stats = {
 
 type Status = "loading" | "ready" | "error";
 
-/** Compact, because these are counters rather than prices — a tick upward should not reflow. */
-const compact = (n: number): string => {
-  if (!Number.isFinite(n)) return "—";
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}K`;
-  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
-  return `${(n / 1_000_000_000).toFixed(1)}B`;
-};
 
 /** Full figure, for the line under a compact one — the exact number is the trust signal. */
 const full = (n: number): string => n.toLocaleString("en-US");
@@ -225,12 +218,12 @@ export function StatsPage() {
           <div className="st-hero">
             <div className="st-headline">
               <span className="st-label">Requests served</span>
-              <strong>{compact(data.requests)}</strong>
+              <strong>{formatCounter(data.requests)}</strong>
               {data.requests >= 1000 && <small>{full(data.requests)} in total</small>}
             </div>
             <div className="st-headline">
               <span className="st-label">Tokens processed</span>
-              <strong>{compact(data.totalTokens)}</strong>
+              <strong>{formatCounter(data.totalTokens)}</strong>
               {data.totalTokens >= 1000 && <small>{full(data.totalTokens)} across input and output</small>}
             </div>
           </div>
