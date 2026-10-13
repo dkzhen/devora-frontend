@@ -1215,3 +1215,28 @@
    "200000000" and counting zeroes is the chore this removes. */
 .admin-scale-note{margin:6px 0 0;font-size:10px;color:#8b857a;display:flex;align-items:baseline;gap:7px}
 .admin-scale-note strong{font:700 15px var(--display);letter-spacing:-.3px;color:var(--ink)}
+
+/* Billing: the packages an account holds. A list, not a single hero — an account can run a hard
+   cap and an unlimited plan at once, and the page has to show both without pretending one is
+   "the" plan. */
+.billing-subs{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.billing-sub{border:1.5px solid #ded8cc;background:#fff;padding:15px 16px;display:flex;flex-direction:column;gap:12px}
+.billing-sub-capped{border-color:var(--ink)}
+.billing-sub-head{display:flex;align-items:center;gap:11px}
+.billing-sub-icon{width:36px;height:36px;display:grid;place-items:center;border:1.5px solid var(--ink);background:var(--cream);color:var(--ink);flex:none}
+.billing-sub-title{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.billing-sub-title strong{font:700 14px var(--display);letter-spacing:-.3px;color:var(--ink)}
+.billing-sub-title small{font-size:9.5px;color:#8b857a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.billing-sub-facts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding-top:12px;border-top:1px solid #eae4d8}
+.billing-sub-facts small{display:block;font:700 7.5px var(--display);letter-spacing:.5px;color:#8b8579;margin-bottom:4px}
+.billing-sub-facts strong{font:700 14px var(--display);letter-spacing:-.3px;color:var(--ink)}
+.billing-sub-bar{height:5px;background:#eae4d8;overflow:hidden}
+.billing-sub-bar i{display:block;height:100%;background:var(--mint)}
+.billing-sub-capped .billing-sub-bar i{background:var(--coral)}
+.billing-sub-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:10px;color:#6f695d}
+.billing-sub-state{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
+.billing-badge{font:700 7.5px var(--display);letter-spacing:.5px;padding:2px 6px;border:1px solid var(--ink)}
+.billing-badge-ok{background:var(--mint);color:var(--ink)}
+.billing-badge-warn{background:var(--coral);color:var(--ink)}
+.billing-sub-days{font:700 9px var(--display);color:#8b857a;white-space:nowrap}
+@media(max-width:640px){.billing-sub-facts{grid-template-columns:1fr 1fr}}
