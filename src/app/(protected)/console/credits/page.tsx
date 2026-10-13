@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, Wallet, X } from "lucide-react";
-import { formatCredits, formatCharge } from "@/lib/credits";
+import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, QrCode, RefreshCw, Wallet, X } from "lucide-react";
+import { formatCredits, formatCharge, formatRupiah } from "@/lib/credits";
 import { TopupDialog } from "@/components/topup-dialog";
 
 /**
@@ -29,6 +29,33 @@ type Entry = {
 };
 
 type Status = "loading" | "ready" | "error";
+
+/**
+ * A purchase, as `GET /api/v1/topups` reports it.
+ *
+ * Separate from the ledger on purpose: the ledger answers "where did my balance go" and this
+ * answers "what did I pay for". An order that was created and never paid leaves no ledger entry
+ * at all, so a history built from the ledger alone would silently hide abandoned checkouts.
+ */
+type TopupRow = {
+  orderId: string;
+  status: "pending" | "completed" | "canceled";
+  credits: string;
+  amountIdr: number;
+  feeIdr: number;
+  totalIdr: number;
+  paymentMethod: string;
+  expiresAt: string | null;
+  isSandbox: boolean;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+const TOPUP_STATUS: Record<TopupRow["status"], { label: string; tone: string }> = {
+  completed: { label: "PAID", tone: "topup-tag-ok" },
+  pending: { label: "AWAITING PAYMENT", tone: "topup-tag-wait" },
+  canceled: { label: "CANCELED", tone: "topup-tag-off" },
+};
 
 const PAGE_SIZE = 20;
 
@@ -80,6 +107,7 @@ function titleForKind(kind: string): string {
     case "admin_deduct": return "Credits deducted";
     case "admin_adjust": return "Manual adjustment";
     case "voucher_redeem": return "Voucher redeemed";
+    case "topup_settlement": return "QRIS top-up";
     case "ledger_opening": return "Opening balance";
     default: return kind.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
   }
@@ -95,6 +123,31 @@ function RefChip({ value }: { value: string }) {
   return <code className="ref-chip" title={`Reference ${value}`}>{value}</code>;
 }
 
+/**
+ * Time left on a pending order, read from the row's own expiry.
+ *
+ * The same "one clock" rule the stats feed follows: this ticks against `Date.now()` locally and
+ * the expiry comes from the row, so the figure belongs to that row rather than to whenever the
+ * list happened to be rendered. A settled or canceled row renders nothing.
+ */
+function Countdown2({ expiresAt }: { expiresAt: string | null }) {
+  const [left, setLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (expiresAt === null) { setLeft(null); return; }
+    const tick = () => setLeft(new Date(expiresAt).getTime() - Date.now());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [expiresAt]);
+
+  if (left === null) return null;
+  if (left <= 0) return <small className="cell-sub">expired</small>;
+  const mins = Math.floor(left / 60_000);
+  const secs = Math.floor((left % 60_000) / 1000);
+  return <small className="cell-sub">expires in {mins}:{String(secs).padStart(2, "0")}</small>;
+}
+
 export default function CreditsPage() {
   const { getToken } = useAuth();
   const [balance, setBalance] = useState("0");
@@ -105,6 +158,8 @@ export default function CreditsPage() {
   /** Rows on the server, which may exceed what was fetched. Paging is sized from this. */
   const [total, setTotal] = useState(0);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [topups, setTopups] = useState<TopupRow[]>([]);
+  const [topupStatus, setTopupStatus] = useState<Status>("loading");
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -150,6 +205,29 @@ export default function CreditsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * Top-up history, read separately from the ledger.
+   *
+   * Its own request because it is a different question and its own failure: an unreachable
+   * top-up list must not blank the balance and the activity table above it.
+   */
+  const loadTopups = useCallback(async () => {
+    setTopupStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/topups", {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) { setTopupStatus("error"); return; }
+      const data = await res.json() as { topups?: TopupRow[] };
+      setTopups(Array.isArray(data.topups) ? data.topups : []);
+      setTopupStatus("ready");
+    } catch { setTopupStatus("error"); }
+  }, [getToken]);
+
+  useEffect(() => { void loadTopups(); }, [loadTopups]);
+
   // Sized from the server's count, not from the fetched slice: if a page is ever short
   // (a lower limit, or a growing ledger), the last pages must still be reachable.
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -182,8 +260,49 @@ export default function CreditsPage() {
 
     {status === "error" && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
 
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">01</span><div><h2>Top-up history</h2><p>What you paid over QRIS, and what is still waiting.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+      <div className="model-table-wrap">
+        <table className="model-table">
+          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>CREDITS</th><th>PAID</th></tr></thead>
+          <tbody>
+            {topups.length > 0
+              ? topups.map(t => <tr key={t.orderId}>
+                  <td>{formatWhen(t.createdAt)}</td>
+                  <td>
+                    <RefChip value={t.orderId}/>
+                    {t.isSandbox && <small className="cell-sub">test payment</small>}
+                  </td>
+                  <td>
+                    <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
+                    {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
+                  </td>
+                  <td className="cell-num">{formatCredits(t.credits)}</td>
+                  <td className="cell-num">
+                    {formatRupiah(t.totalIdr)}
+                    {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                  </td>
+                </tr>)
+              : <tr><td colSpan={5}><div className="table-empty">
+                  {topupStatus === "loading"
+                    ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
+                    : topupStatus === "error"
+                      ? <><X size={19}/><strong>Could not load top-up history</strong></>
+                      : <><QrCode size={19}/><strong>No top-ups yet</strong><p>Add credits with QRIS and the order appears here.</p></>}
+                </div></td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires 24 hours after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
+    </section>
+
     <section className="console-section activity-section">
-      <div className="section-title-row"><div><span className="section-index">01</span><div><h2>Credit activity</h2><p>Every credit movement on your account.</p></div></div></div>
+      <div className="section-title-row"><div><span className="section-index">02</span><div><h2>Credit activity</h2><p>Every credit movement on your account.</p></div></div></div>
       <div className="model-table-wrap">
         <table className="model-table credit-table">
           <thead><tr><th>DATE</th><th>ACTIVITY</th><th>REFERENCE</th><th>DETAIL</th><th>AMOUNT</th></tr></thead>
@@ -228,7 +347,7 @@ export default function CreditsPage() {
     <TopupDialog
       open={topupOpen}
       onClose={() => setTopupOpen(false)}
-      onSettled={() => void load()}
+      onSettled={() => { void load(); void loadTopups(); }}
       balance={balance}
     />
   </div>;

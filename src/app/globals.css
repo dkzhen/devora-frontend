@@ -1283,3 +1283,11 @@
   .topup-qr canvas{width:200px;height:200px}
   .topup-facts{grid-template-columns:1fr}
 }
+
+/* Top-up history status tags. Reuses the house's existing pairs rather than inventing shades:
+   the ok trio is .billing-badge-ok's, the waiting tone is the mustard --muted already on
+   .plan-badge, and the canceled tone is the .modal-danger-note red. */
+.topup-tag{display:inline-block;font:700 7.5px var(--display);letter-spacing:.5px;padding:2px 6px;border:1px solid var(--ink);white-space:nowrap}
+.topup-tag-ok{background:var(--mint);color:var(--ink)}
+.topup-tag-wait{background:var(--mustard);color:var(--ink)}
+.topup-tag-off{background:#ffeceb;border-color:var(--coral);color:#7a2320}
