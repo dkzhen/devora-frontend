@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Ban, CalendarClock, Check, Flame, Layers, Loader2, Plus, RefreshCw, X,
+  AlertTriangle, Ban, CalendarClock, Check, Flame, Layers, Loader2, Plus, RefreshCw, Trash2, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
@@ -111,6 +111,7 @@ export function AdminEventsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [confirmStop, setConfirmStop] = useState<AdminEvent | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<AdminEvent | null>(null);
 
   const [form, setForm] = useState({
     kind: "announcement" as EventKind,
@@ -249,6 +250,28 @@ export function AdminEventsPage() {
     } finally {
       setBusyId(null);
       setConfirmStop(null);
+    }
+  };
+
+  const deleteEvent = async (row: AdminEvent) => {
+    setBusyId(row.id);
+    try {
+      const res = await fetch(`/backend/api/v1/admin/events/${row.id}`, {
+        method: "DELETE",
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setNotice({ kind: "error", text: body?.error?.message ?? "Could not delete the event." });
+        return;
+      }
+      setNotice({ kind: "ok", text: `${row.title} deleted.${row.modelId ? " The model is back to normal." : ""}` });
+      await load();
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally {
+      setBusyId(null);
+      setConfirmDelete(null);
     }
   };
 
@@ -471,6 +494,9 @@ export function AdminEventsPage() {
                   {live && <button className="row-action row-action-danger" type="button" title="Stop event" aria-label={`Stop ${e.title}`} onClick={() => setConfirmStop(e)} disabled={busyId === e.id}>
                     {busyId === e.id ? <Loader2 size={14} className="row-spinner"/> : <Ban size={14}/>}
                   </button>}
+                  <button className="row-action row-action-danger" type="button" title="Delete event" aria-label={`Delete ${e.title}`} onClick={() => setConfirmDelete(e)} disabled={busyId === e.id}>
+                    {busyId === e.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}
+                  </button>
                 </span>
               </td>
             </tr>;
@@ -498,6 +524,30 @@ export function AdminEventsPage() {
         <div className="modal-danger-note">
           <strong>Nothing is lost</strong>
           <span>It has served <strong>{formatTokens(Number(confirmStop.tokensUsed))}</strong> of {formatTokens(Number(confirmStop.budgetTokens))} tokens. The event stays in this list as <em>Disabled</em> so the spend remains auditable.</span>
+        </div>
+      </div>}
+    </Modal>
+
+    <Modal
+      open={confirmDelete !== null}
+      tone="danger"
+      title="Delete this event?"
+      subtitle={confirmDelete ? `/${confirmDelete.slug}` : ""}
+      onClose={() => setConfirmDelete(null)}
+      footer={<>
+        <button className="button button-outline" type="button" onClick={() => setConfirmDelete(null)}>Cancel</button>
+        <button className="button button-ink compact-button" type="button" onClick={() => confirmDelete && void deleteEvent(confirmDelete)} disabled={busyId !== null}>
+          {busyId !== null ? <Loader2 size={15} className="row-spinner"/> : <Trash2 size={15}/>} Delete event
+        </button>
+      </>}
+    >
+      {confirmDelete && <div className="events-dialog">
+        <p><AlertTriangle size={15}/> <span><strong>{confirmDelete.title}</strong> is removed permanently — it disappears from the public page and this list{confirmDelete.modelId ? <>, and <strong>{confirmDelete.modelId}</strong> returns to its normal price</> : ""}.</span></p>
+        <div className="modal-danger-note">
+          <strong>This cannot be undone</strong>
+          <span>{confirmDelete.modelId
+            ? <>Prefer <em>Stop</em> if you only want the model back to normal — that keeps the record. Deleting <strong>{formatTokens(Number(confirmDelete.tokensUsed))}</strong> tokens of spend history removes it for good.</>
+            : <>The event and its record are removed for good. A stopped event would keep the row; this does not.</>}</span>
         </div>
       </div>}
     </Modal>

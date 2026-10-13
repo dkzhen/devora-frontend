@@ -7,7 +7,13 @@ import { Brand, PrimaryLink } from "@/components/brand";
 import { ProviderMark } from "@/components/provider-mark";
 import { formatTokens } from "@/lib/tokens";
 
-type EventState = "running" | "upcoming" | "ended" | "exhausted";
+/**
+ * The three states a visitor can see. `closed` is the end of the road — set when the operator
+ * disables the event, when its deadline passes, or when its budget fills. For a reader those
+ * are one fact: this event no longer covers its model, so the model is back to its normal
+ * price. Which of the three it was is the operator's concern and lives in the console.
+ */
+type EventState = "running" | "upcoming" | "closed";
 
 type Highlight = { label: string; value: string };
 
@@ -67,8 +73,7 @@ const ACCENTS = ["mint", "coral", "violet"] as const;
 const STATE_LABEL: Record<EventState, string> = {
   running: "Live now",
   upcoming: "Starting soon",
-  exhausted: "Budget used up",
-  ended: "Finished",
+  closed: "Closed",
 };
 
 /* Six questions, each answer traceable to the backend rather than invented here.
