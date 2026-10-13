@@ -474,24 +474,6 @@
 /* Rate limit cards. One per plan, laid out as a row so the three can be compared at a
    glance — the question an operator asks here is "how do these differ", which a stack of
    full-width forms would hide. */
-.limit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:12px;margin:14px 0 0 26px}
-.limit-card{display:flex;flex-direction:column;gap:9px;padding:15px 16px;border:2px solid #d8d1c5;background:#fff;transition:border-color .13s}
-.limit-card-on{border-color:var(--ink);background:#fffdf8}
-.limit-card-head{display:flex;align-items:center;justify-content:space-between;gap:9px}
-.limit-card-head strong{font:700 15px var(--display);letter-spacing:-.3px}
-.limit-state{font:700 7.5px var(--display);letter-spacing:.8px;text-transform:uppercase;padding:4px 8px;border:1.5px solid #c9c2b5;color:#8b857a;white-space:nowrap}
-.limit-state-on{border-color:var(--ink);background:var(--ink);color:var(--mint)}
-.limit-note{margin:0;font-size:9.5px;line-height:1.5;color:#6f695d;min-height:28px}
-.limit-holders{display:flex;align-items:center;gap:6px;font:700 8.5px var(--display);color:#8b8579}
-.limit-fields{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.limit-field{display:flex;flex-direction:column;gap:5px}
-.limit-field>span{font:700 8px var(--display);letter-spacing:.4px;color:#5d594f}
-.limit-field input{height:37px;border:1px solid #d8d1c5;background:#fff;padding:0 10px;font:700 12px var(--display);color:var(--ink);width:100%}
-.limit-field input::placeholder{color:#b3aca0;font-weight:600}
-.limit-field input:focus{outline:2px solid var(--mint);outline-offset:1px}
-.limit-card-foot{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:auto;padding-top:11px;border-top:1px solid #eae4d8}
-.limit-hint{font:600 8.5px var(--body);color:#898377}
-@media(max-width:640px){.limit-grid{margin-left:0}.limit-card-foot{flex-wrap:wrap}}
 /* Kind picker. Modelled on .cap-tile from the models form — same hard border, same filled
    selected state — because it is the same interaction: choose one of a small closed set, and
    the choice changes what the rest of the form asks for. */

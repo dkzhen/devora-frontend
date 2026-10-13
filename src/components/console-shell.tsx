@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Coins, Flame, Gauge, Layers, Menu, Package, ReceiptText, Sparkles, Tag, Users, Waypoints, X } from "lucide-react";
+import { BarChart3, Coins, Flame, Layers, Menu, Package, ReceiptText, Sparkles, Tag, Users, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
@@ -19,7 +19,6 @@ const nav = [
 const adminNav = { group: "ADMIN", items: [
   { href: "/console/admin/events", label: "Events", icon: Flame },
   { href: "/console/admin/packages", label: "Packages", icon: Package },
-  { href: "/console/admin/rate-limits", label: "Rate limits", icon: Gauge },
   { href: "/console/admin/models", label: "Models", icon: Layers },
   { href: "/console/admin/users", label: "Users", icon: Users },
   { href: "/console/admin/usage", label: "Usage", icon: BarChart3 },
