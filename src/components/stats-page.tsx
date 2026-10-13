@@ -38,7 +38,7 @@ type Stats = {
     at: string;
     endpoint: string;
     status: number;
-    model: { id: string; name: string | null } | null;
+    model: { id: string; name: string | null; provider: string | null } | null;
   }[];
   modelBreakdown: {
     id: string;
@@ -293,7 +293,7 @@ export function StatsPage() {
                     name. */
                 }
                 {r.model
-                  ? <><ProviderMark provider={r.model.id.split("/")[1] ?? ""} size={22}/><span className="st-feed-name">{r.model.name ?? "Removed model"}</span></>
+                  ? <><ProviderMark provider={r.model.provider ?? ""} size={22}/><span className="st-feed-name">{r.model.name ?? "Removed model"}</span></>
                   : <><span className="st-feed-nomark"><Activity size={14}/></span><span className="st-feed-name st-feed-name-muted">No model on this route</span></>}
               </div>
               <div className="st-feed-bot">
