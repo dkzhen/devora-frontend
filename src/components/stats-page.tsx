@@ -108,12 +108,27 @@ function ageShort(iso: string, now: number) {
   return `${Math.floor(secs / 86400)}d`;
 }
 
-/** "14:07:33:02" — hours:minutes:seconds:centiseconds. The hundredths come from the
- *  timestamp itself rather than from a counter, so they are the call's real sub-second
- *  position and the digits only change when the data refreshes. That is the point: they
- *  move on new data, not on a timer, so nothing on the page animates without reason. */
+/** "14:07:33.02" — hours:minutes:seconds.centiseconds, in the visitor's own time so a feed row
+ *  reads on the same clock as the live indicator above it. Built from the Date's local getters
+ *  rather than `toISOString()`, which is UTC by definition and was showing a different hour
+ *  than the header. The hundredths come from the timestamp itself, not a counter, so the digits
+ *  only change when the data refreshes — decoration that is also true. */
 function subSeconds(iso: string) {
-  return new Date(iso).toISOString().slice(11, 23);
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(Math.floor(d.getMilliseconds() / 10))}`;
+}
+
+/** The row's OWN day and time (local), not today's. Reading the day off the live clock showed
+ *  every row dated today while the time belonged to the request — a request made yesterday
+ *  evening rendered as a future time on today's date. The `title` always carried the truth;
+ *  now the visible line does too. */
+function feedStamp(iso: string): { day: string; time: string } {
+  const d = new Date(iso);
+  return {
+    day: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+    time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`,
+  };
 }
 
 export function StatsPage() {
@@ -298,7 +313,7 @@ export function StatsPage() {
               </div>
               <div className="st-feed-bot">
                 <time className="st-feed-when" dateTime={r.at} title={whenFull(r.at)}>
-                  {clk.day} · {subSeconds(r.at).slice(0, 8)}
+                  {feedStamp(r.at).day} · {feedStamp(r.at).time}
                 </time>
                 <span className="st-feed-age">{ageShort(r.at, now)} ago</span>
               </div>
