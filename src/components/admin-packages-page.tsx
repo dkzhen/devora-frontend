@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, Layers, Loader2, Package, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, Layers, Loader2, Package, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { formatTokens } from "@/lib/tokens";
@@ -25,9 +25,12 @@ type AdminPackage = {
   baseRpm: number | null;
   throttledRpm: number | null;
   isPublic: boolean;
-  sortOrder: number;
   activeSubscriptions: number;
+  /** The models this package's free allowance covers. */
+  modelIds: string[];
 };
+
+type ModelOption = { id: string; name: string; provider: string; accessPlans: string[] };
 
 const CATEGORIES: { value: PackageCategory; label: string; hint: string }[] = [
   { value: "hard_cap", label: "Hard cap", hint: "A token ceiling. Reaching it ends the package; the account falls back to credits." },
@@ -51,12 +54,11 @@ type ModelForm = {
   fairUseCap: string;
   baseRpm: string;
   throttledRpm: string;
-  sortOrder: string;
 };
 
 const EMPTY: ModelForm = {
   id: "", name: "", description: "", category: "hard_cap", tier: "SUBSCRIPTION",
-  durationDays: "30", tokenCap: "", fairUseCap: "", baseRpm: "", throttledRpm: "20", sortOrder: "0",
+  durationDays: "30", tokenCap: "", fairUseCap: "", baseRpm: "", throttledRpm: "20",
 };
 
 function slugify(input: string): string {
@@ -74,6 +76,10 @@ export function AdminPackagesPage() {
   const [confirmDelete, setConfirmDelete] = useState<AdminPackage | null>(null);
   const [form, setForm] = useState<ModelForm>(EMPTY);
   const [editing, setEditing] = useState(false);
+  /** Model ids the draft package covers. Required — a package with no models covers nothing. */
+  const [modelIds, setModelIds] = useState<string[]>([]);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelFilter, setModelFilter] = useState("");
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -93,6 +99,22 @@ export function AdminPackagesPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // The model catalogue powers the coverage picker. Fetched once; the console's own admin
+  // route already returns what the picker needs (id, name, provider).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/backend/api/v1/admin/models", { headers: await authHeaders(), cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json() as { models?: { id: string; displayName?: string; name?: string; provider: string; accessPlans?: string[] }[] };
+        setModels((Array.isArray(data.models) ? data.models : []).map(m => ({
+          id: m.id, name: m.displayName ?? m.name ?? m.id, provider: m.provider,
+          accessPlans: Array.isArray(m.accessPlans) ? m.accessPlans : [],
+        })));
+      } catch { /* the picker stays empty; the form refuses to save without a model */ }
+    })();
+  }, [authHeaders]);
+
   const startEdit = (p: AdminPackage) => {
     // Carry EVERY field the form can write. A field the row does not hand over is submitted as
     // the default, so a missing one silently rewrites the package.
@@ -102,13 +124,23 @@ export function AdminPackagesPage() {
       tokenCap: p.tokenCap ?? "", fairUseCap: p.fairUseCap ?? "",
       baseRpm: p.baseRpm === null ? "" : String(p.baseRpm),
       throttledRpm: p.throttledRpm === null ? "" : String(p.throttledRpm),
-      sortOrder: String(p.sortOrder),
     });
+    setModelIds(Array.isArray(p.modelIds) ? p.modelIds : []);
     setEditing(true);
     setNotice(null);
   };
 
-  const resetForm = () => { setForm(EMPTY); setEditing(false); };
+  const resetForm = () => { setForm(EMPTY); setModelIds([]); setEditing(false); };
+
+  const toggleModel = (id: string) => {
+    setModelIds(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+
+  const filteredModels = useMemo(() => {
+    const q = modelFilter.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q));
+  }, [models, modelFilter]);
 
   const submit = async () => {
     setNotice(null);
@@ -118,6 +150,9 @@ export function AdminPackagesPage() {
     if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(id)) {
       setNotice({ kind: "error", text: "Id: 2-63 chars, lowercase letters, digits, underscore, hyphen." });
       return;
+    }
+    if (modelIds.length === 0) {
+      setNotice({ kind: "error", text: "Select at least one model this package covers." }); return;
     }
     if (form.category === "hard_cap" && !form.tokenCap.trim()) {
       setNotice({ kind: "error", text: "A hard-cap package needs a token ceiling." }); return;
@@ -133,11 +168,10 @@ export function AdminPackagesPage() {
         headers: await authHeaders(),
         body: JSON.stringify({
           name, description: form.description.trim(), category: form.category, tier: form.tier,
-          durationDays: form.durationDays.trim(),
+          durationDays: form.durationDays.trim(), modelIds,
           tokenCap: form.category === "hard_cap" ? form.tokenCap.trim() : "",
           fairUseCap: form.category === "unlimited" ? form.fairUseCap.trim() : "",
           baseRpm: form.baseRpm.trim(), throttledRpm: form.throttledRpm.trim(),
-          sortOrder: form.sortOrder.trim(),
         }),
       });
       if (!res.ok) {
@@ -243,7 +277,6 @@ export function AdminPackagesPage() {
         {form.category === "hard_cap"
           ? field("Token ceiling", "tokenCap", "200000000", "Total tokens this package serves, then it ends.")
           : field("Fair-use threshold", "fairUseCap", "200000000", "Past this, the request rate drops (does not end).")}
-        {field("Sort order", "sortOrder", "0", "Lower shows first.")}
       </div>
 
       <div className="admin-form">
@@ -251,6 +284,30 @@ export function AdminPackagesPage() {
         {form.category === "unlimited"
           ? field("Throttled RPM", "throttledRpm", "20", "Requests per minute past fair use.")
           : <label className="admin-field"><span>Throttled RPM</span><input value="" placeholder="n/a for hard cap" disabled /><small>A hard cap ends; it has no throttled leg.</small></label>}
+      </div>
+
+      {/* Coverage. A package's free allowance applies to exactly these models — a model not
+          listed falls through to credits (or an event / a zero-priced model, which stay free). */}
+      <div className="admin-subfield pkg-models">
+        <span className="admin-subfield-label">Models covered <em>{modelIds.length} selected</em></span>
+        <p className="admin-subfield-hint">The free allowance applies only to these models. Anything else bills to credits — events and zero-priced models stay free regardless.</p>
+        <div className="pkg-models-toolbar">
+          <label className="pkg-models-search"><Search size={15}/><input value={modelFilter} onChange={e => setModelFilter(e.target.value)} placeholder="Filter models…" aria-label="Filter models"/></label>
+          <div className="pkg-models-actions">
+            <button className="button button-outline compact-button" type="button" onClick={() => setModelIds(filteredModels.map(m => m.id))}>Select all</button>
+            <button className="button button-outline compact-button" type="button" onClick={() => setModelIds([])} disabled={modelIds.length === 0}>Clear</button>
+          </div>
+        </div>
+        <div className="pkg-models-list">
+          {models.length === 0 && <div className="table-empty"><Layers size={18}/><strong>No models in the catalogue</strong><p>Add models first.</p></div>}
+          {models.length > 0 && filteredModels.length === 0 && <div className="table-empty"><Search size={18}/><strong>No model matches “{modelFilter}”</strong></div>}
+          {filteredModels.map(m => <label key={m.id} className={modelIds.includes(m.id) ? "pkg-model-row pkg-model-row-on" : "pkg-model-row"}>
+            <input type="checkbox" checked={modelIds.includes(m.id)} onChange={() => toggleModel(m.id)}/>
+            <span className="pkg-model-check">{modelIds.includes(m.id) ? <Check size={12}/> : null}</span>
+            <span className="pkg-model-copy"><strong>{m.name}</strong><small><code>{m.id}</code> · {m.provider}</small></span>
+            {m.accessPlans.length > 0 && <span className="pkg-model-plans">{m.accessPlans.map(p => <span key={p} className="plan-tag">{p}</span>)}</span>}
+          </label>)}
+        </div>
       </div>
 
       <div className="admin-actions">
@@ -277,7 +334,7 @@ export function AdminPackagesPage() {
         </div>}
         {status === "ready" && packages.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th>RPM</th><th>DURATION</th><th>LIVE</th><th></th>
+            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th></th>
           </tr></thead>
           <tbody>{packages.map(p => <tr key={p.id}>
             <td>
@@ -294,6 +351,10 @@ export function AdminPackagesPage() {
             <td className="cell-num">
               {p.baseRpm === null ? "unlim" : p.baseRpm}
               {p.category === "unlimited" && p.throttledRpm !== null && <> → {p.throttledRpm}</>}
+            </td>
+            <td className="cell-num">
+              <span title={p.modelIds.join(", ")}>{p.modelIds.length}</span>
+              <small className="cell-sub">{p.modelIds.length === 1 ? "model" : "models"}</small>
             </td>
             <td className="cell-num">{p.durationDays === null ? "lifetime" : `${p.durationDays}d`}</td>
             <td className="cell-num">{p.activeSubscriptions}</td>

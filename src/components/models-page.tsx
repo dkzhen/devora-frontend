@@ -105,7 +105,7 @@ export function ModelsPage() {
   return <main className="landing events-landing">
     <nav className="landing-nav">
       <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/#how">How it works</Link><Link href="/events">Events</Link></div>
+      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/#how">How it works</Link><Link href="/events">Events</Link><Link href="/pricing">Plans</Link></div>
       <PrimaryLink href="/console/billing">Open console</PrimaryLink>
     </nav>
 

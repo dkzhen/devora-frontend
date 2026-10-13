@@ -6,6 +6,7 @@ import {
   AlertTriangle, Ban, Check, Gift, Loader2, Plus, RefreshCw, Tag, Ticket, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 
 /**
@@ -313,22 +314,27 @@ export default function VouchersPage() {
       <div className="voucher-create">
         <label className="admin-field"><span>LABEL</span>
           <input value={draft.label} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} placeholder="Gift credits"/></label>
-        <label className="admin-field"><span>TYPE</span>
-          <select value={draft.kind} onChange={e => setDraft(d => ({ ...d, kind: e.target.value as "credits" | "subscription" }))}
-            className="voucher-kind-select">
-            <option value="credits">Credits</option>
-            <option value="subscription">Subscription</option>
-          </select>
+        <div className="admin-field"><span>TYPE</span>
+          <Select
+            label="Voucher type"
+            value={draft.kind}
+            onChange={v => setDraft(d => ({ ...d, kind: v as "credits" | "subscription" }))}
+            options={[{ value: "credits", label: "Credits" }, { value: "subscription", label: "Subscription" }]}
+          />
           <small>A subscription grants a package; credits fund a pool.</small>
-        </label>
+        </div>
         {draft.kind === "subscription"
-          ? <label className="admin-field"><span>PACKAGE</span>
-              <select value={draft.packageId} onChange={e => setDraft(d => ({ ...d, packageId: e.target.value }))} className="voucher-kind-select">
-                <option value="">Select a package…</option>
-                {packages.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
-              </select>
-              <small>{packages.length === 0 ? "No packages yet — create one on the Packages page." : "The allowance each redeemer receives."}</small>
-            </label>
+          ? <div className="admin-field"><span>PACKAGE</span>
+              <Select
+                label="Package this voucher grants"
+                value={draft.packageId}
+                onChange={v => setDraft(d => ({ ...d, packageId: v }))}
+                placeholder={packages.length === 0 ? "No packages yet" : "Select a package…"}
+                disabled={packages.length === 0}
+                options={packages.map(p => ({ value: p.id, label: `${p.name} (${p.id})` }))}
+              />
+              <small>{packages.length === 0 ? "Create one on the Packages page first." : "The allowance each redeemer receives."}</small>
+            </div>
           : <label className="admin-field"><span>CREDITS TO FUND</span>
               <input value={draft.credits} onChange={e => setDraft(d => ({ ...d, credits: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100" inputMode="decimal"/></label>}
         <label className="admin-field"><span>MAX USERS</span>

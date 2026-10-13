@@ -1172,7 +1172,59 @@
 .ev-page-info{display:flex;flex-direction:column;align-items:center;font:700 12px var(--display);color:var(--ink)}
 .ev-page-info small{font:600 9.5px var(--body);letter-spacing:.2px;color:#8b857a;margin-top:2px}
 
-/* Voucher kind picker: a native select styled to match .admin-field input, so the mint card
-   reads as one form. (A custom listbox was overkill here — the options are two.) */
-.voucher-kind-select{height:39px;border:1px solid #d8d1c5;background:#fff;padding:0 9px;font-size:11px;color:var(--ink);width:100%}
-.voucher-kind-select:focus{outline:2px solid var(--mint);outline-offset:1px}
+/* Pricing page package cards. House shape: 2px ink border, hard shadow, cream/paper ground,
+   one accent per card. Three columns at desktop, single at narrow. */
+.pkg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.pkg-card{position:relative;border:2px solid var(--ink);background:var(--paper);box-shadow:6px 6px 0 var(--ink);padding:24px 22px 22px;display:flex;flex-direction:column;gap:14px}
+.pkg-card-mint::before,.pkg-card-coral::before,.pkg-card-violet::before{content:"";position:absolute;top:0;left:0;right:0;height:6px}
+.pkg-card-mint::before{background:var(--mint)}
+.pkg-card-coral::before{background:var(--coral)}
+.pkg-card-violet::before{background:var(--violet)}
+.pkg-card-top{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.pkg-icon{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:2px solid var(--ink);background:#fff;color:var(--ink)}
+.pkg-name{font:700 22px var(--display);letter-spacing:-.6px;margin:0}
+.pkg-desc{margin:0;font-size:11.5px;line-height:1.6;color:#6f695d;min-height:2.6em}
+.pkg-facts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:6px 0 0;padding-top:14px;border-top:1.5px solid #eae4d8}
+.pkg-facts dt{font:700 7.5px var(--display);letter-spacing:.6px;text-transform:uppercase;color:#8b8579}
+.pkg-facts dd{margin:5px 0 0;font:700 18px/1 var(--display);letter-spacing:-.5px;display:flex;flex-direction:column;gap:2px}
+.pkg-facts dd small{font:600 8px var(--body);letter-spacing:0;color:#9a9488}
+.pkg-outcome{margin:0;font-size:10.5px;line-height:1.6;color:#6f695d;padding:11px 12px;background:#f4f0e8;border-left:3px solid var(--ink)}
+.pkg-outcome strong{color:var(--ink)}
+.pkg-card-foot{margin-top:auto}
+.pkg-note{display:flex;align-items:center;gap:8px;margin-top:22px;font-size:11px;color:#6f695d}
+@media (max-width:640px){.pkg-facts{grid-template-columns:1fr;gap:12px}}
+
+/* Package model picker: a scrollable checkbox list with the console's card shape. Each row is
+   a label wrapping a hidden native checkbox, so keyboard/focus work without re-implementing
+   them — the visible box is the styled span beside it. */
+.pkg-models .admin-subfield-label em{font-style:normal;color:var(--mint);margin-left:6px}
+.pkg-models-toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:12px 0 8px;flex-wrap:wrap}
+.pkg-models-search{display:flex;align-items:center;gap:7px;border:1px solid #d8d1c5;background:#fff;padding:0 10px;height:36px;flex:1;min-width:200px}
+.pkg-models-search input{border:none;outline:none;background:transparent;font-size:11px;width:100%;color:var(--ink)}
+.pkg-models-search svg{color:#9a9488;flex:none}
+.pkg-models-actions{display:flex;gap:8px}
+.pkg-models-list{border:1px solid #e5dfd3;background:#fbf9f4;max-height:300px;overflow-y:auto}
+.pkg-model-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #efe9dd;cursor:pointer}
+.pkg-model-row:last-child{border-bottom:none}
+.pkg-model-row:hover{background:#f4f0e8}
+.pkg-model-row-on{background:#eef7f2}
+.pkg-model-row input{position:absolute;opacity:0;width:0;height:0}
+.pkg-model-check{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1.5px solid #bdb6a7;background:#fff;flex:none;color:#fff}
+.pkg-model-row-on .pkg-model-check{border-color:var(--mint);background:var(--mint)}
+.pkg-model-copy{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pkg-model-copy strong{font:700 11.5px var(--display);color:var(--ink)}
+.pkg-model-copy small{font-size:9.5px;color:#8b857a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pkg-model-plans{display:flex;gap:4px;flex:none}
+
+/* Subscription block under the credits figure in the sidebar account card. Sits inside the
+   cream card, so it uses the same border language, one step quieter than Credits. */
+.account-subs{margin-top:12px;padding-top:12px;border-top:1px solid #e5dfd3;display:flex;flex-direction:column;gap:10px}
+.account-sub{display:flex;flex-direction:column;gap:6px}
+.account-sub-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.account-sub-name{display:inline-flex;align-items:center;gap:5px;font:700 10.5px var(--display);color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-sub-name svg{color:var(--mint);flex:none}
+.account-sub-state{font:700 7.5px var(--display);letter-spacing:.5px;text-transform:uppercase;color:var(--mint);border:1px solid var(--mint);padding:2px 6px;flex:none}
+.account-sub-state-warn{color:var(--coral);border-color:var(--coral)}
+.account-sub-meta{display:flex;align-items:center;gap:6px;font-size:9.5px;color:#8b857a}
+.account-sub-bar{height:4px;background:#eae4d8;overflow:hidden}
+.account-sub-bar i{display:block;height:100%;background:var(--mint)}
