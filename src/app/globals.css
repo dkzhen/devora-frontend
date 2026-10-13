@@ -1210,3 +1210,8 @@
 .account-sub-meta{display:flex;align-items:center;gap:6px;font-size:9.5px;color:#8b857a}
 .account-sub-bar{height:4px;background:#eae4d8;overflow:hidden}
 .account-sub-bar i{display:block;height:100%;background:var(--mint)}
+
+/* Reads a raw token count back in K/M/B under the field that takes it — entering
+   "200000000" and counting zeroes is the chore this removes. */
+.admin-scale-note{margin:6px 0 0;font-size:10px;color:#8b857a;display:flex;align-items:baseline;gap:7px}
+.admin-scale-note strong{font:700 15px var(--display);letter-spacing:-.3px;color:var(--ink)}

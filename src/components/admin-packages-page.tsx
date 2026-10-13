@@ -273,11 +273,23 @@ export function AdminPackagesPage() {
         </label>
       </div>
 
+      {/* The ceiling is a raw digit string, and reading "200000000" to know it is 200M is a
+          count-zeroes chore. State the reading under the field as it is typed. */}
       <div className="admin-form">
         {form.category === "hard_cap"
           ? field("Token ceiling", "tokenCap", "200000000", "Total tokens this package serves, then it ends.")
           : field("Fair-use threshold", "fairUseCap", "200000000", "Past this, the request rate drops (does not end).")}
       </div>
+      <p className="admin-scale-note" aria-live="polite">
+        {(() => {
+          const raw = (form.category === "hard_cap" ? form.tokenCap : form.fairUseCap).trim();
+          const n = Number(raw);
+          if (raw === "" || !/^\d+$/.test(raw) || !Number.isFinite(n)) {
+            return <><strong>—</strong> Enter a whole number of tokens.</>;
+          }
+          return <><strong>{formatTokens(n)}</strong> tokens{n >= 1_000_000 ? <> · {n.toLocaleString("en-US")}</> : null}</>;
+        })()}
+      </p>
 
       <div className="admin-form">
         {field("Base RPM", "baseRpm", "empty = unlimited", "Requests per minute before fair use.")}
