@@ -3,20 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AlertTriangle, Check, Coins, Loader2, RefreshCw, Save, X } from "lucide-react";
-import { formatRupiah, formatUsd, moneyToCredits } from "@/lib/credits";
+import { formatRupiah, moneyToCredits } from "@/lib/credits";
 
 /**
- * The credit-to-money rate: one number that prices every top-up and values every balance.
+ * The credit-to-rupiah rate: the one number that prices every top-up and values every balance.
  *
- * `idrPerCredit` is the rate an operator sets. `usdPerCredit` is a second READING of the same
- * price, stored because USD is what a foreign buyer asks in — it is not a second price, and the
- * page says so rather than implying two independent knobs.
+ * Rupiah only. A dollar figure was tried twice — first as its own column, then derived from an
+ * exchange rate — and removed both times: it was a second number to keep in step with this one,
+ * and QRIS settles in rupiah, so it had no consumer.
  */
 type BillingSettings = {
   idrPerCredit: string;
-  idrPerUsd: string;
-  /** Derived server-side from the two stored rates. Read-only here. */
-  usdPerCredit: string;
   feeBearer: "buyer" | "merchant";
   updatedAt: string;
   updatedBy: string;
@@ -42,7 +39,6 @@ export function AdminBillingSettingsPage() {
   // The form is a draft. Kept separate from `settings` so a save can be verified against what the
   // server returned rather than against what was typed.
   const [idr, setIdr] = useState("");
-  const [fx, setFx] = useState("");
   const [feeBearer, setFeeBearer] = useState<"buyer" | "merchant">("buyer");
 
   const authHeaders = useCallback(async () => {
@@ -59,7 +55,6 @@ export function AdminBillingSettingsPage() {
       if (!data.settings) { setStatus("error"); return; }
       setSettings(data.settings);
       setIdr(trimRate(data.settings.idrPerCredit));
-      setFx(trimRate(data.settings.idrPerUsd));
       setFeeBearer(data.settings.feeBearer);
       setStatus("ready");
     } catch { setStatus("error"); }
@@ -76,25 +71,12 @@ export function AdminBillingSettingsPage() {
       return;
     }
 
-    // Blank means "leave the exchange rate alone" — it is a reading of the same price, and
-    // demanding it restated would make the operator invent one.
-    const fxText = fx.trim();
-    const fxNumber = Number(fxText);
-    if (fxText !== "" && (!Number.isFinite(fxNumber) || fxNumber <= 0)) {
-      setNotice({ kind: "error", text: "The exchange rate must be a positive number, or blank to keep the current one." });
-      return;
-    }
-
     setSaving(true);
     try {
       const res = await fetch("/backend/api/v1/admin/billing-settings", {
         method: "PUT",
         headers: await authHeaders(),
-        body: JSON.stringify({
-          idrPerCredit: idrText,
-          idrPerUsd: fxText === "" ? "" : fxText,
-          feeBearer,
-        }),
+        body: JSON.stringify({ idrPerCredit: idrText, feeBearer }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
@@ -106,7 +88,6 @@ export function AdminBillingSettingsPage() {
         // Re-seed the form from what the database actually stored, not from the input.
         setSettings(data.settings);
         setIdr(trimRate(data.settings.idrPerCredit));
-        setFx(trimRate(data.settings.idrPerUsd));
         setFeeBearer(data.settings.feeBearer);
       }
       setNotice({ kind: "ok", text: "Rate saved. New top-ups use it; existing orders keep the rate they were placed at." });
@@ -119,16 +100,9 @@ export function AdminBillingSettingsPage() {
   // is the same "state the reading under the raw number" rule the token ceiling follows.
   const draftIdr = Number(idr.trim());
   const draftValid = idr.trim() !== "" && Number.isFinite(draftIdr) && draftIdr > 0;
-  const draftFx = Number(fx.trim());
-  const draftFxValid = fx.trim() !== "" && Number.isFinite(draftFx) && draftFx > 0;
-
-  // Dollars per credit, derived from the two drafts so the operator sees the dollar reading move
-  // with the rates instead of typing a third number that could disagree with both.
-  const draftUsdPerCredit = draftValid && draftFxValid ? draftIdr / draftFx : 0;
 
   const dirty = settings !== null && (
     trimRate(settings.idrPerCredit) !== trimRate(idr) ||
-    trimRate(settings.idrPerUsd) !== trimRate(fx) ||
     settings.feeBearer !== feeBearer
   );
 
@@ -137,7 +111,7 @@ export function AdminBillingSettingsPage() {
       <div>
         <div className="eyebrow small-eyebrow"><Coins size={14}/> ADMIN / BILLING</div>
         <h1>Credit rate</h1>
-        <p>What a credit is worth in money. This prices every top-up and values every balance in the console.</p>
+        <p>What a credit is worth in rupiah. This prices every top-up and values every balance in the console.</p>
       </div>
       <button className="button button-outline compact-button" type="button" onClick={() => void load()} disabled={status === "loading"}>
         <RefreshCw size={15}/> Refresh
@@ -154,7 +128,7 @@ export function AdminBillingSettingsPage() {
 
     {status === "ready" && <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">01</span><div><h2>The rate</h2><p>One credit is worth this much. Both currencies describe the same price.</p></div></div>
+        <div><span className="section-index">01</span><div><h2>The rate</h2><p>One credit is worth this much.</p></div></div>
         {settings && <span className="admin-editing-note">
           {settings.updatedAt === ""
             ? "Never set — showing the default."
@@ -169,19 +143,12 @@ export function AdminBillingSettingsPage() {
             onChange={e => setIdr(e.target.value)} />
           <small>The rate everything else follows. 1 means 1 credit = Rp 1.</small>
         </label>
-        <label className="admin-field">
-          <span>Rupiah per dollar</span>
-          <input value={fx} inputMode="decimal" placeholder="18000"
-            onChange={e => setFx(e.target.value)} />
-          <small>The exchange rate. The dollar figure below is derived from it.</small>
-        </label>
       </div>
 
       {/* Raw digits above, the reading below — the operator should not have to count zeroes. */}
       <p className="admin-scale-note" aria-live="polite">
         {draftValid
-          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit{draftFxValid
-              ? <> · {formatUsd(draftUsdPerCredit)} per credit</> : null}</>
+          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit</>
           : <><strong>—</strong> Enter a positive number of rupiah per credit.</>}
       </p>
 
@@ -248,8 +215,6 @@ export function AdminBillingSettingsPage() {
         <table className="model-table">
           <tbody>
             <tr><td><strong>Rupiah per credit</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerCredit)) : "—"}</td></tr>
-            <tr><td><strong>Rupiah per dollar</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerUsd)) : "—"}</td></tr>
-            <tr><td><strong>Dollar per credit</strong></td><td className="cell-num">{settings ? <>{formatUsd(Number(settings.usdPerCredit))} <small className="cell-sub">derived</small></> : "—"}</td></tr>
             <tr><td><strong>QRIS fee paid by</strong></td><td className="cell-num">{settings?.feeBearer === "merchant" ? "you (absorbed)" : "the buyer"}</td></tr>
             <tr><td><strong>Last changed</strong></td><td className="cell-num">{settings && settings.updatedAt !== ""
               ? new Date(settings.updatedAt).toLocaleString("id-ID")

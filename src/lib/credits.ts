@@ -48,48 +48,11 @@ export function formatRupiah(idr: number): string {
 }
 
 /**
- * Dollars, with the precision the number actually needs.
- *
- * A per-credit dollar figure is a sub-cent number, so a fixed 2 decimals would print every
- * plausible rate as "$0.00". Below a cent the significant digits ARE the message, so those are
- * shown at the column's own scale (8 decimals, trailing zeros trimmed): `0.0000625` reads back
- * exactly, and a rate that does not divide evenly (Rp 18,000/USD gives a repeating decimal) is
- * rounded at the 8th place — six significant figures, which is a reading, not a stored price.
- * A normal dollar amount gets two.
- */
-export function formatUsd(usd: number): string {
-  if (!Number.isFinite(usd)) return "—";
-  if (usd === 0) return "$0";
-  if (Math.abs(usd) < 0.01) return `$${usd.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-/**
- * Turn a credit balance into money at the stored rates.
- *
- * Both sides are decimal strings out of the database. This is a READING for display — the
- * multiplication happens in JavaScript, but nothing here is ever written back, so the stored
- * values stay exact.
- */
-export function creditsToMoney(
-  credits: string,
-  idrPerCredit: string,
-  usdPerCredit: string,
-): { idr: number; usd: number } {
-  const c = Number(credits);
-  const idrRate = Number(idrPerCredit);
-  const usdRate = Number(usdPerCredit);
-  return {
-    idr: Number.isFinite(c) && Number.isFinite(idrRate) ? c * idrRate : 0,
-    usd: Number.isFinite(c) && Number.isFinite(usdRate) ? c * usdRate : 0,
-  };
-}
-
-/**
  * Money back into credits at a given rate.
  *
- * The inverse of `creditsToMoney`, for pricing a top-up: the operator types rupiah and the form
- * shows how many credits that buys.
+ * For pricing a top-up: the operator types rupiah and the form shows how many credits that buys.
+ * Rupiah only — a dollar figure was tried and removed, because a second number to keep in step
+ * with `idrPerCredit` is a second number that can be wrong, and QRIS settles in rupiah.
  */
 export function moneyToCredits(idr: number, idrPerCredit: string): number {
   const rate = Number(idrPerCredit);
