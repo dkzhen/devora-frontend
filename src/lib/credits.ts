@@ -34,3 +34,64 @@ export function formatPrice(credits: number): string {
   if (!Number.isFinite(credits) || credits === 0) return "0";
   return credits.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 }
+
+/**
+ * Rupiah, grouped, no decimals.
+ *
+ * Whole rupiah on purpose: the currency has no practical subunit, and "Rp 1.234,56" reads as
+ * noise on a price a customer is about to pay. Rounding is explicit rather than left to
+ * `toLocaleString`, which would render the cents.
+ */
+export function formatRupiah(idr: number): string {
+  if (!Number.isFinite(idr)) return "—";
+  return `Rp ${Math.round(idr).toLocaleString("id-ID")}`;
+}
+
+/**
+ * Dollars, with the precision the number actually needs.
+ *
+ * A per-credit dollar figure is a sub-cent number, so a fixed 2 decimals would print every
+ * plausible rate as "$0.00". Below a cent the significant digits ARE the message, so those keep
+ * the column's own scale (8 decimals, trailing zeros trimmed) — `0.00006250` must read back as
+ * `$0.0000625`, never as a rounded `$0.000063`, which would be a different number than the one
+ * stored. A normal dollar amount gets two.
+ */
+export function formatUsd(usd: number): string {
+  if (!Number.isFinite(usd)) return "—";
+  if (usd === 0) return "$0";
+  if (Math.abs(usd) < 0.01) return `$${usd.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+/**
+ * Turn a credit balance into money at the stored rates.
+ *
+ * Both sides are decimal strings out of the database. This is a READING for display — the
+ * multiplication happens in JavaScript, but nothing here is ever written back, so the stored
+ * values stay exact.
+ */
+export function creditsToMoney(
+  credits: string,
+  idrPerCredit: string,
+  usdPerCredit: string,
+): { idr: number; usd: number } {
+  const c = Number(credits);
+  const idrRate = Number(idrPerCredit);
+  const usdRate = Number(usdPerCredit);
+  return {
+    idr: Number.isFinite(c) && Number.isFinite(idrRate) ? c * idrRate : 0,
+    usd: Number.isFinite(c) && Number.isFinite(usdRate) ? c * usdRate : 0,
+  };
+}
+
+/**
+ * Money back into credits at a given rate.
+ *
+ * The inverse of `creditsToMoney`, for pricing a top-up: the operator types rupiah and the form
+ * shows how many credits that buys.
+ */
+export function moneyToCredits(idr: number, idrPerCredit: string): number {
+  const rate = Number(idrPerCredit);
+  if (!Number.isFinite(idr) || !Number.isFinite(rate) || rate <= 0) return 0;
+  return idr / rate;
+}
