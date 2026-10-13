@@ -51,10 +51,11 @@ export function formatRupiah(idr: number): string {
  * Dollars, with the precision the number actually needs.
  *
  * A per-credit dollar figure is a sub-cent number, so a fixed 2 decimals would print every
- * plausible rate as "$0.00". Below a cent the significant digits ARE the message, so those keep
- * the column's own scale (8 decimals, trailing zeros trimmed) — `0.00006250` must read back as
- * `$0.0000625`, never as a rounded `$0.000063`, which would be a different number than the one
- * stored. A normal dollar amount gets two.
+ * plausible rate as "$0.00". Below a cent the significant digits ARE the message, so those are
+ * shown at the column's own scale (8 decimals, trailing zeros trimmed): `0.0000625` reads back
+ * exactly, and a rate that does not divide evenly (Rp 18,000/USD gives a repeating decimal) is
+ * rounded at the 8th place — six significant figures, which is a reading, not a stored price.
+ * A normal dollar amount gets two.
  */
 export function formatUsd(usd: number): string {
   if (!Number.isFinite(usd)) return "—";

@@ -14,6 +14,8 @@ import { formatRupiah, formatUsd, moneyToCredits } from "@/lib/credits";
  */
 type BillingSettings = {
   idrPerCredit: string;
+  idrPerUsd: string;
+  /** Derived server-side from the two stored rates. Read-only here. */
   usdPerCredit: string;
   feeBearer: "buyer" | "merchant";
   updatedAt: string;
@@ -40,7 +42,7 @@ export function AdminBillingSettingsPage() {
   // The form is a draft. Kept separate from `settings` so a save can be verified against what the
   // server returned rather than against what was typed.
   const [idr, setIdr] = useState("");
-  const [usd, setUsd] = useState("");
+  const [fx, setFx] = useState("");
   const [feeBearer, setFeeBearer] = useState<"buyer" | "merchant">("buyer");
 
   const authHeaders = useCallback(async () => {
@@ -57,7 +59,7 @@ export function AdminBillingSettingsPage() {
       if (!data.settings) { setStatus("error"); return; }
       setSettings(data.settings);
       setIdr(trimRate(data.settings.idrPerCredit));
-      setUsd(trimRate(data.settings.usdPerCredit));
+      setFx(trimRate(data.settings.idrPerUsd));
       setFeeBearer(data.settings.feeBearer);
       setStatus("ready");
     } catch { setStatus("error"); }
@@ -74,12 +76,12 @@ export function AdminBillingSettingsPage() {
       return;
     }
 
-    // Blank means "leave the dollar figure alone" — it is a reading of the same price, and
+    // Blank means "leave the exchange rate alone" — it is a reading of the same price, and
     // demanding it restated would make the operator invent one.
-    const usdText = usd.trim();
-    const usdNumber = Number(usdText);
-    if (usdText !== "" && (!Number.isFinite(usdNumber) || usdNumber <= 0)) {
-      setNotice({ kind: "error", text: "The dollar rate must be a positive number, or blank to keep the current one." });
+    const fxText = fx.trim();
+    const fxNumber = Number(fxText);
+    if (fxText !== "" && (!Number.isFinite(fxNumber) || fxNumber <= 0)) {
+      setNotice({ kind: "error", text: "The exchange rate must be a positive number, or blank to keep the current one." });
       return;
     }
 
@@ -90,7 +92,7 @@ export function AdminBillingSettingsPage() {
         headers: await authHeaders(),
         body: JSON.stringify({
           idrPerCredit: idrText,
-          usdPerCredit: usdText === "" ? "" : usdText,
+          idrPerUsd: fxText === "" ? "" : fxText,
           feeBearer,
         }),
       });
@@ -104,7 +106,7 @@ export function AdminBillingSettingsPage() {
         // Re-seed the form from what the database actually stored, not from the input.
         setSettings(data.settings);
         setIdr(trimRate(data.settings.idrPerCredit));
-        setUsd(trimRate(data.settings.usdPerCredit));
+        setFx(trimRate(data.settings.idrPerUsd));
         setFeeBearer(data.settings.feeBearer);
       }
       setNotice({ kind: "ok", text: "Rate saved. New top-ups use it; existing orders keep the rate they were placed at." });
@@ -117,12 +119,16 @@ export function AdminBillingSettingsPage() {
   // is the same "state the reading under the raw number" rule the token ceiling follows.
   const draftIdr = Number(idr.trim());
   const draftValid = idr.trim() !== "" && Number.isFinite(draftIdr) && draftIdr > 0;
-  const draftUsd = Number(usd.trim());
-  const draftUsdValid = usd.trim() !== "" && Number.isFinite(draftUsd) && draftUsd > 0;
+  const draftFx = Number(fx.trim());
+  const draftFxValid = fx.trim() !== "" && Number.isFinite(draftFx) && draftFx > 0;
+
+  // Dollars per credit, derived from the two drafts so the operator sees the dollar reading move
+  // with the rates instead of typing a third number that could disagree with both.
+  const draftUsdPerCredit = draftValid && draftFxValid ? draftIdr / draftFx : 0;
 
   const dirty = settings !== null && (
     trimRate(settings.idrPerCredit) !== trimRate(idr) ||
-    trimRate(settings.usdPerCredit) !== trimRate(usd) ||
+    trimRate(settings.idrPerUsd) !== trimRate(fx) ||
     settings.feeBearer !== feeBearer
   );
 
@@ -164,18 +170,18 @@ export function AdminBillingSettingsPage() {
           <small>The rate everything else follows. 1 means 1 credit = Rp 1.</small>
         </label>
         <label className="admin-field">
-          <span>Dollar per credit</span>
-          <input value={usd} inputMode="decimal" placeholder="0.0000625"
-            onChange={e => setUsd(e.target.value)} />
-          <small>Optional. A reading of the same price — blank keeps the current one.</small>
+          <span>Rupiah per dollar</span>
+          <input value={fx} inputMode="decimal" placeholder="18000"
+            onChange={e => setFx(e.target.value)} />
+          <small>The exchange rate. The dollar figure below is derived from it.</small>
         </label>
       </div>
 
       {/* Raw digits above, the reading below — the operator should not have to count zeroes. */}
       <p className="admin-scale-note" aria-live="polite">
         {draftValid
-          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit{draftUsdValid
-              ? <> · {formatUsd(draftUsd)} per credit</> : null}</>
+          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit{draftFxValid
+              ? <> · {formatUsd(draftUsdPerCredit)} per credit</> : null}</>
           : <><strong>—</strong> Enter a positive number of rupiah per credit.</>}
       </p>
 
@@ -242,7 +248,8 @@ export function AdminBillingSettingsPage() {
         <table className="model-table">
           <tbody>
             <tr><td><strong>Rupiah per credit</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerCredit)) : "—"}</td></tr>
-            <tr><td><strong>Dollar per credit</strong></td><td className="cell-num">{settings ? formatUsd(Number(settings.usdPerCredit)) : "—"}</td></tr>
+            <tr><td><strong>Rupiah per dollar</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerUsd)) : "—"}</td></tr>
+            <tr><td><strong>Dollar per credit</strong></td><td className="cell-num">{settings ? <>{formatUsd(Number(settings.usdPerCredit))} <small className="cell-sub">derived</small></> : "—"}</td></tr>
             <tr><td><strong>QRIS fee paid by</strong></td><td className="cell-num">{settings?.feeBearer === "merchant" ? "you (absorbed)" : "the buyer"}</td></tr>
             <tr><td><strong>Last changed</strong></td><td className="cell-num">{settings && settings.updatedAt !== ""
               ? new Date(settings.updatedAt).toLocaleString("id-ID")
