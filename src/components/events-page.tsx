@@ -150,22 +150,32 @@ function EventsFaq() {
 export function EventsPage() {
   const [events, setEvents] = useState<EventCard[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [runningCount, setRunningCount] = useState(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (p: number) => {
     setStatus("loading");
     try {
-      const res = await fetch("/backend/api/v1/events", { cache: "no-store" });
+      const res = await fetch(`/backend/api/v1/events?view=full&page=${p}`, { cache: "no-store" });
       if (!res.ok) { setStatus("error"); return; }
-      const data = await res.json() as { data?: EventCard[] };
+      const data = await res.json() as { data?: EventCard[]; totalPages?: number; total?: number; runningCount?: number };
       setEvents(Array.isArray(data.data) ? data.data : []);
+      setTotalPages(data.totalPages ?? 1);
+      setTotal(data.total ?? 0);
+      setRunningCount(data.runningCount ?? 0);
       setStatus("ready");
     } catch {
       setStatus("error");
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(page); }, [load, page]);
 
+  // `live` is what THIS page shows (drives the card accent); `runningCount` is the whole set,
+  // and the heading uses that — otherwise scrolling to a page holding only closed events would
+  // claim "Nothing live yet" while events are running.
   const live = events.filter(e => e.state === "running");
 
   return <main className="landing events-landing">
@@ -180,9 +190,9 @@ export function EventsPage() {
     <section className="ev-hero">
       <div className="ev-hero-content">
         <div className="eyebrow"><span className="eyebrow-mark"><Flame size={15}/></span>
-          {live.length > 0 ? `${live.length} event${live.length === 1 ? "" : "s"} running` : "What is on"}
+          {runningCount > 0 ? `${runningCount} event${runningCount === 1 ? "" : "s"} running` : "What is on"}
         </div>
-        <h1>{live.length > 0
+        <h1>{runningCount > 0
           ? <>Happening <span>right now</span>.</>
           : <>Events, <span>as they come</span>.</>}</h1>
         <p className="hero-copy">
@@ -282,6 +292,18 @@ export function EventsPage() {
           </article>;
         })}
       </div>}
+
+      {/* Pager renders outside the empty/ready branches so landing past the last page still
+          offers a way back. Hidden when there is only one page. */}
+      {status === "ready" && totalPages > 1 && <nav className="ev-pager" aria-label="Events pages">
+        <button className="ev-page-btn" type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>
+          ← Prev
+        </button>
+        <span className="ev-page-info">Page {page} of {totalPages}<small>{total} events</small></span>
+        <button className="ev-page-btn" type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+          Next →
+        </button>
+      </nav>}
 
       <div className="ev-foot-note">
         <Zap size={15}/> Budgets are measured in tokens as reported by the model provider.
