@@ -1291,3 +1291,19 @@
 .topup-tag-ok{background:var(--mint);color:var(--ink)}
 .topup-tag-wait{background:var(--mustard);color:var(--ink)}
 .topup-tag-off{background:#ffeceb;border-color:var(--coral);color:#7a2320}
+
+/* Dead QR: the code can no longer be paid. Uses the house's existing coral trio
+   (.modal-danger-note's border/bg/text) rather than a new shade, so every "this did not work"
+   mark on the site is the same mark. */
+.topup-dead{display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:12px 13px;border:2px solid var(--coral);background:#ffeceb;color:#7a2320}
+.topup-dead svg{flex:0 0 auto;margin-top:1px}
+.topup-dead div{display:flex;flex-direction:column;gap:4px}
+.topup-dead strong{font:700 11px var(--display);letter-spacing:-.1px}
+.topup-dead span{font-size:9.5px;line-height:1.45}
+
+/* A dead QR's placeholder. It occupies the SAME box the code did — 232px of content, so 258px
+   with .topup-qr's 11px padding and 2px border — because otherwise the panel reflows the moment
+   the countdown hits zero. (First attempt did not: a bare grid collapses to its content.) */
+.topup-qr-dead{background:var(--cream);border-style:dashed;border-color:#c9c2b5}
+.topup-qr-void{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:232px;height:232px;color:#a8a294}
+.topup-qr-void small{font:700 8px var(--display);letter-spacing:1px}

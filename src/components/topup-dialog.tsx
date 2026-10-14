@@ -63,17 +63,30 @@ function QrCanvas({ value, size = 232 }: { value: string; size?: number }) {
   return <canvas ref={ref} width={size} height={size} aria-label="QRIS payment code" role="img" />;
 }
 
-function Countdown({ expiresAt }: { expiresAt: string | null }) {
+/**
+ * Milliseconds until `expiresAt`, ticking once a second.
+ *
+ * `null` means there is no deadline (the gateway did not send one); a value `<= 0` means it has
+ * passed. One hook, used by both the countdown display and the dialog's own "the code is dead"
+ * decision, so the text and the behaviour cannot disagree about when expiry happened.
+ */
+function useTimeLeft(expiresAt: string | null): number | null {
   const [left, setLeft] = useState<number | null>(null);
 
   useEffect(() => {
     if (expiresAt === null) { setLeft(null); return; }
-    const tick = () => setLeft(new Date(expiresAt).getTime() - Date.now());
+    const ms = new Date(expiresAt).getTime();
+    if (!Number.isFinite(ms)) { setLeft(null); return; }
+    const tick = () => setLeft(ms - Date.now());
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [expiresAt]);
 
+  return left;
+}
+
+function Countdown({ left }: { left: number | null }) {
   if (left === null) return null;
   if (left <= 0) return <span className="topup-expiry topup-expiry-out"><Clock size={13}/> Expired — start a new one.</span>;
 
@@ -149,31 +162,81 @@ export function TopupDialog({
     } finally { setCreating(false); }
   };
 
-  // Poll while an order is open and still pending. Stops the moment it settles or is canceled,
-  // and the interval is cleared on unmount, so a closed dialog leaves no timer behind.
-  useEffect(() => {
-    if (!open || topup === null || topup.status !== "pending") return;
-    let cancelled = false;
+  /**
+   * Poll while an order is open and still pending.
+   *
+   * Keyed on `orderId` and the STATUS as scalars, not on the `topup` object. Depending on the
+   * object meant every response replaced it, which re-ran this effect and reset `cancelled` —
+   * so the old interval was cleared and a new one started on every tick, and the guard that was
+   * supposed to stop polling once the order settled never actually stopped anything. Scalars only
+   * change when the thing they describe changes.
+   *
+   * It also stops once the QR's own deadline has passed: past expiry the gateway has cancelled
+   * the order, so there is nothing left to poll for. One final poll is made first, because the
+   * authoritative answer is still the gateway's and it may have settled microseconds before the
+   * deadline.
+   */
+  const orderId = topup?.orderId ?? null;
+  const orderStatus = topup?.status ?? null;
+  const expiresAt = topup?.expiresAt ?? null;
 
-    const id = window.setInterval(() => {
-      void (async () => {
-        try {
-          const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(topup.orderId)}`, {
-            headers: await authHeaders(), cache: "no-store",
-          });
-          if (!res.ok) return;
-          const data = await res.json() as { topup?: Topup };
-          if (cancelled || !data.topup) return;
-          setTopup(prev => (prev === null ? data.topup! : { ...prev, ...data.topup! }));
-          // `settled` is derived from the status, so nothing to flip here — only the page needs
-          // telling that the balance moved.
-          if (data.topup.status === "completed") onSettled();
-        } catch { /* a poll failure is not worth surfacing — the next tick retries */ }
-      })();
+  useEffect(() => {
+    if (!open || orderId === null || orderStatus !== "pending") return;
+    let stopped = false;
+    let handle: number | undefined;
+
+    const expiryMs = expiresAt === null ? null : new Date(expiresAt).getTime();
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(orderId)}`, {
+          headers: await authHeaders(), cache: "no-store",
+        });
+        if (stopped) return;
+        if (!res.ok) {
+          // A 409 means the payment landed but was refused (a sandbox payment on a live
+          // workspace). That is a terminal answer the payer has to be told about, not a transient
+          // failure to retry silently — the earlier version dropped every non-ok response and the
+          // dialog spun forever behind it.
+          const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+          if (res.status === 409 && body?.error?.message) {
+            setError(body.error.message);
+            if (handle !== undefined) window.clearInterval(handle);
+            stopped = true;
+          }
+          return;
+        }
+        const data = await res.json() as { topup?: Topup };
+        if (stopped || !data.topup) return;
+        setTopup(prev => (prev === null ? data.topup! : { ...prev, ...data.topup! }));
+        // `settled` is derived from the status, so nothing to flip here — only the page needs
+        // telling that the balance moved.
+        if (data.topup.status === "completed") onSettled();
+        // Terminal state: nothing further can change, so stop asking.
+        if (data.topup.status !== "pending" && handle !== undefined) {
+          window.clearInterval(handle);
+          stopped = true;
+        }
+      } catch { /* a poll failure is not worth surfacing — the next tick retries */ }
+    };
+
+    handle = window.setInterval(() => {
+      if (stopped) return;
+      if (expiryMs !== null && Number.isFinite(expiryMs) && Date.now() > expiryMs) {
+        // Past the deadline: ask once more, then stop for good.
+        window.clearInterval(handle!);
+        stopped = true;
+        void poll();
+        return;
+      }
+      void poll();
     }, POLL_MS);
 
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, [open, topup, authHeaders, onSettled]);
+    return () => {
+      stopped = true;
+      if (handle !== undefined) window.clearInterval(handle);
+    };
+  }, [open, orderId, orderStatus, expiresAt, authHeaders, onSettled]);
 
   const copyString = async () => {
     if (!topup?.qrString) return;
@@ -191,6 +254,27 @@ export function TopupDialog({
 
   const fee = topup?.feeIdr ?? 0;
   const buyerPaysFee = topup !== null && topup.totalIdr > topup.amountIdr;
+
+  /**
+   * Whether the QR can still be paid.
+   *
+   * Two independent things make it dead, and either is enough: the local deadline passed, or the
+   * order moved out of `pending` (canceled by the gateway, or refused at the credit step). They
+   * are separate because the deadline is the client's clock while the status is the server's
+   * verdict — the display must react to both, since a payer staring at an expired code will not
+   * wait for the next poll to be told.
+   *
+   * `sandboxRefused` picks the truthful message: "expired, you were not charged" reads very
+   * differently from "you paid and we did not credit it".
+   */
+  const timeLeft = useTimeLeft(topup?.expiresAt ?? null);
+  const pastDeadline = timeLeft !== null && timeLeft <= 0;
+  // The poll route answers `sandbox_payment` (409) when a payment landed but was refused at the
+  // credit step. That message is what distinguishes the two dead cases, and it arrives on its own
+  // — the order may still read `pending` in the client's copy, so it must not be gated on status.
+  const sandboxRefused = error.includes("sandbox mode");
+  const terminalButUnsettled = topup !== null && topup.status !== "pending" && !settled;
+  const dead = pastDeadline || terminalButUnsettled || sandboxRefused;
 
   return <Modal
     open={open}
@@ -258,11 +342,18 @@ export function TopupDialog({
 
     {!settled && topup !== null && <>
       <div className="topup-pay">
-        <div className="topup-qr">
-          {topup.qrString
-            ? <QrCanvas value={topup.qrString}/>
-            : <div className="table-empty"><QrCode size={22}/><strong>No QR returned</strong></div>}
-        </div>
+        {/* A dead code is not shown. Leaving a scannable-looking QR above a box that says it
+            cannot be scanned is the contradiction the payer would act on — they would scan it,
+            get nothing, and have no idea which of the two messages to believe. */}
+        {dead
+          ? <div className="topup-qr topup-qr-dead" aria-hidden>
+              <span className="topup-qr-void"><QrCode size={30}/><small>CODE EXPIRED</small></span>
+            </div>
+          : <div className="topup-qr">
+              {topup.qrString
+                ? <QrCanvas value={topup.qrString}/>
+                : <div className="table-empty"><QrCode size={22}/><strong>No QR returned</strong></div>}
+            </div>}
         <div className="topup-facts">
           <div className="topup-fact">
             <small>YOU PAY</small>
@@ -276,16 +367,30 @@ export function TopupDialog({
             <small>BREAKDOWN</small>
             <strong>{formatRupiah(topup.amountIdr)} + {formatRupiah(fee)} fee</strong>
           </div>}
-          <Countdown expiresAt={topup.expiresAt}/>
+          {!dead && <Countdown left={timeLeft}/>}
         </div>
       </div>
 
-      <div className="topup-status" role="status" aria-live="polite">
+      {/* The code is dead but the order never settled. Without this the dialog kept showing a
+          scannable QR and "waiting for payment" indefinitely, because the local countdown and
+          the poll disagreed about what expiry meant. */}
+      {dead ? <div className="topup-dead" role="status">
+        <Clock size={15}/>
+        <div>
+          <strong>{sandboxRefused ? "Sandbox payment not credited" : "This code has expired"}</strong>
+          <span>
+            {sandboxRefused
+              ? "The payment went through, but this project is in sandbox mode so no credits were added."
+              : "It was not paid in time, so it is canceled and cannot be scanned."}
+            {" "}Start a new one to try again.
+          </span>
+        </div>
+      </div> : <div className="topup-status" role="status" aria-live="polite">
         <Loader2 size={14} className="row-spinner"/>
         <span>Waiting for payment… the page checks every few seconds.</span>
-      </div>
+      </div>}
 
-      {topup.qrString && <details className="topup-raw">
+      {!dead && topup.qrString && <details className="topup-raw">
         <summary>Can&apos;t scan it? Copy the code</summary>
         <div className="topup-raw-row">
           <code>{topup.qrString}</code>
@@ -295,7 +400,7 @@ export function TopupDialog({
         </div>
       </details>}
 
-      {topup.isSandbox && <div className="modal-danger-note">
+      {!dead && topup.isSandbox && <div className="modal-danger-note">
         <strong>Sandbox</strong>
         <span>This project is not live yet, so the QR cannot be paid from a real wallet. The balance is still credited so the flow can be tested.</span>
       </div>}

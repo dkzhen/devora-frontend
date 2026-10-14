@@ -298,7 +298,7 @@ export default function CreditsPage() {
           </tbody>
         </table>
       </div>
-      <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires 24 hours after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
+      <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires about an hour after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
     </section>
 
     <section className="console-section activity-section">
