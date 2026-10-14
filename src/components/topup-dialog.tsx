@@ -31,6 +31,16 @@ type Topup = {
   vaNumber: string | null;
   expiresAt: string | null;
   isSandbox: boolean;
+  /**
+   * The SERVER's verdict on whether this order is past its deadline — the same deadline the
+   * backend reconciles against, with the same grace period.
+   *
+   * The client cannot decide this alone: `expiresAt` is rendered on the reader's clock, which may
+   * be minutes off, and a page left open overnight would otherwise keep showing an order as
+   * payable long after the backend closed it. The local countdown is still used, because a payer
+   * staring at a live code should not have to wait for the next poll to be told it died.
+   */
+  expired: boolean;
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
@@ -274,7 +284,9 @@ export function TopupDialog({
   // — the order may still read `pending` in the client's copy, so it must not be gated on status.
   const sandboxRefused = error.includes("sandbox mode");
   const terminalButUnsettled = topup !== null && topup.status !== "pending" && !settled;
-  const dead = pastDeadline || terminalButUnsettled || sandboxRefused;
+  // `topup.expired` is the server's verdict; `pastDeadline` is the local clock. Either closes the
+  // dialog — the server's is authoritative, the local one is what stops a payer waiting.
+  const dead = pastDeadline || terminalButUnsettled || sandboxRefused || topup?.expired === true;
 
   return <Modal
     open={open}

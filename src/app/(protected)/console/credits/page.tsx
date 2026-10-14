@@ -47,10 +47,20 @@ type TopupRow = {
   paymentMethod: string;
   expiresAt: string | null;
   isSandbox: boolean;
+  /** The server's verdict on the deadline, so the row does not rely on the reader's clock. */
+  expired: boolean;
   createdAt: string;
   completedAt: string | null;
 };
 
+/**
+ * Two words for one stored status.
+ *
+ * `canceled` is what the database holds, but it means two different things to the person reading:
+ * a code that ran out of time (they did nothing wrong, they can just try again) and an order that
+ * was refused at the credit step. The row shows the honest one; the column still stores one word,
+ * because a second terminal value would only be a second spelling of one state.
+ */
 const TOPUP_STATUS: Record<TopupRow["status"], { label: string; tone: string }> = {
   completed: { label: "PAID", tone: "topup-tag-ok" },
   pending: { label: "AWAITING PAYMENT", tone: "topup-tag-wait" },
@@ -281,6 +291,9 @@ export default function CreditsPage() {
                   <td>
                     <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
                     {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
+                    {/* An expired order still stores `canceled`; the honest word for the reader is
+                        EXPIRED, so an abandoned checkout does not read as something they did. */}
+                    {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
                   </td>
                   <td className="cell-num">{formatCredits(t.credits)}</td>
                   <td className="cell-num">
