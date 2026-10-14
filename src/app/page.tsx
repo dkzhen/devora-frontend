@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, Blocks, Boxes, Code2, Fingerprint, Layers3, Zap } from "lucide-react";
+import { ArrowUpRight, Blocks, Boxes, Code2, Fingerprint, Layers3, Zap } from "lucide-react";
 import { Brand, DemoNote, PrimaryLink } from "@/components/brand";
 import { LandingEvents, LandingPricing } from "@/components/landing-sections";
 import { LandingSpotlight } from "@/components/landing-spotlight";
@@ -24,7 +24,7 @@ function ProductPeek() {
   ];
   return <div className="product-peek" aria-label="Illustration of the Devora console">
     <div className="peek-sidebar">
-      <div className="peek-brand"><span>◈</span> devora</div>
+      <div className="peek-brand"><span>◈</span> Devora</div>
       <div className="peek-menu active"><i className="peek-dot"/> AI Gateway</div>
       <div className="peek-menu"><i className="peek-dot"/> Billing</div>
       <div className="peek-menu"><i className="peek-dot"/> Credits</div>
@@ -56,7 +56,7 @@ function ProductPeek() {
 
 export default function Home() {
   return <main className="landing"><nav className="landing-nav"><Brand/><div className="landing-links"><Link href="#why">Why Devora</Link><Link href="#how">How it works</Link><Link href="/models">Models</Link><Link href="/stats">Stats</Link><Link href="/pricing">Plans</Link></div><PrimaryLink href="/console/billing">Open console</PrimaryLink></nav>
-    <section className="hero"><div className="hero-content"><div className="eyebrow"><span className="eyebrow-mark">✳</span> A calmer way to build with AI</div><h1>One platform.<br/><span>More ways</span> to build.</h1><p className="hero-copy">Your AI stack, billing, and workspace tools. All in one place, so your ideas can move a little faster.</p><div className="hero-actions"><PrimaryLink href="/auth?next=%2Fconsole%2Fbilling">Get started</PrimaryLink><Link className="text-link" href="#how">Take a look <ArrowDownRight size={16}/></Link></div><div className="hero-proof"><span className="proof-avatars"><i>R</i><i>M</i><i>A</i></span><span>Built for people who make things.</span><span className="proof-line"/></div></div>
+    <section className="hero"><div className="hero-content"><div className="eyebrow"><span className="eyebrow-mark">✳</span> A calmer way to build with AI</div><h1>One platform.<br/><span>More ways</span> to build.</h1><p className="hero-copy">Your AI stack, billing, and workspace tools. All in one place, so your ideas can move a little faster.</p><div className="hero-actions"><PrimaryLink href="/auth?next=%2Fconsole%2Fbilling">Get started</PrimaryLink></div><div className="hero-proof"><span className="proof-avatars"><i>R</i><i>M</i><i>A</i></span><span>Built for people who make things.</span><span className="proof-line"/></div></div>
       <div className="hero-art"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="hero-star star-one">✳</div><div className="hero-star star-two">✦</div><div className="hero-cube"><div className="cube-face cube-top">✳</div><div className="cube-face cube-front">✦</div><div className="cube-face cube-side"/></div><div className="art-label art-label-top">ONE PLATFORM<br/>MORE WAYS</div><div className="art-label art-label-bottom">LESS CONTEXT<br/>SWITCHING</div><div className="hero-bubble">✳</div></div>
     </section>
     <section className="peek-section" id="how"><div className="section-intro"><div className="section-tag">MEET YOUR NEW WORKSPACE</div><h2>A little less scattered.<br/><span>A lot more focused.</span></h2><p>One thoughtful home for the tools and services behind your next big thing.</p></div><ProductPeek/></section>

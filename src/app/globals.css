@@ -1374,3 +1374,21 @@
    size the shape of the word is read before the letters are. */
 .t-micro{font:700 var(--fs-micro)/1.2 var(--font-brand);letter-spacing:.5px;text-transform:uppercase}
 .t-code{font:400 var(--fs-micro)/1.5 var(--font-code)}
+
+/* ---------- Event top-up dialog ----------
+   Shows what the event has spent, then adds to it. The figures come first because the decision
+   ("how much more?") depends on them, and the inputs are additive, never a replacement.
+
+   Sizes are the house's --fs-* tokens, not literal px, and the status figures use --font-brand
+   with tabular digits so two rows of different widths still line up. */
+.event-edit-now{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px;padding:11px 13px;border:1.5px solid var(--line);background:var(--cream)}
+.event-edit-now span{font:400 var(--fs-note)/1.4 var(--font-text);color:#726c60}
+.event-edit-now strong{font:700 var(--fs-subhead-lg)/1 var(--font-brand);font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.event-edit-now .event-edit-left{margin-left:auto;font-weight:700;color:var(--ink)}
+.event-edit-hint{font:400 var(--fs-note)/1.45 var(--font-text);color:#726c60}
+.event-edit-note{display:flex;align-items:flex-start;gap:7px;margin:0;font:400 var(--fs-note)/1.45 var(--font-text);color:#726c60}
+.event-edit-note svg{flex:0 0 auto;margin-top:1px;color:var(--mustard)}
+/* The number field and its unit sit on one line and share the width; the input flexes so the
+   unit keeps its natural size and the pair never wraps into two rows. */
+.event-edit-now + .modal-field .modal-quick{align-items:center;flex-wrap:nowrap}
+.event-edit-now + .modal-field .modal-quick .modal-input{flex:1 1 auto;min-width:0}

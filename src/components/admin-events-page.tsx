@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Ban, CalendarClock, Check, Flame, Layers, Loader2, Plus, RefreshCw, Trash2, X,
+  AlertTriangle, Ban, CalendarClock, Check, Flame, Layers, Loader2, Plus, RefreshCw, SlidersHorizontal, Trash2, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
@@ -112,6 +112,11 @@ export function AdminEventsPage() {
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [confirmStop, setConfirmStop] = useState<AdminEvent | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminEvent | null>(null);
+  const [editing, setEditing] = useState<AdminEvent | null>(null);
+  // The edit form is separate from the create form: they share fields but not meaning, and
+  // binding them together would make a typo in one show up in the other.
+  const [edit, setEdit] = useState({ budgetNumber: "1", budgetMagnitude: "1000000000", extendDays: "7" });
+  const [editError, setEditError] = useState("");
 
   const [form, setForm] = useState({
     kind: "announcement" as EventKind,
@@ -226,6 +231,59 @@ export function AdminEventsPage() {
       await load();
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Top up an event's budget, push its deadline out, or bring it back.
+   *
+   * Sends only what the operator actually changed, because the server ADDS rather than SETS:
+   * an empty field must not be read as "add nothing" when the other one carries a value, and it
+   * must not be sent as zero either. Opening the dialog and saving unchanged sends nothing, which
+   * the server refuses with a readable message rather than writing a no-op.
+   */
+  const saveEdit = async () => {
+    if (!editing) return;
+    setEditError("");
+
+    const n = Number(edit.budgetNumber);
+    const m = Number(edit.budgetMagnitude);
+    const days = Number(edit.extendDays);
+
+    // A non-model event has no budget to add — the server's pairing rule forbids one. Extending
+    // its window is still meaningful, so this is a note rather than a block.
+    const supportsBudget = editing.kind === "model_budget";
+    const addBudget = supportsBudget && Number.isFinite(n) && n > 0
+      ? String(Math.round(n * m))
+      : null;
+    const extendDays = Number.isFinite(days) && days > 0 ? String(Math.round(days)) : null;
+    const activate = editing.status === "disabled";
+
+    if (addBudget === null && extendDays === null && !activate) {
+      setEditError("Nothing to change — add tokens, days, or reactivate.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/backend/api/v1/admin/events/${editing.id}`, {
+        method: "PATCH",
+        headers: await authHeaders(),
+        body: JSON.stringify({ addBudgetTokens: addBudget, extendDays, activate }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setEditError(body?.error?.message ?? "Could not update the event.");
+        return;
+      }
+      const data = await res.json() as { applied?: string };
+      setNotice({ kind: "ok", text: `${editing.title}: ${data.applied ?? "updated"}.` });
+      setEditing(null);
+      await load();
+    } catch {
+      setEditError("Could not reach the gateway.");
     } finally {
       setSaving(false);
     }
@@ -491,6 +549,16 @@ export function AdminEventsPage() {
               </td>
               <td>
                 <span className="row-actions">
+                  {/* Offered on every event that can still serve, not only the live ones: a spent
+                      or ended event is exactly the case that needs a top-up, and hiding the button
+                      there would leave the dead end this dialog exists to remove. */}
+                  {e.kind === "model_budget" && e.state !== "orphaned" && (
+                    <button className="row-action" type="button" title="Add budget or extend"
+                      aria-label={`Edit ${e.title}`} disabled={busyId === e.id}
+                      onClick={() => { setEditing(e); setEditError(""); setEdit({ budgetNumber: "1", budgetMagnitude: "1000000000", extendDays: "7" }); }}>
+                      <SlidersHorizontal size={14}/>
+                    </button>
+                  )}
                   {live && <button className="row-action row-action-danger" type="button" title="Stop event" aria-label={`Stop ${e.title}`} onClick={() => setConfirmStop(e)} disabled={busyId === e.id}>
                     {busyId === e.id ? <Loader2 size={14} className="row-spinner"/> : <Ban size={14}/>}
                   </button>}
@@ -525,6 +593,67 @@ export function AdminEventsPage() {
           <strong>Nothing is lost</strong>
           <span>It has served <strong>{formatTokens(Number(confirmStop.tokensUsed))}</strong> of {formatTokens(Number(confirmStop.budgetTokens))} tokens. The event stays in this list as <em>Disabled</em> so the spend remains auditable.</span>
         </div>
+      </div>}
+    </Modal>
+
+    <Modal
+      open={editing !== null}
+      title="Add budget or extend"
+      subtitle={editing ? `/${editing.slug}` : ""}
+      onClose={() => { setEditing(null); setEditError(""); }}
+      footer={<>
+        <button className="button button-outline" type="button" onClick={() => { setEditing(null); setEditError(""); }}>Cancel</button>
+        <button className="button button-ink compact-button" type="button" onClick={() => void saveEdit()} disabled={saving}>
+          {saving ? <Loader2 size={15} className="row-spinner"/> : <Check size={15}/>} Save
+        </button>
+      </>}
+    >
+      {editing && <div className="events-dialog">
+        {editing.state === "exhausted" && <p><Flame size={15}/> <span>This event has spent its whole budget. Adding tokens puts it back to work immediately — the spend so far is kept.</span></p>}
+        {editing.state === "ended" && <p><CalendarClock size={15}/> <span>The window has closed. Extending it past today makes the event live again.</span></p>}
+        {editing.status === "disabled" && <p><AlertTriangle size={15}/> <span>This event is stopped. Saving will also re-activate it.</span></p>}
+
+        {/* The arithmetic the operator should not have to do: remaining comes from the row, and
+            everything below ADDS to it rather than replacing it. */}
+        <div className="event-edit-now">
+          <span>Spent</span>
+          <strong>{formatTokens(Number(editing.tokensUsed))}</strong>
+          {editing.budgetTokens && <>
+            <span>of</span>
+            <strong>{formatTokens(Number(editing.budgetTokens))}</strong>
+            <span className="event-edit-left">
+              {Number(editing.tokensUsed) >= Number(editing.budgetTokens)
+                ? "nothing left"
+                : `${formatTokens(Number(editing.budgetTokens) - Number(editing.tokensUsed))} left`}
+            </span>
+          </>}
+        </div>
+
+        {editing.kind === "model_budget" ? <div className="modal-field">
+          <label>Add tokens</label>
+          <div className="modal-quick">
+            <input className="modal-input" inputMode="numeric" value={edit.budgetNumber}
+              onChange={e => setEdit(v => ({ ...v, budgetNumber: e.target.value.replace(/[^\d.]/g, "") }))}/>
+            <Select value={edit.budgetMagnitude} onChange={v => setEdit(s => ({ ...s, budgetMagnitude: v }))}
+              options={MAGNITUDES} label="Budget unit" width={168}/>
+          </div>
+          <small className="event-edit-hint">
+            Added to the current budget. {edit.budgetNumber && Number(edit.budgetNumber) > 0
+              ? <>New total {formatTokens(Number(editing.budgetTokens ?? 0) + Math.round(Number(edit.budgetNumber) * Number(edit.budgetMagnitude)))}</>
+              : "Leave empty to only extend the window."}
+          </small>
+        </div> : <p className="event-edit-note"><AlertTriangle size={14}/> An announcement has no token budget — only its window can be extended.</p>}
+
+        <div className="modal-field">
+          <label>Extend by</label>
+          <Select value={edit.extendDays} onChange={v => setEdit(s => ({ ...s, extendDays: v }))}
+            options={DURATIONS.map(d => ({ value: d.value, label: `+${d.label}` }))} label="Extend duration" width={168}/>
+          <small className="event-edit-hint">
+            Moves the deadline out from where it already is. New end {shortDate(new Date(new Date(editing.endsAt).getTime() + Number(edit.extendDays) * 86_400_000).toISOString())}
+          </small>
+        </div>
+
+        {editError && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{editError}</p>}
       </div>}
     </Modal>
 
