@@ -57,6 +57,8 @@ type ModelOption = {
   contextLength: number | null;
   priceInputCredits: number;
   priceOutputCredits: number;
+  priceOriginalInput: number | null;
+  priceOriginalOutput: number | null;
   accessPlans: string[];
 };
 
@@ -334,6 +336,10 @@ export function AdminEventsPage() {
   };
 
   const selectedModel = models.find(m => m.id === form.modelId);
+  // Same rule the API enforces. Applied here so the picker cannot offer a model that would be
+  // rejected on submit — a form that lets you choose an impossible value is a form that wastes
+  // the operator's time and teaches them nothing.
+  const standardModels = models.filter(m => m.accessPlans.includes("STANDARD"));
   const field = (label: string, key: keyof typeof form, placeholder: string, hint?: string) =>
     <label className="admin-field">
       <span>{label}</span>
@@ -401,20 +407,34 @@ export function AdminEventsPage() {
       {form.kind === "model_budget" && <>
       <div className="admin-subfield">
         <span className="admin-subfield-label">Model</span>
-        <p className="admin-subfield-hint">The event applies to this model alone.</p>
-        <Select
-          label="Model this event applies to"
-          value={form.modelId}
-          onChange={v => setForm(f => ({ ...f, modelId: v }))}
-          placeholder="Select a model…"
-          options={models.map(m => ({ value: m.id, label: `${m.displayName} · ${m.id}` }))}
-        />
+        <p className="admin-subfield-hint">
+          The event applies to this model alone. Only models every plan can reach are listed —
+          {/* The plan check runs before the event in the request path, so an event cannot open a
+              door, only remove a price. On a restricted model the giveaway would be invisible to
+              everyone outside that plan while the public page called it free. */}
+          {" "}a restricted model would make this giveaway unreachable for exactly the people it is for.
+        </p>
+        {standardModels.length === 0
+          ? <p className="admin-subfield-hint event-no-standard">
+              <AlertTriangle size={13}/> No model in the catalogue is reachable by every plan, so
+              there is nothing an event could give away yet. Widen a model&apos;s access first.
+            </p>
+          : <Select
+              label="Model this event applies to"
+              value={form.modelId}
+              onChange={v => setForm(f => ({ ...f, modelId: v }))}
+              placeholder="Select a model…"
+              options={standardModels.map(m => ({ value: m.id, label: `${m.displayName} · ${m.id}` }))}
+            />}
         {selectedModel && <div className="event-model-preview">
           <div className="event-model-preview-id"><code>{selectedModel.id}</code></div>
           <div className="event-model-preview-meta">
             <span>{selectedModel.provider}</span>
             {selectedModel.contextLength && <span>· {formatTokens(selectedModel.contextLength)} ctx</span>}
             <span>· ↓ {selectedModel.priceInputCredits.toLocaleString()} / ↑ {selectedModel.priceOutputCredits.toLocaleString()} credits per 1M</span>
+            {/* Worth flagging here: an event makes the model free, so a standing discount is
+                suspended for its duration and returns afterwards. */}
+            {selectedModel.priceOriginalInput !== null && <span>· on discount</span>}
           </div>
           <div className="event-model-preview-plans">
             {selectedModel.accessPlans.map(p => <span key={p} className="plan-tag">{p}</span>)}

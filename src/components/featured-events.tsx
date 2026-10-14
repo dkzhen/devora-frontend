@@ -60,7 +60,7 @@ export function FeaturedEvents() {
   }, []);
 
   return <section className="features-section" id="events" aria-label="Events">
-    <SectionHead tag="HAPPENING NOW" heading="Running right now," accent="and free while it lasts." href="/events" linkLabel="All Events"/>
+    <SectionHead tag="HAPPENING NOW" heading="Running right now," accent="free while it lasts." href="/events" linkLabel="All Events"/>
 
     {events === null
       ? null
@@ -70,7 +70,13 @@ export function FeaturedEvents() {
             const used = e.budget ? Number(e.budget.used) : 0;
             const spent = tokens > 0 ? (used / tokens) * 100 : 0;
             const running = e.state === "running";
-            return <article key={e.id} className={`data-card data-card-tint-${["mint", "coral", "violet"][i % 3]}`}>
+            // A spent budget is worth saying in the bar's own colour, not just in a number: the
+            // section is about what is still available, so "nothing left" should be visible
+            // before the figure is read.
+            const exhausted = tokens > 0 && used >= tokens;
+            // An event that is not running is still shown — it has a window and a history worth
+            // keeping on the page — but it is dimmed, so the live ones carry the section.
+            return <article key={e.id} className={`data-card data-card-tint-${["mint", "coral", "violet"][i % 3]}${running ? "" : " data-card-closed"}`}>
               <div className="data-card-top">
                 {e.model?.provider
                   ? <ProviderMark provider={e.model.provider} size={36}/>
@@ -108,14 +114,14 @@ export function FeaturedEvents() {
                     </div>
 
                     <div className="data-card-share">
-                      <div className="data-card-bar" role="presentation">
+                      <div className={`data-card-bar${exhausted ? " data-card-bar-full" : ""}`} role="presentation">
                         {/* Clamped: a stale row can report used > tokens, and a bar wider than its
                             track is a rendering bug, not information. */}
                         <span style={{ width: `${Math.min(Math.max(spent, 1), 100)}%` }}/>
                       </div>
                       <div className="data-card-share-meta">
-                        <span>{spent >= 0.1 ? `${spent.toFixed(1)}%` : "<0.1%"}</span>
-                        <span>budget spent</span>
+                        <span>{spent >= 100 ? "100%" : spent >= 0.1 ? `${spent.toFixed(1)}%` : "<0.1%"}</span>
+                        <span>{exhausted ? "budget gone — back to credits" : "budget spent"}</span>
                       </div>
                     </div>
 

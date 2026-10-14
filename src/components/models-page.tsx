@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownToLine, ArrowUpFromLine, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Wrench, X, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
+import { PublicFooter } from "@/components/public-footer";
 import { ProviderMark } from "@/components/provider-mark";
+import { PriceTag, pct, showPct } from "@/components/price-tag";
 import { Select } from "@/components/select";
 import { formatContext } from "@/lib/tokens";
 
@@ -25,7 +27,7 @@ type PublicModel = {
   accessPlans: string[];
   free: boolean;
   capabilities: { vision: boolean; reasoning: boolean; tools: boolean };
-  pricing: { unit: string; input: string; output: string };
+  pricing: { unit: string; input: string; output: string; originalInput: string | null; originalOutput: string | null };
 };
 
 /** One fetch of the public catalogue, shared by both the highlight and the full table. */
@@ -168,7 +170,17 @@ export function ModelsPage() {
       </div>}
 
       {status === "ready" && visible.length > 0 && <div className="mp-list">
-        {visible.map(m => <article key={m.id} className={m.free ? "mp-item mp-item-free" : "mp-item"}>
+        {visible.map(m => {
+          // Two prices, one promotion. `saving` is the larger of the two discounts, so the badge
+          // says "up to" rather than naming a figure that is only true on one of the lines.
+          const di = pct(m.pricing.originalInput, m.pricing.input);
+          const dou = pct(m.pricing.originalOutput, m.pricing.output);
+          // Plans beyond the default every model grants. Empty means the model is open to all, in
+          // which case there is no restriction to report.
+          const restricted = m.accessPlans.filter(p => p !== "STANDARD");
+          const both = [di, dou].filter((v): v is number => v !== null);
+          const saving = both.length === 0 ? null : Math.max(...both);
+          return <article key={m.id} className={m.free ? "mp-item mp-item-free" : "mp-item"}>
           {/* Identity first: the provider mark, the name, and the id a caller copies into a
               config. Everything after this block is a property of those three. */}
           <div className="mp-item-head">
@@ -178,13 +190,16 @@ export function ModelsPage() {
               <code>{m.id}</code>
             </div>
             <div className="mp-item-badges">
+              {/* Top-right, text only. A discount is a standing property of the model, so it sits
+                  with the other labels rather than floating on the card — and no box, because a
+                  boxed badge competes with the price for the same glance, and the price sells.
+                  The figure is the larger of the two sides; a "up to" was tried and dropped, since
+                  a range on a label this small is more words than the label can carry. */}
+              {saving !== null && <b className="mp-off">{showPct(saving)}</b>}
               {m.free && <b className="land-free-pill">EVENT</b>}
-              {/* Only the plans that are not universal. STANDARD is the default every model
-                  grants, so a STANDARD badge on every card says nothing and reads as clutter;
-                  SUBSCRIPTION is the one that changes who can call the model. No icon — the
-                  word is already the whole message. */}
-              {m.accessPlans.filter(plan => plan !== "STANDARD").map(plan =>
-                <b key={plan} className="mp-plan">{plan}</b>)}
+              {/* The access badge moved to the foot of the card, beside the capabilities, where
+                  the two halves of "what can it do / who can use it" sit opposite each other. It
+                  is not repeated here — one statement of access, not two. */}
             </div>
           </div>
 
@@ -196,28 +211,56 @@ export function ModelsPage() {
           <dl className="mp-item-facts">
             <div>
               <dt><ArrowDownToLine size={13}/> Input</dt>
-              <dd>{isFreePrice(m, m.pricing.input)
-                ? <span className="mp-was-free"><em>free</em>{Number(m.pricing.input) > 0 && <><del>{m.pricing.input}</del><small>/ 1M</small></>}</span>
-                : <>{m.pricing.input}<small>/ 1M</small></>}</dd>
+              <dd><PriceTag price={{ value: m.pricing.input, original: m.pricing.originalInput, free: isFreePrice(m, m.pricing.input) }}/></dd>
             </div>
             <div>
               <dt><ArrowUpFromLine size={13}/> Output</dt>
-              <dd>{isFreePrice(m, m.pricing.output)
-                ? <span className="mp-was-free"><em>free</em>{Number(m.pricing.output) > 0 && <><del>{m.pricing.output}</del><small>/ 1M</small></>}</span>
-                : <>{m.pricing.output}<small>/ 1M</small></>}</dd>
+              <dd><PriceTag price={{ value: m.pricing.output, original: m.pricing.originalOutput, free: isFreePrice(m, m.pricing.output) }}/></dd>
             </div>
             <div>
               <dt><Ruler size={13}/> Context</dt>
               <dd>{m.contextLength ? <>{formatContext(m.contextLength)}<small>tokens</small></> : "—"}</dd>
             </div>
-          </dl>
 
-          {capabilityChips(m).length > 0 && <div className="mp-item-caps">
-            {m.capabilities.vision && <span><Eye size={13}/> Vision</span>}
-            {m.capabilities.reasoning && <span><Brain size={13}/> Reasoning</span>}
-            {m.capabilities.tools && <span><Wrench size={13}/> Tools</span>}
-          </div>}
-        </article>)}
+            {/* Capabilities take the third slot when the model is open to every plan, and the
+                fourth when it is not — so the row of facts is filled either way and nothing is
+                ever left dangling at the end of it. */}
+            {restricted.length === 0 && capabilityChips(m).length > 0 && <div className="mp-facts-wide">
+              <dt>Capabilities</dt>
+              <dd>
+                <span className="mp-caps-row">
+                  {m.capabilities.vision && <span className="mp-cap" role="img" aria-label="Vision" title="Vision"><Eye size={12}/></span>}
+                  {m.capabilities.reasoning && <span className="mp-cap" role="img" aria-label="Reasoning" title="Reasoning"><Brain size={12}/></span>}
+                  {m.capabilities.tools && <span className="mp-cap" role="img" aria-label="Tools" title="Tools"><Wrench size={12}/></span>}
+                </span>
+              </dd>
+            </div>}
+
+            {/* Access is its own fact, so it sits in the grid rather than on a row beneath it.
+                Without this the facts row held two prices and a context figure, and the pair that
+                answers "what can it do / who can use it" hung underneath, unrelated to them. */}
+            {restricted.length > 0 && <div>
+              <dt>Restricted</dt>
+              <dd>
+                <span className="mp-caps-row">
+                  {restricted.map(plan => <span key={plan} className="mp-plan-text">{plan}</span>)}
+                </span>
+              </dd>
+            </div>}
+
+            {restricted.length > 0 && capabilityChips(m).length > 0 && <div className="mp-facts-wide">
+              <dt>Capabilities</dt>
+              <dd>
+                <span className="mp-caps-row">
+                  {m.capabilities.vision && <span className="mp-cap" role="img" aria-label="Vision" title="Vision"><Eye size={12}/></span>}
+                  {m.capabilities.reasoning && <span className="mp-cap" role="img" aria-label="Reasoning" title="Reasoning"><Brain size={12}/></span>}
+                  {m.capabilities.tools && <span className="mp-cap" role="img" aria-label="Tools" title="Tools"><Wrench size={12}/></span>}
+                </span>
+              </dd>
+            </div>}
+
+          </dl>        </article>;
+        })}
       </div>}
 
       <p className="mp-note">
@@ -226,10 +269,6 @@ export function ModelsPage() {
       </p>
     </section>
 
-    <footer className="landing-footer">
-      <Brand/>
-      <p>One platform. More ways to build.</p>
-      <span className="landing-footer-copy">© 2026 Devora</span>
-    </footer>
+    <PublicFooter/>
   </main>;
 }

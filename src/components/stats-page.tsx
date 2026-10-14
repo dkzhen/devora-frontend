@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Activity, Boxes, Layers, Loader2, RefreshCw, Server, X, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
+import { PublicFooter } from "@/components/public-footer";
 import { ProviderMark } from "@/components/provider-mark";
 
 /* The public statistics page.
@@ -101,17 +102,6 @@ function ageShort(iso: string, now: number) {
   return `${Math.floor(secs / 86400)}d`;
 }
 
-/** "14:07:33.02" — hours:minutes:seconds.centiseconds, in the visitor's own time so a feed row
- *  reads on the same clock as the live indicator above it. Built from the Date's local getters
- *  rather than `toISOString()`, which is UTC by definition and was showing a different hour
- *  than the header. The hundredths come from the timestamp itself, not a counter, so the digits
- *  only change when the data refreshes — decoration that is also true. */
-function subSeconds(iso: string) {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(Math.floor(d.getMilliseconds() / 10))}`;
-}
-
 /** The row's OWN day and time (local), not today's. Reading the day off the live clock showed
  *  every row dated today while the time belonged to the request — a request made yesterday
  *  evening rendered as a future time on today's date. The `title` always carried the truth;
@@ -189,7 +179,7 @@ export function StatsPage() {
     </nav>
 
     <section className="mp-head">
-      <div className="section-tag"><Activity size={13}/> SERVICE FIGURES</div>
+      <div className="section-tag"><Activity size={13}/> OBSERVE</div>
       <h1>Stats</h1>
       <p>What the gateway has served, and what it serves it with. Counted across the lifetime of the workspace.</p>
     </section>
@@ -205,23 +195,20 @@ export function StatsPage() {
 
         {/* ── Gateway ──────────────────────────────────────────────────────────── */}
         <div className="st-group">
-          <div className="st-group-head">
-            <span className="st-group-mark"><Server size={15}/></span>
-            <div className="st-group-title">
-              <h2>Gateway</h2>
-              <p>Requests routed through Devora, and the catalogue behind them.</p>
-            </div>
-          </div>
+          {/* No heading: this group IS the page. A label above the headline figures said nothing
+              the page title had not already said. */}
 
           {/* Two headline figures, then the supporting ones. Requests and tokens are what a
               visitor came for; models and providers say the catalogue behind them is real. */}
           <div className="st-hero">
             <div className="st-headline">
+              <span className="st-mark"/>
               <span className="st-label">Requests served</span>
               <strong>{formatCounter(data.requests)}</strong>
               {data.requests >= 1000 && <small>{full(data.requests)} in total</small>}
             </div>
             <div className="st-headline">
+              <span className="st-mark"/>
               <span className="st-label">Tokens processed</span>
               <strong>{formatCounter(data.totalTokens)}</strong>
               {data.totalTokens >= 1000 && <small>{full(data.totalTokens)} across input and output</small>}
@@ -229,12 +216,12 @@ export function StatsPage() {
           </div>
 
           <div className="st-grid">
-            <div className="st-cell">
+            <div className="st-cell"><span className="st-mark"/>
               <div className="st-cell-top"><Layers size={15}/><span>Models</span></div>
               <strong>{full(data.models)}</strong>
               <small>Published and ready</small>
             </div>
-            <div className="st-cell">
+            <div className="st-cell"><span className="st-mark"/>
               <div className="st-cell-top"><Boxes size={15}/><span>Providers</span></div>
               <strong>{full(data.providers)}</strong>
               <small>Behind one endpoint</small>
@@ -242,12 +229,12 @@ export function StatsPage() {
             {/* Not an input/output ratio. Real traffic is ~99.9% prompt, so the ratio
                 rounds to 100/0 and reads as broken rather than as the fact it is. Models
                 called is the more useful figure and needs no rounding to stay honest. */}
-            <div className="st-cell">
+            <div className="st-cell"><span className="st-mark"/>
               <div className="st-cell-top"><Zap size={15}/><span>Models called</span></div>
               <strong>{full(data.modelsUsed)}</strong>
               <small>{data.modelsUsed > 0 ? `of ${full(data.models)} published` : "None yet"}</small>
             </div>
-            <div className="st-cell">
+            <div className="st-cell"><span className="st-mark"/>
               <div className="st-cell-top"><Server size={15}/><span>Events running</span></div>
               <strong>{full(data.activeEvents)}</strong>
               <small>{data.activeEvents > 0 ? "See what is on" : "Nothing running right now"}</small>
@@ -268,12 +255,15 @@ export function StatsPage() {
             serving — read at a different grain: the lifetime figures above, the last ten
             calls here. A future endpoint group goes below this, not above it, so the page
             keeps running general → specific. */}
+        {/* Recent requests and Traffic by model read as a pair: one is what is happening now, the
+            other is what has happened over the lifetime. Side by side they answer the same
+            question at two grains; stacked, the second read as an afterthought below the fold. */}
+        <div className="st-lower">
         {data.recentRequests.length > 0 && <div className="st-group">
           <div className="st-group-head">
-            <span className="st-group-mark"><Activity size={15}/></span>
             <div className="st-group-title">
-              <h2>Recent requests</h2>
-              <p>The last ten calls through the gateway, newest first.</p>
+              <h2 className="st-h2-italic">Recent requests</h2>
+              <p>The last few calls through the gateway, newest first.</p>
             </div>
             {/* The live indicator belongs to the section it describes. Seconds are always
                 shown, so this reads as running even when the last call was hours ago. */}
@@ -283,43 +273,45 @@ export function StatsPage() {
               <span className="st-live-label">live</span>
             </span>
           </div>
-          <ul className="st-feed">
-            {data.recentRequests.map((r, i) => <li key={`${r.at}-${i}`}
+          {/* A timeline, as in the design: one vertical rule down the left with each call marked
+              against it. The rule is what turns a column of rows into a sequence — without it
+              these are ten unrelated cards. */}
+          <div className="st-timeline">
+            <span className="st-timeline-rule" aria-hidden="true"/>
+            <ul className="st-feed">
+            {data.recentRequests.slice(0, 4).map((r, i) => <li key={`${r.at}-${i}`}
                 className={i === 0 ? "st-feed-card st-feed-newest" : "st-feed-card"}>
-              <div className="st-feed-top">
-                <span className={r.status >= 200 && r.status < 300 ? "st-feed-status" : "st-feed-status st-feed-status-bad"}>
-                  {r.status}
-                </span>
-                <span className="st-feed-route"><code>{r.endpoint}</code></span>
-                {/* Hundredths read from the timestamp, so they move when a new call lands
-                    and sit still otherwise — decoration that is also true. */}
-                <span className="st-feed-sub">{subSeconds(r.at).slice(9)}</span>
-              </div>
-              <div className="st-feed-mid">
-                {/* Only chat-shaped endpoints address a model, so a null here is a real
-                    state and not missing data — it says this call route has no model to
-                    name. */
-                }
+              {/* One row per call, read left to right: who served it, what was called and by which
+                  route, whether it worked, and when. Four columns rather than three stacked
+                  blocks — this is a log, and a log is read across. */}
+              <span className="st-feed-mark">
                 {r.model
-                  ? <><ProviderMark provider={r.model.provider ?? ""} size={22}/><span className="st-feed-name">{r.model.name ?? "Removed model"}</span></>
-                  : <><span className="st-feed-nomark"><Activity size={14}/></span><span className="st-feed-name st-feed-name-muted">No model on this route</span></>}
-              </div>
-              <div className="st-feed-bot">
+                  ? <ProviderMark provider={r.model.provider ?? ""} size={26}/>
+                  : <Activity size={15}/>}
+              </span>
+              <span className="st-feed-what">
+                <strong className="st-feed-name">{r.model ? (r.model.name ?? "Removed model") : "No model on this route"}</strong>
+                <code className="st-feed-route">{r.endpoint}</code>
+              </span>
+              <span className={r.status >= 200 && r.status < 300 ? "st-feed-status" : "st-feed-status st-feed-status-bad"}>
+                {r.status}
+              </span>
+              <span className="st-feed-when-wrap">
+                <span className="st-feed-age">{ageShort(r.at, now)} ago</span>
                 <time className="st-feed-when" dateTime={r.at} title={whenFull(r.at)}>
                   {feedStamp(r.at).day} · {feedStamp(r.at).time}
                 </time>
-                <span className="st-feed-age">{ageShort(r.at, now)} ago</span>
-              </div>
+              </span>
             </li>)}
-          </ul>
+            </ul>
+          </div>
         </div>}
 
         {/* ── Traffic by model ─────────────────────────────────────────────────── */}
         {data.modelBreakdown.length > 0 && <div className="st-group">
           <div className="st-group-head">
-            <span className="st-group-mark"><Layers size={15}/></span>
             <div className="st-group-title">
-              <h2>Traffic by model</h2>
+              <h2 className="st-h2-italic">Top Models</h2>
               <p>Lifetime tokens routed. Heaviest first.</p>
             </div>
           </div>
@@ -329,45 +321,48 @@ export function StatsPage() {
               carries its own labels, so nothing has to be repeated per screenful. The share
               bar is the one comparison that matters and it reads at a glance. */}
           <ul className="st-model-list">
-            {data.modelBreakdown.map(m => {
+            {data.modelBreakdown.slice(0, 4).map((m, i) => {
               const share = data.totalTokens > 0 ? (m.totalTokens / data.totalTokens) * 100 : 0;
-              return <li key={m.id} className="st-model-card">
-                <div className="st-model-head">
+              return <li key={m.id} className={i === 0 ? "st-model-card st-model-lead" : "st-model-card"}>
+                {/* The corner mark rides the leading card only: it marks a rank, so repeating it
+                    on all four would turn it into decoration. */}
+                {i === 0 && <span className="st-mark"/>}
+                {/* The design's shape, block for block: mark and share on one line, the name under
+                    it, then the one figure the card is about set large and labelled, and a ruled
+                    footer carrying the request count. The previous version stacked name, share and
+                    counts into two tight rows, which read as a table row wearing a card border
+                    rather than as a card about one model. */}
+                <div className="st-mc-top">
                   {m.provider
-                    ? <ProviderMark provider={m.provider}/>
+                    ? <ProviderMark provider={m.provider} size={26}/>
                     : <span className="st-model-fallback"><Layers size={15}/></span>}
-                  <div className="st-model-id">
-                    {/* Falls back to the raw id when the model left the catalogue: its
-                        traffic is still in the totals, so hiding the card would make the
-                        breakdown not add up. */}
-                    <strong>{m.name ?? m.id.replace(/^devora-\d+\//, "")}</strong>
-                    <small><code>{m.id}</code></small>
-                  </div>
-                  <span className="st-model-share">{share >= 0.1 ? `${share.toFixed(1)}%` : "<0.1%"}</span>
+                  <span className="st-mc-share">{share >= 0.1 ? `${share.toFixed(1)}%` : "<0.1%"}</span>
                 </div>
 
-                <div className="st-model-bar" role="presentation">
-                  <span style={{ width: `${Math.max(share, 1)}%` }}/>
+                <h3 className="st-mc-name">{m.name ?? m.id.replace(/^devora-\d+\//, "")}</h3>
+
+                <div className="st-mc-figure">
+                  <span className="st-mc-figure-label">Tokens used</span>
+                  <b>{formatCounter(m.totalTokens)}</b>
                 </div>
 
-                <div className="st-model-facts">
-                  <div><span>Requests</span><b>{full(m.requests)}</b></div>
-                  <div><span>Tokens</span><b>{full(m.totalTokens)}</b></div>
-                  {/* State of the model, on the figures line and pushed right — beside its
-                      numbers rather than interrupting its name. Three states, kept apart on
-                      purpose: a disabled model still exists and can be switched back on, a
-                      deleted one cannot. Collapsing both into "unavailable" would hide the
-                      only thing worth knowing — whether the traffic can resume. */}
+                <div className="st-mc-foot">
+                  <span>{full(m.requests)} reqs</span>
+                  {/* State of the model, in the footer beside the count. Three states kept apart:
+                      a disabled model still exists and can be switched back on, a deleted one
+                      cannot — collapsing both into "unavailable" would hide the only thing worth
+                      knowing, whether the traffic can resume. */}
                   {m.status === "inactive"
                     ? <span className="st-badge st-badge-off">inactive</span>
                     : !m.name
                       ? <span className="st-badge st-badge-gone">removed</span>
-                      : null}
+                      : <code className="st-mc-id">{m.id}</code>}
                 </div>
               </li>;
             })}
           </ul>
         </div>}
+        </div>
 
         <p className="st-note">
           Totals are lifetime and are kept as a running snapshot, so they survive log pruning.
@@ -376,10 +371,6 @@ export function StatsPage() {
       </>}
     </section>
 
-    <footer className="landing-footer">
-      <Brand/>
-      <p>One platform. More ways to build.</p>
-      <span className="landing-footer-copy">© 2026 Devora</span>
-    </footer>
+    <PublicFooter/>
   </main>;
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, Gift, Infinity as InfinityIcon, Loader2, Package, Sparkles, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
+import { PublicFooter } from "@/components/public-footer";
 import { formatTokens } from "@/lib/tokens";
 
 /**
@@ -110,10 +111,6 @@ export function PricingPage() {
       </div>
     </section>
 
-    <footer className="landing-footer">
-      <Brand/>
-      <p>One platform. More ways to build.</p>
-      <span className="landing-footer-copy">© 2026 Devora</span>
-    </footer>
+    <PublicFooter/>
   </main>;
 }

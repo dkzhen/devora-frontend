@@ -9,13 +9,30 @@
  * that drifts is a balance someone disputes.
  */
 
-/** Balance: exact, trailing zeros trimmed, grouped thousands. */
+/**
+ * Balance: grouped thousands, at most two decimals.
+ *
+ * Two, not six. The column holds `numeric(18,6)` and a balance of 22.268740 was printing in full —
+ * six characters of precision that no one reads and that push a balance into the next line on a
+ * narrow console. Two decimals is also what the card next door says ("accurate to a hundredth of a
+ * credit, which is the smallest charge we issue"), so the two now agree.
+ *
+ * The six-decimal case this used to serve — a sub-credit charge like 0.000649 — is a *ledger*
+ * amount, not a balance, and `formatCharge` is the function for that. It still shows the precision
+ * where the precision is the point.
+ *
+ * Grouping is applied to the whole part only, and the string is built by hand rather than through
+ * `toLocaleString` on the full value, so a locale cannot swap the decimal separator out from under
+ * a number the backend formats with a dot.
+ */
 export function formatCredits(credits: string): string {
   const n = Number(credits);
-  if (!Number.isFinite(n) || n === 0) return "0";
-  const fixed = n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  // Rounded to two, then trailing zeros trimmed: "22.50" reads as "22.5", "22.00" as "22".
+  const fixed = n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
   const [whole, frac] = fixed.split(".");
-  const grouped = Number(whole).toLocaleString();
+  const grouped = Number(whole).toLocaleString("en-US");
   return frac ? `${grouped}.${frac}` : grouped;
 }
 

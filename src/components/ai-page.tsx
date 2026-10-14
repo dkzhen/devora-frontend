@@ -18,6 +18,8 @@ type CatalogueModel = {
   contextLength: number | null;
   node: string | null;
   priceInputCredits: number;
+  priceOriginalInput: number | null;
+  priceOriginalOutput: number | null;
   priceOutputCredits: number;
   supportsVision: boolean;
   supportsReasoning: boolean;

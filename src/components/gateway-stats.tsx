@@ -36,7 +36,7 @@ export function GatewayStats() {
           { value: formatCounter(full.totalTokens ?? 0), label: "Tokens processed" },
           { value: formatCounter(full.requests), label: "Requests served" },
           { value: formatCredits(Number(full.creditsSpent ?? "")), label: "Credits spent" },
-          { value: String(full.accounts ?? "—"), label: "Accounts" },
+          { value: String(full.accounts ?? "—"), label: "Global users" },
           { value: typeof full.providers === "number" ? String(full.providers) : "—", label: "Providers" },
           { value: String(full.models ?? 0), label: "Models live" },
         ]);
@@ -48,7 +48,9 @@ export function GatewayStats() {
   if (!stats) return null;
 
   return <section className="gateway-stats" id="gateway" aria-label="Devora in numbers">
-    <div className="section-tag">IN NUMBERS</div>    <div className="section-tag">DEVORA IN NUMBERS</div>
+    {/* One tag. A rename left the previous one in place, so two were rendering stacked — that
+        was the leftover, not the wording. This is the heading the operator chose. */}
+    <div className="section-tag">DEVORA IN NUMBERS</div>
     <div className="gs-grid">
       {stats.map(s => <div key={s.label} className="gs-cell">
         <strong>{s.value}</strong>

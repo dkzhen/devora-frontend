@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Ban, Check, Gift, Loader2, Plus, RefreshCw, Tag, Ticket, X,
+  AlertTriangle, Ban, Check, Coins, Gift, Loader2, Package, Plus, RefreshCw, Tag, Ticket, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
+import { AlreadySubscribedDialog } from "@/components/already-subscribed-dialog";
 
 /**
  * Vouchers.
@@ -28,6 +29,9 @@ type Redemption = {
   credits: string;
   redeemedAt: string;
   ref: string | null;
+  /** Set when the redemption granted a package. Null means it credited money instead. */
+  packageId: string | null;
+  packageName: string | null;
 };
 
 type Voucher = {
@@ -103,6 +107,10 @@ export default function VouchersPage() {
 
   const [code, setCode] = useState("");
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // Set when a live package already holds the code's slot. Kept apart from `message` because it
+  // opens a dialog rather than printing a line: there is more than one reason to land here, and
+  // the customer's next move differs for each.
+  const [blocked, setBlocked] = useState<{ packageId: string | null; message: string } | null>(null);
   const [redeeming, setRedeeming] = useState(false);
 
   const [history, setHistory] = useState<Redemption[]>([]);
@@ -174,13 +182,31 @@ export default function VouchersPage() {
         method: "POST", headers: await authHeaders(), body: JSON.stringify({ code: value }),
       });
       const body = await res.json().catch(() => null) as
-        { label?: string; credits?: string; balance?: string; ref?: string; error?: { message?: string } } | null;
-      if (!res.ok) { setMessage({ kind: "error", text: body?.error?.message ?? "Could not redeem the voucher." }); return; }
-      setMessage({
-        kind: "ok",
-        text: `${body?.credits ? trim(body.credits) : ""} credits added from ${body?.label ?? value}` +
-              (body?.ref ? ` · ${body.ref}` : ""),
-      });
+        { label?: string; credits?: string; balance?: string; ref?: string;
+          subscription?: { packageId?: string; packageName?: string; expiresAt?: string | null };
+          error?: { message?: string; code?: string; packageId?: string } } | null;
+      if (!res.ok) {
+        // `already_subscribed` is not really a failure — the code is fine, the account just holds
+        // the package already. It gets a dialog that explains which of the two cases it is and
+        // what to do about each, instead of one line that reads as a rejection.
+        if (res.status === 409 && body?.error?.code === "already_subscribed") {
+          setBlocked({
+            packageId: body.error.packageId ?? null,
+            message: body.error.message ?? "Your account already holds this package.",
+          });
+          return;
+        }
+        setMessage({ kind: "error", text: body?.error?.message ?? "Could not redeem the voucher." }); return;
+      }
+      // Two different grants, so two different confirmations. A package voucher moves no
+      // credits — announcing "credits added" for it was simply wrong, and it left the customer
+      // with no idea what the code had actually done.
+      const sub = body?.subscription;
+      setMessage(sub
+        ? { kind: "ok", text: `Package activated: ${sub.packageName ?? sub.packageId ?? body?.label ?? value}` +
+              (sub.expiresAt ? ` · until ${stamp(sub.expiresAt)}` : " · no expiry") }
+        : { kind: "ok", text: `${body?.credits ? trim(body.credits) : "0"} credits added from ${body?.label ?? value}` +
+              (body?.ref ? ` · ${body.ref}` : "") });
       setCode("");
       await loadHistory();
       if (isOperator) await loadVouchers();
@@ -399,16 +425,36 @@ export default function VouchersPage() {
         {historyStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading activity…</strong><p>Reading your redemptions.</p></div>}
         {historyStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load</strong><p>Try refreshing the page.</p></div>}
         {historyStatus === "ready" && (history.length > 0
-          ? history.map(r => <div className="voucher-row" key={r.code}>
-              <span className="voucher-row-icon"><Check size={16}/></span>
-              <div className="voucher-row-copy">
-                <strong>{r.label}</strong>
-                <small><code>{r.code}</code> · {stamp(r.redeemedAt)}{r.ref ? <> · <code>{r.ref}</code></> : null}</small>
-              </div>
-              <strong className="voucher-row-credits">+ {trim(r.credits)}</strong>
-            </div>)
+          ? history.map(r => {
+              // A redemption that granted a package credited nothing, so "+ 0" was the row's
+              // only summary — accurate and useless. The grant is named instead.
+              const isPackage = r.packageId !== null;
+              return <div className="voucher-row" key={r.code}>
+                <span className={`voucher-row-icon${isPackage ? " voucher-row-icon-sub" : ""}`}>
+                  {isPackage ? <Package size={16}/> : <Coins size={16}/>}
+                </span>
+                <div className="voucher-row-copy">
+                  <strong>{r.packageName ?? r.label}</strong>
+                  <small>
+                    {isPackage && <>Package · </>}
+                    <code>{r.code}</code> · {stamp(r.redeemedAt)}{r.ref ? <> · <code>{r.ref}</code></> : null}
+                  </small>
+                </div>
+                <strong className={`voucher-row-grant${isPackage ? "" : " voucher-row-credits"}`}>
+                  {isPackage ? "PACKAGE" : `+ ${trim(r.credits)}`}
+                </strong>
+              </div>;
+            })
           : <div className="table-empty"><Tag size={19}/><strong>No vouchers redeemed yet</strong><p>Any voucher you redeem will be listed here.</p></div>)}
       </div>
     </section>
+
+    <AlreadySubscribedDialog
+      open={blocked !== null}
+      onClose={() => setBlocked(null)}
+      packageId={blocked?.packageId ?? null}
+      message={blocked?.message ?? ""}
+      getToken={async () => (await getToken()) ?? null}
+    />
   </div>;
 }

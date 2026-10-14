@@ -18,6 +18,9 @@ type ModelRow = {
   status: string;
   priceInputCredits: number;
   priceOutputCredits: number;
+  /** Pre-discount figures. `null` means no discount — not a discount of zero. */
+  priceOriginalInput: number | null;
+  priceOriginalOutput: number | null;
   /** Derived server-side from the id prefix; read-only here. */
   node: string | null;
   accessPlans: string[];
@@ -37,6 +40,8 @@ const EMPTY_FORM = {
   contextLength: "",
   priceInputCredits: "",
   priceOutputCredits: "",
+  priceOriginalInput: "",
+  priceOriginalOutput: "",
   accessPlans: ["STANDARD", "SUBSCRIPTION"] as string[],
   status: "active" as string,
   supportsVision: false,
@@ -69,6 +74,52 @@ const CAPABILITIES: { key: Capability; label: string; hint: string; Icon: typeof
   { key: "supportsReasoning", label: "Reasoning", hint: "Extended thinking", Icon: Brain },
   { key: "supportsTools", label: "Tool call", hint: "Function calling", Icon: Wrench },
 ];
+
+/**
+ * Live read-out of the discount, worked out from the four figures as they are typed.
+ *
+ * Derived, never an input: a percentage the operator types is a second number that can
+ * disagree with the prices it is supposed to describe. It is silent at 0% (nothing to say) and
+ * refuses to invent a figure when the maths would be negative — that case is a mistake in the
+ * fields above, so it says so rather than printing a minus sign.
+ */
+function DiscountReadout({ originalIn, originalOut, finalIn, finalOut }: {
+  originalIn: string; originalOut: string; finalIn: string; finalOut: string;
+}) {
+  const pct = (orig: string, fin: string): number | null => {
+    const o = Number(orig), f = Number(fin);
+    if (orig.trim() === "" || fin.trim() === "" || !Number.isFinite(o) || !Number.isFinite(f) || o <= 0) return null;
+    return (1 - f / o) * 100;
+  };
+  const pin = pct(originalIn, finalIn);
+  const pout = pct(originalOut, finalOut);
+
+  if (pin === null && pout === null) return null;
+  const negative = (pin !== null && pin < 0) || (pout !== null && pout < 0);
+  if (negative) {
+    return <p className="discount-readout discount-readout-bad">
+      <AlertTriangle size={13}/> The original price is below the charged price — that is a rise,
+      not a discount. Raise it, or clear both fields.
+    </p>;
+  }
+  const fmt = (v: number | null) => v === null ? "—" : `${Math.round(v * 10) / 10}%`;
+  return <p className="discount-readout">
+    <strong>{fmt(pin)}</strong> off input · <strong>{fmt(pout)}</strong> off output
+  </p>;
+}
+
+/** Thin wrapper so the table reads cleanly; the maths lives in one place. */
+function discountPercent(m: ModelRow): number | null {
+  const pct = (orig: number | null, fin: number) =>
+    orig === null || orig <= 0 ? null : (1 - fin / orig) * 100;
+  const a = pct(m.priceOriginalInput, m.priceInputCredits);
+  const b = pct(m.priceOriginalOutput, m.priceOutputCredits);
+  const both = [a, b].filter((v): v is number => v !== null);
+  if (both.length === 0) return null;
+  // The larger saving is the headline: a promotion is advertised by its best figure.
+  const max = Math.max(...both);
+  return max <= 0 ? null : Math.round(max * 10) / 10;
+}
 
 export default function AdminModelsPage() {
   const { getToken } = useAuth();
@@ -151,6 +202,10 @@ export default function AdminModelsPage() {
       contextLength: row.contextLength === null ? "" : String(row.contextLength),
       priceInputCredits: String(row.priceInputCredits ?? 0),
       priceOutputCredits: String(row.priceOutputCredits ?? 0),
+      // Empty string, not "0": the field means "no discount", and a zero would trip the
+      // backend's positive check.
+      priceOriginalInput: row.priceOriginalInput === null ? "" : String(row.priceOriginalInput),
+      priceOriginalOutput: row.priceOriginalOutput === null ? "" : String(row.priceOriginalOutput),
       accessPlans: [...(row.accessPlans ?? [])],
       // Carried through the form. Omitting it here would send no status on save, the
       // backend would default to active, and editing a disabled model would quietly
@@ -201,13 +256,35 @@ export default function AdminModelsPage() {
       setNotice({ kind: "error", text: "Select at least one plan that may use this model." });
       return;
     }
+    // Decimals are allowed (0.5 credits per million is a real price), so this tests for a
+    // positive number rather than whole digits — the old check would have rejected 0.5.
+    const isPrice = (v: string) => /^\d+(\.\d+)?$/.test(v);
     const priceIn = form.priceInputCredits.trim();
     const priceOut = form.priceOutputCredits.trim();
+    const origIn = form.priceOriginalInput.trim();
+    const origOut = form.priceOriginalOutput.trim();
+
     for (const [label, value] of [["Input price", priceIn], ["Output price", priceOut]] as const) {
-      if (value !== "" && (!/^\d+$/.test(value))) {
-        setNotice({ kind: "error", text: `${label} must be a whole number of micro-credits per 1M tokens.` });
+      if (!isPrice(value)) {
+        setNotice({ kind: "error", text: `${label} is required — enter the credits per 1M tokens, or 0 for a free model.` });
         return;
       }
+    }
+    // The original pair is optional, but both halves or neither.
+    if ((origIn === "") !== (origOut === "")) {
+      setNotice({ kind: "error", text: "Fill in both original prices, or leave both empty for no discount." });
+      return;
+    }
+    for (const [label, value] of [["Original input price", origIn], ["Original output price", origOut]] as const) {
+      if (value !== "" && !isPrice(value)) {
+        setNotice({ kind: "error", text: `${label} must be a number.` });
+        return;
+      }
+    }
+    // Caught here as well as server-side, so the operator reads a sentence instead of a 400.
+    if (origIn !== "" && origOut !== "" && (Number(origIn) < Number(priceIn) || Number(origOut) < Number(priceOut))) {
+      setNotice({ kind: "error", text: "A discount cannot be negative — the original price must be at least the price being charged." });
+      return;
     }
     setSaving(true);
     try {
@@ -223,8 +300,11 @@ export default function AdminModelsPage() {
           displayName: form.displayName.trim(),
           provider: form.provider.trim(),
           contextLength: form.contextLength.trim() === "" ? null : Number(form.contextLength.trim()),
-          priceInputCredits: priceIn === "" ? 0 : Number(priceIn),
-          priceOutputCredits: priceOut === "" ? 0 : Number(priceOut),
+          priceInputCredits: Number(priceIn),
+          priceOutputCredits: Number(priceOut),
+          // `null` rather than 0 — the backend distinguishes "no discount" from "free".
+          priceOriginalInput: origIn === "" ? null : Number(origIn),
+          priceOriginalOutput: origOut === "" ? null : Number(origOut),
           accessPlans: form.accessPlans,
           status: form.status,
           supportsVision: form.supportsVision,
@@ -253,7 +333,8 @@ export default function AdminModelsPage() {
 
   const field = (
     label: string,
-    key: "id" | "upstreamModelId" | "displayName" | "provider" | "contextLength" | "priceInputCredits" | "priceOutputCredits",
+    key: "id" | "upstreamModelId" | "displayName" | "provider" | "contextLength"
+       | "priceInputCredits" | "priceOutputCredits" | "priceOriginalInput" | "priceOriginalOutput",
     placeholder: string,
     hint?: string,
     disabled = false,
@@ -280,11 +361,30 @@ export default function AdminModelsPage() {
 
       <div className="admin-subfield">
         <span className="admin-subfield-label">Pricing</span>
-        <p className="admin-subfield-hint">Credits per 1M tokens. Leave blank for free. Fractional values are allowed, e.g. 0.14.</p>
+        <p className="admin-subfield-hint">
+          What a request costs. Credits per 1M tokens, fractional allowed (0.14). These are the
+          charged prices — an event can make them free, and a discount lowers them.
+        </p>
         <div className="admin-form admin-form-tight">
-          {field("Input price", "priceInputCredits", "140", "Credits per 1M prompt tokens")}
-          {field("Output price", "priceOutputCredits", "280", "Credits per 1M completion tokens")}
+          {field("Input price", "priceInputCredits", "140", "Charged, per 1M prompt tokens")}
+          {field("Output price", "priceOutputCredits", "280", "Charged, per 1M completion tokens")}
         </div>
+      </div>
+
+      {/* The discount. Both fields are the "before" figure, so the price above stays what is
+          billed and this only changes what the saving is measured from. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Discount</span>
+        <p className="admin-subfield-hint">
+          The price before the reduction. Leave both empty for no discount. The discount is
+          worked out from these two, so it is never a figure that can disagree with the prices.
+        </p>
+        <div className="admin-form admin-form-tight">
+          {field("Original input price", "priceOriginalInput", "280", "Before discount")}
+          {field("Original output price", "priceOriginalOutput", "560", "Before discount")}
+        </div>
+        <DiscountReadout originalIn={form.priceOriginalInput} originalOut={form.priceOriginalOutput}
+                         finalIn={form.priceInputCredits} finalOut={form.priceOutputCredits}/>
       </div>
 
       {/* Two states, not a checkbox. A checkbox would read as "is this thing on?" and leave
@@ -363,7 +463,16 @@ export default function AdminModelsPage() {
               {m.supportsTools && <span className="cap-badge" title="Tool call"><Wrench size={14}/></span>}
               {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && <span className="cap-none">—</span>}
             </span></td>
-            <td><span className="price-pair"><span className="price-in">↓ {m.priceInputCredits.toLocaleString()}</span><span className="price-out">↑ {m.priceOutputCredits.toLocaleString()}</span></span></td>
+            <td>
+              <span className="price-pair">
+                <span className="price-in">↓ {m.priceInputCredits.toLocaleString()}</span>
+                <span className="price-out">↑ {m.priceOutputCredits.toLocaleString()}</span>
+              </span>
+              {/* The discount, if there is one. Shown as a percentage rather than a second pair of
+                  numbers: the struck-through originals are the public page's business, and here
+                  the operator only needs to see at a glance which rows are on promotion. */}
+              {discountPercent(m) !== null && <span className="discount-badge">{discountPercent(m)}% OFF</span>}
+            </td>
             <td><code>{m.upstreamModelId}</code></td>
             <td>{m.contextLength ? formatContext(m.contextLength) : "—"}</td>
             <td><span className="row-actions">

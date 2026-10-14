@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowRight, CalendarClock, Flame, Gift, Loader2, Plus, Zap } from "lucide-react";
+import { PriceTag } from "@/components/price-tag";
+import { PublicFooter } from "@/components/public-footer";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { FaqAccordion } from "@/components/faq-accordion";
 import { ProviderMark } from "@/components/provider-mark";
@@ -37,7 +39,7 @@ type EventCard = {
     contextLength: number | null;
     supportsVision: boolean;
     free: boolean;
-    pricing: { unit: string; input: string; output: string };
+    pricing: { unit: string; input: string; output: string; originalInput: string | null; originalOutput: string | null };
   } | null;
   /** Null when the event carries no budget. */
   budget: { tokens: string; used: string; remaining: string } | null;
@@ -235,7 +237,13 @@ export function EventsPage() {
             <div className="ev-card-foot">
               {e.model && (running
                 ? <span className="ev-free"><Check/> Free while live</span>
-                : <span className="ev-price-normal">↓ {e.model.pricing.input} · ↑ {e.model.pricing.output} <small>cr / 1M</small></span>)}
+                : <span className="ev-price-normal">
+                  {/* The discount travels with the price. An event suspends it while it runs —
+                      `Free while live` says the current offer; this is what returns afterwards. */}
+                  ↓ <PriceTag price={{ value: e.model.pricing.input, original: e.model.pricing.originalInput, free: false }} unit="cr / 1M"/>
+                  {" · "}
+                  ↑ <PriceTag price={{ value: e.model.pricing.output, original: e.model.pricing.originalOutput, free: false }} unit="cr / 1M"/>
+                </span>)}
 
               {/* No budget means no meter. An empty bar would suggest a budget of zero. */}
               {pct !== null && e.budget && <div className="ev-budget">
@@ -282,11 +290,7 @@ export function EventsPage() {
         </section>
       </div>
 
-    <footer className="landing-footer">
-      <Brand/>
-      <p>One platform. More ways to build.</p>
-      <span className="landing-footer-copy">© 2026 Devora</span>
-    </footer>
+    <PublicFooter/>
   </main>;
 }
 
