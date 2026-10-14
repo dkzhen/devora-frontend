@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowRight, CalendarClock, Flame, Gift, Loader2, Plus, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
+import { FaqAccordion } from "@/components/faq-accordion";
 import { ProviderMark } from "@/components/provider-mark";
 import { formatTokens } from "@/lib/tokens";
 
@@ -107,46 +108,6 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-function EventsFaq() {
-  const [open, setOpen] = useState<number | null>(0);
-
-  return (
-    <div className="ev-faq-wrap">
-    <section className="ev-faq" id="faq" style={{ scrollMarginTop: 88 }}>
-      <div className="ev-faq-head">
-        <span className="ev-faq-tag">FAQ</span>
-        <h2>How events work</h2>
-        <p>Free models are the part people ask about most, so the rules are written out here rather than buried in a support reply.</p>
-      </div>
-      <div className="ev-faq-list">
-        {FAQ.map((item, i) => {
-          const isOpen = open === i;
-          return (
-            <div className={isOpen ? "ev-faq-item is-open" : "ev-faq-item"} key={item.q}>
-              <h3>
-                <button
-                  className="ev-faq-q"
-                  type="button"
-                  aria-expanded={isOpen}
-                  aria-controls={`faq-a-${i}`}
-                  onClick={() => setOpen(isOpen ? null : i)}
-                >
-                  <span>{item.q}</span>
-                  <Plus className="ev-faq-icon" size={18} aria-hidden="true" />
-                </button>
-              </h3>
-              <div className="ev-faq-a" id={`faq-a-${i}`} role="region" hidden={!isOpen}>
-                <p>{item.a}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-    </div>
-  );
-}
-
 export function EventsPage() {
   const [events, setEvents] = useState<EventCard[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -183,7 +144,7 @@ export function EventsPage() {
         the product. "Open console" stays: most visitors have an account already. */}
     <nav className="landing-nav">
       <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="#faq">How it works</Link><Link href="/events">Events</Link><Link href="/pricing">Plans</Link></div>
+      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="#faq">How it works</Link><Link href="/events">Events</Link><Link href="/pricing">Pricing</Link></div>
       <PrimaryLink href="/console/billing">Open console</PrimaryLink>
     </nav>
 
@@ -310,7 +271,16 @@ export function EventsPage() {
       </div>
     </section>
 
-    <EventsFaq />
+    <div className="ev-faq-wrap">
+        <section className="ev-faq" id="faq" style={{ scrollMarginTop: 88 }}>
+          <div className="ev-faq-head">
+            <span className="ev-faq-tag">FAQ</span>
+            <h2>How events work</h2>
+            <p>Free models are the part people ask about most, so the rules are written out here rather than buried in a support reply.</p>
+          </div>
+          <FaqAccordion id="ev" items={FAQ}/>
+        </section>
+      </div>
 
     <footer className="landing-footer">
       <Brand/>

@@ -51,7 +51,7 @@ export function PricingPage() {
 
     <section className="mp-head">
       <div className="section-tag"><Package size={13}/> PRICING</div>
-      <h1>Plans</h1>
+      <h1>Pricing</h1>
       <p>Subscription packages bundle an allowance — a token ceiling, or an open plan that slows past fair use. Redeem a voucher to activate one.</p>
     </section>
 
