@@ -1392,3 +1392,30 @@
    unit keeps its natural size and the pair never wraps into two rows. */
 .event-edit-now + .modal-field .modal-quick{align-items:center;flex-wrap:nowrap}
 .event-edit-now + .modal-field .modal-quick .modal-input{flex:1 1 auto;min-width:0}
+
+/* ---------- Select dropdown: never wider than the screen ----------
+   Measured at 390px: the model list rendered 595px wide and pushed 203px past the viewport,
+   which also gave the whole page a horizontal scrollbar. The cause is the option label, not the
+   list: it is "<displayName> · <modelId>" and reaches 60+ characters, while the list only set
+   `min-width:100%` and the option `white-space:nowrap` — so the list grew to fit the longest
+   label no matter how narrow the trigger was.
+
+   Two changes, in that order of importance:
+   1. Cap the list to the space actually available, so a long label can never widen the page.
+   2. Let the label wrap instead of being truncated. A model id is how an operator tells two
+      similarly-named models apart, so cutting it off with an ellipsis — which the trigger
+      already does — would hide the one part that disambiguates.
+
+   `position:relative` on a narrow wrap is not enough on its own because the list is absolutely
+   positioned; the cap is what does the work. */
+.ui-select-list{max-width:min(100%, calc(100vw - 34px))}
+.ui-select-option{white-space:normal;overflow-wrap:anywhere;align-items:flex-start;line-height:1.4}
+/* The tick column keeps its own line so a wrapped label stays flush left rather than sliding
+   under the check. */
+.ui-select-option>span:first-child{min-width:0}
+@media(max-width:520px){
+  /* On a phone the list should use the width it has rather than mimic the trigger, which is
+     often a third of the screen when the trigger sits in a two-column row. */
+  .ui-select-list{min-width:0;width:max-content;max-width:calc(100vw - 28px)}
+  .budget-picker{flex-wrap:wrap}
+}

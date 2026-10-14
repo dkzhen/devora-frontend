@@ -646,10 +646,30 @@ export function AdminEventsPage() {
 
         <div className="modal-field">
           <label>Extend by</label>
-          <Select value={edit.extendDays} onChange={v => setEdit(s => ({ ...s, extendDays: v }))}
-            options={DURATIONS.map(d => ({ value: d.value, label: `+${d.label}` }))} label="Extend duration" width={168}/>
+          {/* Presets plus a free number, matching the create form's duration picker so the two
+              read the same. A custom value must not be coerced back to a preset on re-render —
+              hence the "custom" sentinel rather than comparing against the option list. */}
+          <div className="budget-picker">
+            <Select
+              label="Extend duration"
+              value={DURATIONS.some(d => d.value === edit.extendDays) ? edit.extendDays : "custom"}
+              onChange={v => setEdit(s => ({ ...s, extendDays: v === "custom" ? "" : v }))}
+              options={[...DURATIONS, { value: "custom", label: "Custom…" }]}
+              width={168}
+            />
+            {!DURATIONS.some(d => d.value === edit.extendDays) && <input
+              className="budget-number"
+              inputMode="numeric"
+              placeholder="Days"
+              aria-label="Custom number of days"
+              value={edit.extendDays}
+              onChange={e => setEdit(s => ({ ...s, extendDays: e.target.value.replace(/\D/g, "") }))}
+            />}
+          </div>
           <small className="event-edit-hint">
-            Moves the deadline out from where it already is. New end {shortDate(new Date(new Date(editing.endsAt).getTime() + Number(edit.extendDays) * 86_400_000).toISOString())}
+            Moves the deadline out from where it already is. {Number(edit.extendDays) > 0
+              ? <>New end {shortDate(new Date(new Date(editing.endsAt).getTime() + Number(edit.extendDays) * 86_400_000).toISOString())}</>
+              : "Enter a number of days."}
           </small>
         </div>
 
