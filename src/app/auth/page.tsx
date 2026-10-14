@@ -33,6 +33,14 @@ function AuthForm() {
   const [error, setError] = useState("");
   const [verification, setVerification] = useState(false);
   const [code, setCode] = useState("");
+  /**
+   * The sign-in challenge that is not a password: Clerk's device trust, or a second factor.
+   *
+   * Both arrive as a sign-in STATUS, not an error, and both are answered with an emailed code —
+   * so they share one screen. `deviceTrust` gathers the extra context `needs_client_trust` needs
+   * (the email Clerk masked) and clears it for a plain second factor.
+   */
+  const [mfa, setMfa] = useState<null | { kind: "client_trust" | "second_factor"; maskedEmail: string | null }>(null);
   const [busy, setBusy] = useState(false);
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
@@ -111,8 +119,13 @@ function AuthForm() {
         const { error: finalizeError } = await signIn.finalize({ navigate: () => {} });
         if (finalizeError) throw finalizeError;
         await syncBackendAndNavigate();
-      } else if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust") {
-        setError("This account requires an additional verification step. Please try again or use a different account.");
+      } else if (signIn.status === "needs_client_trust" || signIn.status === "needs_second_factor") {
+        // Not a failure — a step. Previously this branch only rendered an error, which left the
+        // account unreachable from any browser Clerk did not already trust. The answer to both
+        // statuses is an emailed code, so they share one screen; only the copy differs.
+        await startMfa(signIn.status === "needs_client_trust" ? "client_trust" : "second_factor");
+      } else if (signIn.status === "needs_new_password") {
+        setError("This account needs a new password before it can sign in. Use “Forgot password” to set one.");
       } else {
         setError("We could not complete sign-in. Check your details and try again.");
       }
@@ -120,6 +133,75 @@ function AuthForm() {
       const clerkError = cause as { errors?: Array<{ longMessage?: string; message?: string }> };
       const message = clerkError.errors?.[0]?.longMessage || clerkError.errors?.[0]?.message || (cause instanceof Error ? cause.message : "Authentication failed. Please try again.");
       setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Start the emailed-code challenge for device trust or a second factor, and show its screen.
+   *
+   * `sendEmailCode` lives on `signIn.mfa` — not the legacy `prepareSecondFactor`, which compiles
+   * against the wrong type declaration and fails on the real hook. Client trust and a second
+   * factor are the same call here because this instance answers both with an emailed code; if a
+   * factor set without email_code is ever enabled, this is the branch to widen.
+   *
+   * The masked address comes from the sign-in resource so the copy can name where the code went
+   * without the account's full email being echoed back to whoever typed the password.
+   */
+  const startMfa = async (kind: "client_trust" | "second_factor") => {
+    if (!signIn) throw new Error("Sign-in is still loading. Please try again in a moment.");
+
+    const { error: sendError } = await signIn.mfa.sendEmailCode();
+    if (sendError) throw sendError;
+
+    // `identifier` is a plain string on this resource (email, phone, or username). Use it as-is:
+    // it is the identifier the signer typed, not an authoritative record, so the copy names it
+    // but never relies on it to decide anything.
+    const identifier = typeof signIn.identifier === "string" ? signIn.identifier : null;
+
+    setCode("");
+    setMfa({ kind, maskedEmail: identifier });
+  };
+
+  const verifyMfa = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    if (!code.trim()) {
+      setError("Enter the code we emailed you.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (!signIn) throw new Error("Sign-in is still loading. Please try again in a moment.");
+      const { error: verifyError } = await signIn.mfa.verifyEmailCode({ code: code.trim() });
+      if (verifyError) throw verifyError;
+      if (signIn.status !== "complete") {
+        throw new Error("That code did not complete the check. Request a new one and try again.");
+      }
+      const { error: finalizeError } = await signIn.finalize({ navigate: () => {} });
+      if (finalizeError) throw finalizeError;
+      await syncBackendAndNavigate();
+    } catch (cause) {
+      const clerkError = cause as { errors?: Array<{ longMessage?: string; message?: string }> };
+      const message = clerkError.errors?.[0]?.longMessage || clerkError.errors?.[0]?.message || (cause instanceof Error ? cause.message : "Verification failed. Please try again.");
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Re-send, for a code that never arrived or has expired. */
+  const resendMfa = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const { error: sendError } = await signIn!.mfa.sendEmailCode();
+      if (sendError) throw sendError;
+      setCode("");
+    } catch (cause) {
+      const clerkError = cause as { errors?: Array<{ longMessage?: string; message?: string }> };
+      setError(clerkError.errors?.[0]?.longMessage || clerkError.errors?.[0]?.message || "Could not resend the code.");
     } finally {
       setBusy(false);
     }
@@ -150,7 +232,7 @@ function AuthForm() {
     }
   };
 
-  return <main className="auth-page"><div className="auth-brandbar"><Brand/><Link href="/" className="back-link"><ArrowLeft size={15}/> Back to Devora</Link></div><div className="auth-layout"><section className="auth-panel"><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={19}/></div><h1>{verification ? "Check your inbox." : mode === "register" ? "Make yourself at home." : "Welcome back."}</h1><p>{verification ? `Enter the verification code we sent to ${email}.` : mode === "register" ? "Create your Devora account with email and password." : "Sign in with your email and password to continue."}</p></div>{!verification && <div className="auth-tabs" role="tablist" aria-label="Authentication mode"><button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "selected" : ""} onClick={() => { setMode("register"); setError(""); }}>Create account</button><button type="button" role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "selected" : ""} onClick={() => { setMode("signin"); setError(""); }}>Sign in</button></div>}{verification ? <form className="auth-form" onSubmit={verifyEmail} noValidate><label htmlFor="verification-code">Email verification code</label><div className="input-shell"><Mail size={16}/><input id="verification-code" type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="Enter your code" value={code} onChange={e => setCode(e.target.value)} required/></div>{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy} className="button button-ink auth-submit">{busy ? <><Loader2 size={15} className="row-spinner"/> Verifying…</> : <>Verify email<ArrowRight size={17}/></>}</button><button type="button" className="auth-back-button" onClick={() => { setVerification(false); setError(""); }}>Use a different email</button></form> : <form className="auth-form" onSubmit={submit} noValidate>{mode === "register" && <><label htmlFor="first-name">First name</label><div className="input-shell"><input id="first-name" type="text" autoComplete="given-name" placeholder="Ada" value={firstName} onChange={e => setFirstName(e.target.value)} required/></div><label htmlFor="last-name">Last name</label><div className="input-shell"><input id="last-name" type="text" autoComplete="family-name" placeholder="Lovelace" value={lastName} onChange={e => setLastName(e.target.value)} required/></div></>}<label htmlFor="email">Email address</label><div className="input-shell"><Mail size={16}/><input id="email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required/></div><label htmlFor="password">Password</label><div className="input-shell"><LockKeyhole size={16}/><input id="password" type={show ? "text" : "password"} autoComplete={mode === "register" ? "new-password" : "current-password"} placeholder="At least 8 characters" value={password} onChange={e => setPassword(e.target.value)} required minLength={8}/><button className="password-toggle" type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"}>{show ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div>{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy || (mode === "signin" ? !signIn : !signUp)} className="button button-ink auth-submit">{busy ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}<ArrowRight size={17}/></button></form>}<p className="auth-terms">Powered by Clerk.</p></section><aside className="auth-aside"><div className="aside-pattern">✳</div><div className="aside-overline">A HOME FOR WHAT YOU’RE BUILDING</div><h2>Bring your<br/>moving parts<br/><span>together.</span></h2><p>Explore the workspace for your AI stack, credits, and more. Everything you see is demo-only.</p><div className="aside-bottom"><div className="aside-rule"/><span>DEVORA / PREVIEW 01</span></div></aside></div></main>;
+  return <main className="auth-page"><div className="auth-brandbar"><Brand/><Link href="/" className="back-link"><ArrowLeft size={15}/> Back to Devora</Link></div><div className="auth-layout"><section className="auth-panel"><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={19}/></div><h1>{verification ? "Check your inbox." : mfa ? (mfa.kind === "client_trust" ? "Confirm this device." : "One more step.") : mode === "register" ? "Make yourself at home." : "Welcome back."}</h1><p>{verification ? `Enter the verification code we sent to ${email}.` : mfa ? (mfa.kind === "client_trust" ? `Clerk has not seen this browser before. Enter the code we sent${mfa.maskedEmail ? ` to ${mfa.maskedEmail}` : ""} to trust it.` : `Enter the code we sent${mfa.maskedEmail ? ` to ${mfa.maskedEmail}` : " to your email"} to finish signing in.`) : mode === "register" ? "Create your Devora account with email and password." : "Sign in with your email and password to continue."}</p></div>{!verification && !mfa && <div className="auth-tabs" role="tablist" aria-label="Authentication mode"><button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "selected" : ""} onClick={() => { setMode("register"); setError(""); }}>Create account</button><button type="button" role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "selected" : ""} onClick={() => { setMode("signin"); setError(""); }}>Sign in</button></div>}{verification ? <form className="auth-form" onSubmit={verifyEmail} noValidate><label htmlFor="verification-code">Email verification code</label><div className="input-shell"><Mail size={16}/><input id="verification-code" type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="Enter your code" value={code} onChange={e => setCode(e.target.value)} required/></div>{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy} className="button button-ink auth-submit">{busy ? <><Loader2 size={15} className="row-spinner"/> Verifying…</> : <>Verify email<ArrowRight size={17}/></>}</button><button type="button" className="auth-back-button" onClick={() => { setVerification(false); setError(""); }}>Use a different email</button></form> : mfa ? <form className="auth-form" onSubmit={verifyMfa} noValidate><label htmlFor="mfa-code">Sign-in code</label><div className="input-shell"><Mail size={16}/><input id="mfa-code" type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="Enter your code" value={code} onChange={e => setCode(e.target.value)} autoFocus required/></div>{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy} className="button button-ink auth-submit">{busy ? <><Loader2 size={15} className="row-spinner"/> Checking…</> : <>Confirm device<ArrowRight size={17}/></>}</button><button type="button" className="auth-back-button" onClick={() => void resendMfa()} disabled={busy}>Send a new code</button><button type="button" className="auth-back-button" onClick={() => { setMfa(null); setCode(""); setError(""); }}>Use a different account</button></form> : <form className="auth-form" onSubmit={submit} noValidate>{mode === "register" && <><label htmlFor="first-name">First name</label><div className="input-shell"><input id="first-name" type="text" autoComplete="given-name" placeholder="Ada" value={firstName} onChange={e => setFirstName(e.target.value)} required/></div><label htmlFor="last-name">Last name</label><div className="input-shell"><input id="last-name" type="text" autoComplete="family-name" placeholder="Lovelace" value={lastName} onChange={e => setLastName(e.target.value)} required/></div></>}<label htmlFor="email">Email address</label><div className="input-shell"><Mail size={16}/><input id="email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required/></div><label htmlFor="password">Password</label><div className="input-shell"><LockKeyhole size={16}/><input id="password" type={show ? "text" : "password"} autoComplete={mode === "register" ? "new-password" : "current-password"} placeholder="At least 8 characters" value={password} onChange={e => setPassword(e.target.value)} required minLength={8}/><button className="password-toggle" type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"}>{show ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div>{error && <p className="form-error" role="alert">{error}</p>}<button type="submit" disabled={busy || (mode === "signin" ? !signIn : !signUp)} className="button button-ink auth-submit">{busy ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}<ArrowRight size={17}/></button></form>}<p className="auth-terms">Powered by Clerk.</p></section><aside className="auth-aside"><div className="aside-pattern">✳</div><div className="aside-overline">A HOME FOR WHAT YOU’RE BUILDING</div><h2>Bring your<br/>moving parts<br/><span>together.</span></h2><p>Explore the workspace for your AI stack, credits, and more. Everything you see is demo-only.</p><div className="aside-bottom"><div className="aside-rule"/><span>DEVORA / PREVIEW 01</span></div></aside></div></main>;
 }
 
 export default function AuthPage() {
