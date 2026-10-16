@@ -288,7 +288,7 @@ export default function CreditsPage() {
                     <RefChip value={t.orderId}/>
                     {t.isSandbox && <small className="cell-sub">test payment</small>}
                   </td>
-                  <td>
+                  <td className="cell-status">
                     <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
                     {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
                     {/* An expired order still stores `canceled`; the honest word for the reader is
@@ -323,7 +323,7 @@ export default function CreditsPage() {
             {rows.length > 0
               ? rows.map(row => <tr key={row.id}>
                   <td>{formatWhen(row.date)}</td>
-                  <td><span className={`model-dot ${Number(row.amount) > 0 ? "mint-dot" : "coral-dot"}`}/><strong>{row.title}</strong></td>
+                  <td className="cell-activity"><span className={`model-dot ${Number(row.amount) > 0 ? "mint-dot" : "coral-dot"}`}/><strong>{row.title}</strong></td>
                   <td><RefChip value={row.ref}/></td>
                   <td>{row.detail}<small className="ledger-after">balance {formatCredits(row.balanceAfter)}</small></td>
                   <td className={`credit-amount ${Number(row.amount) > 0 ? "credit-positive" : ""}`}>{formatCharge(row.amount)}</td>
