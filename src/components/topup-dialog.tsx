@@ -44,7 +44,7 @@ type Topup = {
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
-const PRESETS = [10_000, 25_000, 50_000, 100_000];
+const PRESETS = [1_000, 10_000, 25_000, 50_000, 100_000];
 
 /** The gateway rate-limits status reads to one per 4 seconds, so polling faster only 429s. */
 const POLL_MS = 4_000;
