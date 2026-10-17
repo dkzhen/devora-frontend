@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, Layers, Loader2, Package, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, Layers, Loader2, Package, Plus, RefreshCw, Save, Search, Trash2, Users, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { formatTokens } from "@/lib/tokens";
@@ -31,6 +31,20 @@ type AdminPackage = {
 };
 
 type ModelOption = { id: string; name: string; provider: string; accessPlans: string[] };
+
+/** One live subscription, joined to the account that holds it. */
+type Subscriber = {
+  userId: string;
+  email: string;
+  name: string;
+  packageId: string;
+  packageName: string;
+  tier: string;
+  startedAt: string;
+  expiresAt: string | null;
+  tokenCap: string | null;
+  tokensUsed: string;
+};
 
 const CATEGORIES: { value: PackageCategory; label: string; hint: string }[] = [
   { value: "hard_cap", label: "Hard cap", hint: "A token ceiling. Reaching it ends the package; the account falls back to credits." },
@@ -70,6 +84,10 @@ export function AdminPackagesPage() {
   const { getToken } = useAuth();
   const [packages, setPackages] = useState<AdminPackage[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  // Subscribers load on their own request: a failure there must not blank the package table,
+  // and the two are read from different joins.
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -98,6 +116,28 @@ export function AdminPackagesPage() {
   }, [authHeaders]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /**
+   * Who holds a package right now.
+   *
+   * Its own request rather than a field on the package list: one account may hold two packages,
+   * so this is keyed by subscription, not by package, and a broken read here should not blank
+   * the table above it.
+   */
+  const loadSubscribers = useCallback(async () => {
+    setSubsStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/packages/subscribers", {
+        headers: await authHeaders(), cache: "no-store",
+      });
+      if (!res.ok) { setSubsStatus("error"); return; }
+      const data = await res.json() as { subscribers?: Subscriber[] };
+      setSubscribers(Array.isArray(data.subscribers) ? data.subscribers : []);
+      setSubsStatus("ready");
+    } catch { setSubsStatus("error"); }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadSubscribers(); }, [loadSubscribers]);
 
   // The model catalogue powers the coverage picker. Fetched once; the console's own admin
   // route already returns what the picker needs (id, name, provider).
@@ -335,7 +375,7 @@ export function AdminPackagesPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">02</span><div><h2>All packages</h2><p>What subscriptions can grant.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void load()}><RefreshCw size={15}/> Refresh</button>
+        <button className="button button-outline compact-button" type="button" onClick={() => { void load(); void loadSubscribers(); }}><RefreshCw size={15}/> Refresh</button>
       </div>
 
       <div className="model-table-wrap">
@@ -382,6 +422,66 @@ export function AdminPackagesPage() {
         </table>}
       </div>
       <div className="table-note"><AlertTriangle size={14}/> Deleting a package a voucher references is refused — retarget the voucher first.</div>
+    </section>
+
+    {/* Who is actually paying, and until when. The LIVE column above is a count; this is the
+        names behind it, which is what an operator answers a support ticket with. */}
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">03</span><div>
+          <h2>Active subscribers</h2>
+          <p>Every account holding a package right now, with the day it lapses.</p>
+        </div></div>
+        <span className="period-badge">{subscribers.length} live</span>
+      </div>
+
+      <div className="model-table-wrap">
+        {subsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading subscribers…</strong></div>}
+        {subsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load subscribers</strong></div>}
+        {subsStatus === "ready" && subscribers.length === 0 && <div className="table-empty">
+          <Users size={19}/><strong>Nobody is subscribed</strong><p>Active packages will appear here the moment someone holds one.</p>
+        </div>}
+        {subsStatus === "ready" && subscribers.length > 0 && <table className="model-table table-events">
+          <thead><tr>
+            <th>ACCOUNT</th><th>PACKAGE</th><th>ALLOWANCE LEFT</th><th>STARTED</th><th>ENDS</th>
+          </tr></thead>
+          <tbody>{subscribers.map(s => {
+            const cap = s.tokenCap === null ? null : Number(s.tokenCap);
+            const used = Number(s.tokensUsed);
+            const left = cap === null ? null : Math.max(0, cap - used);
+            // Days left is the question a support ticket actually asks. Rounded up so "today"
+            // does not read as zero while the window is still open.
+            const daysLeft = s.expiresAt
+              ? Math.ceil((new Date(s.expiresAt).getTime() - Date.now()) / 86_400_000)
+              : null;
+            return <tr key={`${s.userId}-${s.packageId}`}>
+              <td>
+                <strong>{s.name}</strong>
+                <small className="cell-sub"><code>{s.email}</code></small>
+              </td>
+              <td>
+                <strong>{s.packageName}</strong>
+                <small className="cell-sub"><span className="plan-tag">{s.tier}</span></small>
+              </td>
+              <td className="cell-num">
+                {left === null
+                  ? <span className="cell-muted">fair use</span>
+                  : <>{formatTokens(left)}<small className="cell-sub">of {formatTokens(cap ?? 0)}</small></>}
+              </td>
+              <td className="cell-num">{new Date(s.startedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td>
+              <td className="cell-num">
+                {s.expiresAt
+                  ? <>{new Date(s.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                      <small className={daysLeft !== null && daysLeft <= 3 ? "cell-sub subs-soon" : "cell-sub"}>
+                        {daysLeft === null ? "" : daysLeft <= 0 ? "today" : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
+                      </small></>
+                  : <span className="cell-muted">no expiry</span>}
+              </td>
+            </tr>;
+          })}</tbody>
+        </table>}
+      </div>
+      <div className="table-note"><Users size={14}/> Live means the window is still open and allowance remains — a lapsed package is not listed here.</div>
     </section>
 
     <Modal open={confirmDelete !== null} tone="danger" title="Delete this package?"

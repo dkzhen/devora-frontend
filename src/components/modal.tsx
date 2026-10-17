@@ -36,11 +36,12 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
-
-  const close = useCallback(() => {
-    if (busy) return;
-    onClose();
-  }, [busy, onClose]);
+  // `close` changes identity whenever the caller passes a new inline `onClose`, which is every
+  // render. Reading it through a ref keeps the keydown handler current without making the focus
+  // effect re-run — a re-run yanks focus back to the first field on every keystroke, so typing a
+  // number in the second input would only ever land one character at a time.
+  const closeRef = useRef<() => void>(() => {});
+  closeRef.current = () => { if (!busy) onClose(); };
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +49,7 @@ export function Modal({
     restoreRef.current = document.activeElement as HTMLElement | null;
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); }
+      if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
     };
     document.addEventListener("keydown", onKey);
 
@@ -63,7 +64,11 @@ export function Modal({
       document.removeEventListener("keydown", onKey);
       restoreRef.current?.focus?.();
     };
-  }, [open, close]);
+    // Deliberately keyed on `open` alone: the dialog should take focus when it appears and give
+    // it back when it goes. Anything narrower turns ordinary typing into a focus fight.
+  }, [open]);
+
+  const close = useCallback(() => { if (!busy) onClose(); }, [busy, onClose]);
 
   if (!open) return null;
 

@@ -7,12 +7,13 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
+import { Toggle } from "@/components/toggle";
 import { formatTokens } from "@/lib/tokens";
 
 type EventState = "running" | "upcoming" | "ended" | "exhausted" | "disabled" | "orphaned";
 
 /** Which sort of event this is. Decides which fields are required, nothing else. */
-type EventKind = "announcement" | "model_budget";
+type EventKind = "model_budget";
 
 type Highlight = { label: string; value: string };
 
@@ -46,7 +47,6 @@ type AdminEvent = {
  * required and, for `model_budget`, whether the gateway enforces a budget at all.
  */
 const KINDS: { value: EventKind; label: string; hint: string }[] = [
-  { value: "announcement", label: "Announcement", hint: "A notice on the public page. No effect on models or billing." },
   { value: "model_budget", label: "Free model (token budget)", hint: "Frees one model until its budget or deadline runs out." },
 ];
 
@@ -104,6 +104,68 @@ function shortDate(iso: string): string {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+type EditState = {
+  budgetOn: boolean;
+  budgetMode: "add" | "reduce";
+  budgetNumber: string;
+  budgetMagnitude: string;
+  expiryOn: boolean;
+  expiryMode: "add" | "reduce";
+  extendDays: string;
+};
+
+/**
+ * What the budget will become, said in one line.
+ *
+ * The preview computes the same arithmetic the save does, against the budget the event holds
+ * right now — not the budget it started with. A reduce that would dip below what has already
+ * been spent is called out here rather than only on submit, so the number in front of the
+ * operator is one they can act on before pressing save.
+ */
+function budgetPreview(row: AdminEvent, edit: EditState): string {
+  const budget = Number(row.budgetTokens ?? 0);
+  const used = Number(row.tokensUsed ?? 0);
+  const available = budget - used;
+
+  const n = Number(edit.budgetNumber);
+  const m = Number(edit.budgetMagnitude);
+  if (!edit.budgetNumber || !Number.isFinite(n) || n <= 0) {
+    return `Enter an amount. ${formatTokens(available)} available to reduce (${formatTokens(used)} of ${formatTokens(budget)} spent).`;
+  }
+  const magnitude = Math.round(n * m);
+  if (edit.budgetMode === "reduce") {
+    if (magnitude > available) {
+      return available <= 0
+        ? "Nothing left to reduce — the whole budget has been spent."
+        : `Too much. You can reduce by at most ${formatTokens(available)}.`;
+    }
+    return `${formatTokens(budget)} → ${formatTokens(budget - magnitude)}`;
+  }
+  return `${formatTokens(budget)} → ${formatTokens(budget + magnitude)}`;
+}
+
+/** What the deadline will become, said in one line, with the same floor the save enforces. */
+function expiryPreview(row: AdminEvent, edit: EditState): string {
+  const start = new Date(row.startsAt).getTime();
+  const end = new Date(row.endsAt).getTime();
+  const days = Number(edit.extendDays);
+
+  if (!edit.extendDays || !Number.isFinite(days) || days <= 0) {
+    const maxDays = Math.max(0, Math.floor((end - start) / 86_400_000));
+    return `Enter a number of days. At most ${maxDays} available to reduce.`;
+  }
+  const rounded = Math.round(days);
+  const ms = 86_400_000;
+  if (edit.expiryMode === "reduce") {
+    const maxDays = Math.floor((end - start) / ms);
+    if (rounded > maxDays) {
+      return `Too much. You can reduce the window by at most ${maxDays} day(s).`;
+    }
+    return `${shortDate(row.endsAt)} → ${shortDate(new Date(end - rounded * ms).toISOString())}`;
+  }
+  return `${shortDate(row.endsAt)} → ${shortDate(new Date(end + rounded * ms).toISOString())}`;
+}
+
 export function AdminEventsPage() {
   const { getToken } = useAuth();
   const [events, setEvents] = useState<AdminEvent[]>([]);
@@ -117,11 +179,19 @@ export function AdminEventsPage() {
   const [editing, setEditing] = useState<AdminEvent | null>(null);
   // The edit form is separate from the create form: they share fields but not meaning, and
   // binding them together would make a typo in one show up in the other.
-  const [edit, setEdit] = useState({ budgetNumber: "1", budgetMagnitude: "1000000000", extendDays: "7" });
+  const [edit, setEdit] = useState({
+    budgetOn: false,
+    budgetMode: "add" as "add" | "reduce",
+    budgetNumber: "",
+    budgetMagnitude: "1000000000",
+    expiryOn: false,
+    expiryMode: "add" as "add" | "reduce",
+    extendDays: "",
+  });
   const [editError, setEditError] = useState("");
 
   const [form, setForm] = useState({
-    kind: "announcement" as EventKind,
+    kind: "model_budget" as EventKind,
     title: "",
     slug: "",
     description: "",
@@ -227,7 +297,7 @@ export function AdminEventsPage() {
         return;
       }
       setNotice({ kind: "ok", text: `${title} is live.` });
-      setForm({ kind: "announcement", title: "", slug: "", description: "", modelId: "", budgetNumber: "1", budgetMagnitude: "1000000000", durationDays: "7", ctaLabel: "", ctaHref: "" });
+      setForm({ kind: "model_budget", title: "", slug: "", description: "", modelId: "", budgetNumber: "1", budgetMagnitude: "1000000000", durationDays: "7", ctaLabel: "", ctaHref: "" });
       setFacts([{ label: "", value: "" }, { label: "", value: "" }, { label: "", value: "" }]);
       setSlugTouched(false);
       await load();
@@ -250,21 +320,71 @@ export function AdminEventsPage() {
     if (!editing) return;
     setEditError("");
 
-    const n = Number(edit.budgetNumber);
-    const m = Number(edit.budgetMagnitude);
-    const days = Number(edit.extendDays);
+    // Only the sections the operator switched on are sent. An untouched section is absent from
+    // the payload rather than zeroed, so a save can never silently rewrite a field the operator
+    // did not mean to change.
+    let budgetDelta: string | null = null;
+    let daysDelta: string | null = null;
 
-    // A non-model event has no budget to add — the server's pairing rule forbids one. Extending
-    // its window is still meaningful, so this is a note rather than a block.
-    const supportsBudget = editing.kind === "model_budget";
-    const addBudget = supportsBudget && Number.isFinite(n) && n > 0
-      ? String(Math.round(n * m))
-      : null;
-    const extendDays = Number.isFinite(days) && days > 0 ? String(Math.round(days)) : null;
+    if (edit.budgetOn) {
+      const n = Number(edit.budgetNumber);
+      const m = Number(edit.budgetMagnitude);
+      if (!Number.isFinite(n) || n <= 0) {
+        setEditError("Enter how many tokens to change by.");
+        return;
+      }
+      const magnitude = Math.round(n * m);
+      if (edit.budgetMode === "reduce") {
+        // The baseline is the budget this event has right now, and spending is already counted
+        // against it. Reducing below what has been spent would leave an event that used more
+        // than it was ever allowed, so the floor is `tokensUsed`, not zero.
+        const budget = Number(editing.budgetTokens ?? 0);
+        const used = Number(editing.tokensUsed ?? 0);
+        const available = budget - used;
+        if (magnitude > available) {
+          setEditError(
+            available <= 0
+              ? "Nothing left to reduce — the whole budget has already been spent."
+              : `You can reduce by at most ${formatTokens(available)} — ${formatTokens(used)} of ${formatTokens(budget)} has already been spent.`,
+          );
+          return;
+        }
+        budgetDelta = String(-magnitude);
+      } else {
+        budgetDelta = String(magnitude);
+      }
+    }
+
+    if (edit.expiryOn) {
+      const days = Number(edit.extendDays);
+      if (!Number.isFinite(days) || days <= 0) {
+        setEditError("Enter how many days to change by.");
+        return;
+      }
+      const rounded = Math.round(days);
+      if (edit.expiryMode === "reduce") {
+        // A window cannot be shortened past the moment it opened, or the event would claim to
+        // have ended before it began.
+        const start = new Date(editing.startsAt).getTime();
+        const end = new Date(editing.endsAt).getTime();
+        const maxDays = Math.floor((end - start) / 86_400_000);
+        if (maxDays <= 0) {
+          setEditError("This window is too short to reduce any further.");
+          return;
+        }
+        if (rounded > maxDays) {
+          setEditError(`You can reduce the window by at most ${maxDays} day(s).`);
+          return;
+        }
+        daysDelta = String(-rounded);
+      } else {
+        daysDelta = String(rounded);
+      }
+    }
+
     const activate = editing.status === "disabled";
-
-    if (addBudget === null && extendDays === null && !activate) {
-      setEditError("Nothing to change — add tokens, days, or reactivate.");
+    if (budgetDelta === null && daysDelta === null && !activate) {
+      setEditError("Switch on a section to change something, or reactivate the event.");
       return;
     }
 
@@ -273,7 +393,7 @@ export function AdminEventsPage() {
       const res = await fetch(`/backend/api/v1/admin/events/${editing.id}`, {
         method: "PATCH",
         headers: await authHeaders(),
-        body: JSON.stringify({ addBudgetTokens: addBudget, extendDays, activate }),
+        body: JSON.stringify({ addBudgetTokens: budgetDelta, extendDays: daysDelta, activate }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
@@ -369,24 +489,6 @@ export function AdminEventsPage() {
         <div><span className="section-index">01</span><div><h2>Create an event</h2><p>One model, one budget, one deadline.</p></div></div>
       </div>
 
-      <div className="admin-subfield">
-        <span className="admin-subfield-label">Event type</span>
-        <p className="admin-subfield-hint">Decides what the card shows, and whether a model is affected.</p>
-        <div className="kind-tiles">
-          {KINDS.map(k => <button
-            key={k.value}
-            type="button"
-            className={form.kind === k.value ? "kind-tile kind-tile-on" : "kind-tile"}
-            aria-pressed={form.kind === k.value}
-            onClick={() => setForm(f => ({ ...f, kind: k.value }))}
-          >
-            <span className="kind-tile-flag">{form.kind === k.value ? "SELECTED" : ""}</span>
-            <strong>{k.label}</strong>
-            <small>{k.hint}</small>
-          </button>)}
-        </div>
-      </div>
-
       <div className="admin-form">
         {field("Event title", "title", "Free V4.1 Flash Weekend", "Shown on the public events page.")}
         <label className="admin-field">
@@ -448,9 +550,12 @@ export function AdminEventsPage() {
         <div className="budget-picker">
           <input
             className="budget-number"
-            inputMode="decimal"
+            type="number"
+            min="0"
+            step="any"
+            placeholder="1"
             value={form.budgetNumber}
-            onChange={e => setForm(f => ({ ...f, budgetNumber: e.target.value.replace(/[^\d.]/g, "") }))}
+            onChange={e => setForm(f => ({ ...f, budgetNumber: e.target.value }))}
           />
           <Select
             label="Budget magnitude"
@@ -476,10 +581,12 @@ export function AdminEventsPage() {
           />
           {!DURATIONS.some(d => d.value === form.durationDays) && <input
             className="budget-number"
-            inputMode="numeric"
-            placeholder="Days"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="7"
             value={form.durationDays}
-            onChange={e => setForm(f => ({ ...f, durationDays: e.target.value.replace(/\D/g, "") }))}
+            onChange={e => setForm(f => ({ ...f, durationDays: e.target.value }))}
           />}
         </div>
       </div>
@@ -575,7 +682,7 @@ export function AdminEventsPage() {
                   {e.kind === "model_budget" && e.state !== "orphaned" && (
                     <button className="row-action" type="button" title="Add budget or extend"
                       aria-label={`Edit ${e.title}`} disabled={busyId === e.id}
-                      onClick={() => { setEditing(e); setEditError(""); setEdit({ budgetNumber: "1", budgetMagnitude: "1000000000", extendDays: "7" }); }}>
+                      onClick={() => { setEditing(e); setEditError(""); setEdit({ budgetOn: false, budgetMode: "add", budgetNumber: "", budgetMagnitude: "1000000000", expiryOn: false, expiryMode: "add", extendDays: "" }); }}>
                       <SlidersHorizontal size={14}/>
                     </button>
                   )}
@@ -649,48 +756,67 @@ export function AdminEventsPage() {
           </>}
         </div>
 
-        {editing.kind === "model_budget" ? <div className="modal-field">
-          <label>Add tokens</label>
-          <div className="modal-quick">
-            <input className="modal-input" inputMode="numeric" value={edit.budgetNumber}
-              onChange={e => setEdit(v => ({ ...v, budgetNumber: e.target.value.replace(/[^\d.]/g, "") }))}/>
-            <Select value={edit.budgetMagnitude} onChange={v => setEdit(s => ({ ...s, budgetMagnitude: v }))}
-              options={MAGNITUDES} label="Budget unit" width={168}/>
-          </div>
-          <small className="event-edit-hint">
-            Added to the current budget. {edit.budgetNumber && Number(edit.budgetNumber) > 0
-              ? <>New total {formatTokens(Number(editing.budgetTokens ?? 0) + Math.round(Number(edit.budgetNumber) * Number(edit.budgetMagnitude)))}</>
-              : "Leave empty to only extend the window."}
-          </small>
-        </div> : <p className="event-edit-note"><AlertTriangle size={14}/> An announcement has no token budget — only its window can be extended.</p>}
+        <div className="modal-field">
+          <Toggle
+            checked={edit.budgetOn}
+            onChange={on => setEdit(v => ({ ...v, budgetOn: on }))}
+            label="Token budget"
+            hint={editing.budgetTokens
+              ? `${formatTokens(Number(editing.budgetTokens) - Number(editing.tokensUsed))} left of ${formatTokens(Number(editing.budgetTokens))}`
+              : "No budget on this event"}
+          />
+          {edit.budgetOn && <>
+            <div className="event-mode-row">
+              <button type="button" className={edit.budgetMode === "add" ? "event-mode event-mode-on" : "event-mode"}
+                onClick={() => setEdit(v => ({ ...v, budgetMode: "add" }))}>Add</button>
+              <button type="button" className={edit.budgetMode === "reduce" ? "event-mode event-mode-on" : "event-mode"}
+                onClick={() => setEdit(v => ({ ...v, budgetMode: "reduce" }))}>Reduce</button>
+            </div>
+            <div className="modal-quick">
+              <input className="modal-input" type="number" min="0" step="any" value={edit.budgetNumber} placeholder="200"
+                onChange={e => setEdit(v => ({ ...v, budgetNumber: e.target.value }))}/>
+              <Select value={edit.budgetMagnitude} onChange={v => setEdit(s => ({ ...s, budgetMagnitude: v }))}
+                options={MAGNITUDES} label="Budget unit" width={168}/>
+            </div>
+            <small className="event-edit-hint">{budgetPreview(editing, edit)}</small>
+          </>}
+        </div>
 
         <div className="modal-field">
-          <label>Extend by</label>
-          {/* Presets plus a free number, matching the create form's duration picker so the two
-              read the same. A custom value must not be coerced back to a preset on re-render —
-              hence the "custom" sentinel rather than comparing against the option list. */}
-          <div className="budget-picker">
-            <Select
-              label="Extend duration"
-              value={DURATIONS.some(d => d.value === edit.extendDays) ? edit.extendDays : "custom"}
-              onChange={v => setEdit(s => ({ ...s, extendDays: v === "custom" ? "" : v }))}
-              options={[...DURATIONS, { value: "custom", label: "Custom…" }]}
-              width={168}
-            />
-            {!DURATIONS.some(d => d.value === edit.extendDays) && <input
-              className="budget-number"
-              inputMode="numeric"
-              placeholder="Days"
-              aria-label="Custom number of days"
-              value={edit.extendDays}
-              onChange={e => setEdit(s => ({ ...s, extendDays: e.target.value.replace(/\D/g, "") }))}
-            />}
-          </div>
-          <small className="event-edit-hint">
-            Moves the deadline out from where it already is. {Number(edit.extendDays) > 0
-              ? <>New end {shortDate(new Date(new Date(editing.endsAt).getTime() + Number(edit.extendDays) * 86_400_000).toISOString())}</>
-              : "Enter a number of days."}
-          </small>
+          <Toggle
+            checked={edit.expiryOn}
+            onChange={on => setEdit(v => ({ ...v, expiryOn: on }))}
+            label="Expiry"
+            hint={`Ends ${shortDate(editing.endsAt)}`}
+          />
+          {edit.expiryOn && <>
+            <div className="event-mode-row">
+              <button type="button" className={edit.expiryMode === "add" ? "event-mode event-mode-on" : "event-mode"}
+                onClick={() => setEdit(v => ({ ...v, expiryMode: "add" }))}>Extend</button>
+              <button type="button" className={edit.expiryMode === "reduce" ? "event-mode event-mode-on" : "event-mode"}
+                onClick={() => setEdit(v => ({ ...v, expiryMode: "reduce" }))}>Reduce</button>
+            </div>
+            <div className="budget-picker">
+              <Select
+                label="Change duration"
+                value={DURATIONS.some(d => d.value === edit.extendDays) ? edit.extendDays : "custom"}
+                onChange={v => setEdit(s => ({ ...s, extendDays: v === "custom" ? "" : v }))}
+                options={[...DURATIONS, { value: "custom", label: "Custom…" }]}
+                width={168}
+              />
+              {!DURATIONS.some(d => d.value === edit.extendDays) && <input
+                className="budget-number"
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Days"
+                aria-label="Custom number of days"
+                value={edit.extendDays}
+                onChange={e => setEdit(s => ({ ...s, extendDays: e.target.value }))}
+              />}
+            </div>
+            <small className="event-edit-hint">{expiryPreview(editing, edit)}</small>
+          </>}
         </div>
 
         {editError && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{editError}</p>}
