@@ -25,6 +25,8 @@ type CatalogueModel = {
   supportsReasoning: boolean;
   supportsTools: boolean;
   accessPlans: string[];
+  /** True when a running event covers this model — price becomes zero. */
+  free?: boolean;
 };
 
 /**
@@ -345,10 +347,15 @@ export default function AIPage() {
         return haystack.includes(needle);
       })
     ).sort((a, b) => {
-      // Standard-reachable models first, subscription-only last
-      const aSub = !a.accessPlans.includes("STANDARD");
-      const bSub = !b.accessPlans.includes("STANDARD");
-      if (aSub !== bSub) return aSub ? 1 : -1;
+      // Free models first (event or zero-price), then cheapest, then alphabetical
+      const aFree = a.free === true || (a.priceInputCredits === 0 && a.priceOutputCredits === 0);
+      const bFree = b.free === true || (b.priceInputCredits === 0 && b.priceOutputCredits === 0);
+      if (aFree !== bFree) return aFree ? -1 : 1;
+      if (!aFree) {
+        const aPrice = a.priceInputCredits + a.priceOutputCredits;
+        const bPrice = b.priceInputCredits + b.priceOutputCredits;
+        if (aPrice !== bPrice) return aPrice - bPrice;
+      }
       return a.displayName.localeCompare(b.displayName);
     });
 
@@ -394,27 +401,25 @@ export default function AIPage() {
           : <div className="model-card-grid">{pagedModels.map(m => {
             const userPlan = credentials?.plan ?? "STANDARD";
             const isLocked = userPlan !== "SUPERUSER" && userPlan !== "SUBSCRIPTION" && !m.accessPlans.includes(userPlan);
-            const hasInputDiscount = m.priceOriginalInput !== null && m.priceOriginalInput > m.priceInputCredits;
-            const hasOutputDiscount = m.priceOriginalOutput !== null && m.priceOriginalOutput > m.priceOutputCredits;
-            const maxDiscount = Math.max(
+            const hasInputDiscount = !m.free && m.priceOriginalInput !== null && m.priceOriginalInput > m.priceInputCredits;
+            const hasOutputDiscount = !m.free && m.priceOriginalOutput !== null && m.priceOriginalOutput > m.priceOutputCredits;
+            const maxDiscount = !m.free ? Math.max(
               hasInputDiscount ? Math.round((1 - m.priceInputCredits / (m.priceOriginalInput as number)) * 100) : 0,
               hasOutputDiscount ? Math.round((1 - m.priceOutputCredits / (m.priceOriginalOutput as number)) * 100) : 0,
-            );
-            return <article className={`model-card${isLocked ? " model-card-locked" : ""}`} key={m.id}>
+            ) : 0;
+            return <article className={`model-card${isLocked ? " model-card-locked" : ""}${m.free ? " model-card-event" : ""}`} key={m.id}>
               {isLocked && <div className="model-card-lock-overlay"><span className="model-card-lock-icon"><Lock size={20}/></span><span className="model-card-lock-text">Subscription<br/>required</span></div>}
-              {maxDiscount > 0 && <span className="model-card-discount">{maxDiscount}% OFF</span>}
+              {m.free ? <span className="model-card-event-badge">Event</span> : maxDiscount > 0 && <span className="model-card-discount">{maxDiscount}% OFF</span>}
               <div className="model-card-head"><ProviderMark provider={m.provider}/><strong>{m.displayName}</strong></div>
               <code className="ref-chip model-card-id">{m.id}</code>
               <div className="model-card-pricing">
                 <span className="price-pair">
                   <span className="price-in">
-                    ↓ {formatPrice(m.priceInputCredits)}
-                    {hasInputDiscount && <s className="price-strike">{formatPrice(m.priceOriginalInput as number)}</s>}
+                    {m.free ? <><s>{formatPrice(m.priceInputCredits)}</s> Free</> : <>↓ {formatPrice(m.priceInputCredits)}{hasInputDiscount && <s className="price-strike">{formatPrice(m.priceOriginalInput as number)}</s>}</>}
                     <small className="price-unit">/ 1M</small>
                   </span>
                   <span className="price-out">
-                    ↑ {formatPrice(m.priceOutputCredits)}
-                    {hasOutputDiscount && <s className="price-strike">{formatPrice(m.priceOriginalOutput as number)}</s>}
+                    {m.free ? <><s>{formatPrice(m.priceOutputCredits)}</s> Free</> : <>↑ {formatPrice(m.priceOutputCredits)}{hasOutputDiscount && <s className="price-strike">{formatPrice(m.priceOriginalOutput as number)}</s>}</>}
                     <small className="price-unit">/ 1M</small>
                   </span>
                 </span>

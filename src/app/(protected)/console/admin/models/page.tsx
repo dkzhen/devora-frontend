@@ -451,35 +451,51 @@ export default function AdminModelsPage() {
         {status === "error" && <div className="table-empty"><X size={19}/><strong>Could not load models</strong><p>The catalogue is unavailable right now.</p></div>}
         {status === "ready" && (models.length === 0
           ? <div className="table-empty"><Layers size={19}/><strong>No models yet</strong><p>Add the first model above.</p></div>
-          : <table className="model-table"><thead><tr><th>PROVIDER</th><th>MODEL</th><th>NODE</th><th>STATUS</th><th>PLANS</th><th>CAPABILITIES</th><th>PRICING /1M</th><th>UPSTREAM ID</th><th>CONTEXT</th><th></th></tr></thead><tbody>{models.map(m => <tr key={m.id}>
-            <td><ProviderMark provider={m.provider}/></td>
-            <td><strong>{m.displayName}</strong><small className="cell-sub"><code>{m.id}</code></small></td>
-            <td>{m.node ? <code>{m.node}</code> : "—"}</td>
-            <td><span className={m.status === "inactive" ? "md-status-tag md-status-tag-off" : "md-status-tag"}>{m.status === "inactive" ? "inactive" : "active"}</span></td>
-            <td><span className="plan-list">{(m.accessPlans ?? []).map(p => <span key={p} className="plan-tag">{p}</span>)}</span></td>
-            <td><span className="cap-list">
-              {m.supportsVision && <span className="cap-badge" title="Vision"><Eye size={14}/></span>}
-              {m.supportsReasoning && <span className="cap-badge" title="Reasoning"><Brain size={14}/></span>}
-              {m.supportsTools && <span className="cap-badge" title="Tool call"><Wrench size={14}/></span>}
-              {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && <span className="cap-none">—</span>}
-            </span></td>
-            <td>
-              <span className="price-pair">
-                <span className="price-in">↓ {m.priceInputCredits.toLocaleString()}</span>
-                <span className="price-out">↑ {m.priceOutputCredits.toLocaleString()}</span>
-              </span>
-              {/* The discount, if there is one. Shown as a percentage rather than a second pair of
-                  numbers: the struck-through originals are the public page's business, and here
-                  the operator only needs to see at a glance which rows are on promotion. */}
-              {discountPercent(m) !== null && <span className="discount-badge">{discountPercent(m)}% OFF</span>}
-            </td>
-            <td><code>{m.upstreamModelId}</code></td>
-            <td>{m.contextLength ? formatContext(m.contextLength) : "—"}</td>
-            <td><span className="row-actions">
-              <button className="row-action" type="button" title="Edit" aria-label={`Edit ${m.displayName}`} onClick={() => startEdit(m)} disabled={busyId === m.id}><Pencil size={14}/></button>
-              <button className="row-action row-action-danger" type="button" title="Delete" aria-label={`Delete ${m.displayName}`} onClick={() => setConfirmRemove(m)} disabled={busyId === m.id}>{busyId === m.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}</button>
-            </span></td>
-          </tr>)}</tbody></table>)}
+          : (() => {
+              const active = models.filter(m => m.status !== "inactive");
+              const inactive = models.filter(m => m.status === "inactive");
+              const row = (m: ModelRow) => <tr key={m.id} className={m.status === "inactive" ? "model-row-off" : ""}>
+                <td><ProviderMark provider={m.provider}/></td>
+                <td><strong>{m.displayName}</strong><small className="cell-sub"><code>{m.id}</code></small></td>
+                <td>{m.node ? <code>{m.node}</code> : "—"}</td>
+                <td><span className={m.status === "inactive" ? "md-status-tag md-status-tag-off" : "md-status-tag"}>{m.status === "inactive" ? "inactive" : "active"}</span></td>
+                <td><span className="plan-list">{(m.accessPlans ?? []).map(p => <span key={p} className="plan-tag">{p}</span>)}</span></td>
+                <td><span className="cap-list">
+                  {m.supportsVision && <span className="cap-badge" title="Vision"><Eye size={14}/></span>}
+                  {m.supportsReasoning && <span className="cap-badge" title="Reasoning"><Brain size={14}/></span>}
+                  {m.supportsTools && <span className="cap-badge" title="Tool call"><Wrench size={14}/></span>}
+                  {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && <span className="cap-none">—</span>}
+                </span></td>
+                <td>
+                  <span className="price-pair">
+                    <span className="price-in">↓ {m.priceInputCredits.toLocaleString()}</span>
+                    <span className="price-out">↑ {m.priceOutputCredits.toLocaleString()}</span>
+                  </span>
+                  {discountPercent(m) !== null && <span className="discount-badge">{discountPercent(m)}% OFF</span>}
+                </td>
+                <td><code>{m.upstreamModelId}</code></td>
+                <td>{m.contextLength ? formatContext(m.contextLength) : "—"}</td>
+                <td><span className="row-actions">
+                  <button className="row-action" type="button" title="Edit" aria-label={`Edit ${m.displayName}`} onClick={() => startEdit(m)} disabled={busyId === m.id}><Pencil size={14}/></button>
+                  <button className="row-action row-action-danger" type="button" title="Delete" aria-label={`Delete ${m.displayName}`} onClick={() => setConfirmRemove(m)} disabled={busyId === m.id}>{busyId === m.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}</button>
+                </span></td>
+              </tr>;
+              return <table className="model-table">
+                <thead><tr><th>PROVIDER</th><th>MODEL</th><th>NODE</th><th>STATUS</th><th>PLANS</th><th>CAPABILITIES</th><th>PRICING /1M</th><th>UPSTREAM ID</th><th>CONTEXT</th><th></th></tr></thead>
+                <tbody>
+                  <tr className="model-group-head"><td colSpan={10}>Active · {active.length}</td></tr>
+                  {active.length === 0
+                    ? <tr className="model-group-empty"><td colSpan={10}>No active models</td></tr>
+                    : active.map(row)}
+                </tbody>
+                <tbody>
+                  <tr className="model-group-head model-group-head-off"><td colSpan={10}>Inactive · {inactive.length}</td></tr>
+                  {inactive.length === 0
+                    ? <tr className="model-group-empty"><td colSpan={10}>No inactive models</td></tr>
+                    : inactive.map(row)}
+                </tbody>
+              </table>;
+            })())}
       </div>
       <div className="table-note"><Server size={14}/> Routing is resolved server-side from this catalogue.</div>
     </section>

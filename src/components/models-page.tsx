@@ -98,7 +98,12 @@ export function ModelsPage() {
       return [m.name, m.id, m.provider ?? "", ...capabilityChips(m)].join(" ").toLowerCase().includes(q);
     });
     const sorted = [...filtered];
-    if (sort === "price") sorted.sort((a, b) => Number(a.pricing.input) - Number(b.pricing.input));
+    if (sort === "price") sorted.sort((a, b) => {
+        const aFree = a.free || (Number(a.pricing.input) === 0 && Number(a.pricing.output) === 0);
+        const bFree = b.free || (Number(b.pricing.input) === 0 && Number(b.pricing.output) === 0);
+        if (aFree !== bFree) return aFree ? -1 : 1;
+        return Number(a.pricing.input) - Number(b.pricing.input);
+      });
     else if (sort === "context") sorted.sort((a, b) => (b.contextLength ?? 0) - (a.contextLength ?? 0));
     else sorted.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
     return sorted;
@@ -195,7 +200,7 @@ export function ModelsPage() {
                   boxed badge competes with the price for the same glance, and the price sells.
                   The figure is the larger of the two sides; a "up to" was tried and dropped, since
                   a range on a label this small is more words than the label can carry. */}
-              {saving !== null && <b className="mp-off">{showPct(saving)}</b>}
+              {!m.free && saving !== null && <b className="mp-off">{showPct(saving)}</b>}
               {m.free && <b className="land-free-pill">EVENT</b>}
               {/* The access badge moved to the foot of the card, beside the capabilities, where
                   the two halves of "what can it do / who can use it" sit opposite each other. It

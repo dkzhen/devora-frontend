@@ -44,7 +44,8 @@ type Topup = {
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
-const PRESETS = [1_000, 10_000, 25_000, 50_000, 100_000];
+const MIN_TOPUP = 10_000;
+const PRESETS = [10_000, 25_000, 50_000, 100_000];
 
 /** The gateway rate-limits status reads to one per 4 seconds, so polling faster only 429s. */
 const POLL_MS = 4_000;
@@ -148,7 +149,7 @@ export function TopupDialog({
   const create = async () => {
     setError("");
     const n = Number(credits);
-    if (!Number.isFinite(n) || n < 1) { setError("Enter how many credits you want."); return; }
+    if (!Number.isFinite(n) || n < MIN_TOPUP) { setError(`Minimum top-up is ${MIN_TOPUP.toLocaleString()} credits.`); return; }
     setCreating(true);
     try {
       const res = await fetch("/backend/api/v1/topups", {
@@ -303,18 +304,21 @@ export function TopupDialog({
       : topup === null
         ? <>
             <button className="button button-outline" type="button" onClick={onClose} disabled={creating}>Cancel</button>
-            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating}>
+            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
               {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Show QR code <QrCode size={15}/></>}
             </button>
           </>
         : <>
             <button className="button button-outline" type="button" onClick={onClose}>Close</button>
-            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating}>
-              {creating ? <Loader2 size={15} className="row-spinner"/> : <RefreshCw size={15}/>} New code
+            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
+              {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
             </button>
           </>}
-  >
+    >
     {error && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
+    {!settled && topup === null && Number(credits) < MIN_TOPUP && (
+      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {MIN_TOPUP.toLocaleString()} credits.</p>
+    )}
 
     {settled && topup && <div className="topup-settled">
       <span className="topup-settled-mark"><Check size={26}/></span>
@@ -340,14 +344,14 @@ export function TopupDialog({
         </div>
         <label className="admin-field">
           <span>Credits</span>
-          <input value={credits} inputMode="numeric" placeholder="25000"
+          <input value={credits} type="number" min={MIN_TOPUP} step="1" placeholder="25000"
             onChange={e => setCredits(e.target.value)} />
         </label>
         {/* Raw digits above, the reading below — the same rule the admin forms follow. */}
         <p className="admin-scale-note" aria-live="polite">
-          {Number(credits) >= 1
+          {Number(credits) >= MIN_TOPUP
             ? <><strong>{formatRupiah(Math.round(Number(credits)))}</strong> plus the QRIS fee, paid by you</>
-            : <><strong>—</strong> Enter a whole number of credits.</>}
+            : <><strong>—</strong> Minimum is {MIN_TOPUP.toLocaleString()} credits.</>}
         </p>
       </div>
     </>}

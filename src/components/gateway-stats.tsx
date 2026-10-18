@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatCounter, formatCredits } from "@/lib/format-counter";
+import { formatCounter } from "@/lib/format-counter";
 
 /**
  * Devora's headline figures, read live.
@@ -35,7 +35,7 @@ export function GatewayStats() {
         setStats([
           { value: formatCounter(full.totalTokens ?? 0), label: "Tokens processed" },
           { value: formatCounter(full.requests), label: "Requests served" },
-          { value: formatCredits(Number(full.creditsSpent ?? "")), label: "Credits spent" },
+          { value: formatCounter(full.creditsSpent ? Number(full.creditsSpent) : 0), label: "Credits spent" },
           { value: String(full.accounts ?? "—"), label: "Global users" },
           { value: typeof full.providers === "number" ? String(full.providers) : "—", label: "Providers" },
           { value: String(full.models ?? 0), label: "Models live" },

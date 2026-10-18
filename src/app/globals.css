@@ -1869,3 +1869,14 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A subscription ending within three days is the one an operator may need to act on, so the
    "N days left" line takes the warning tone rather than the muted one. */
 .subs-soon{color:var(--coral);font-weight:700}
+
+/* ── Model table group headers (active / inactive) ── */
+.model-group-head td{padding:6px 12px;font:700 var(--fs-micro)/1.4 var(--body);letter-spacing:.6px;color:#6f695d;background:#f7f5ef;text-transform:uppercase;border-bottom:2px solid var(--ink)}
+.model-group-head-off td{color:#b0a99c}
+.model-group-empty td{padding:14px 12px;font-size:var(--fs-note);color:#b0a99c;text-align:center}
+.model-row-off td{color:#b0a99c!important}
+.model-row-off td strong{opacity:.6}
+
+/* ── Event badge on model cards ── */
+.model-card-event{border-color:var(--coral)}
+.model-card-event-badge{position:absolute;top:0;right:0;padding:2px 7px;font:700 var(--fs-micro)/1.5 var(--body);letter-spacing:.4px;background:var(--coral);color:var(--paper);border-left:1px solid var(--ink);border-bottom:1px solid var(--ink)}

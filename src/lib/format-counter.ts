@@ -18,7 +18,11 @@
 export const formatCounter = (n: number): string => {
   if (!Number.isFinite(n)) return "—";
   // Below the first unit the number stands on its own: "999" is a figure, "1K" is a lie.
-  if (Math.abs(n) < 1000) return String(n);
+  // At most two decimals so "27.73126" reads as "27.73".
+  if (Math.abs(n) < 1000) {
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  }
   // Ascending, so a value that rounds onto the next unit can fall through to it.
   const UNITS: [number, string][] = [[1000, "K"], [1_000_000, "M"], [1_000_000_000, "B"], [1_000_000_000_000, "T"]];
   for (let i = 0; i < UNITS.length; i++) {

@@ -48,7 +48,7 @@ export function formatCharge(amount: string): string {
 
 /** A price per 1M tokens, e.g. "1" or "0.14". */
 export function formatPrice(credits: number): string {
-  if (!Number.isFinite(credits) || credits === 0) return "0";
+  if (!Number.isFinite(credits) || credits === 0) return "Free";
   return credits.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 }
 
