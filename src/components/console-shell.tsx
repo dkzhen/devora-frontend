@@ -30,22 +30,31 @@ const adminNav = { group: "ADMIN", items: [
  * needed); plan and credits come from the Devora database via /api/v1/users/me,
  * which is the authority for both.
  */
-function AccountCard({ name, initials, plan, credits, subs }: { name: string; initials: string; plan: string; credits: string; subs: SubscriptionInfo[] }) {
+function AccountCard({ name, initials, plan, credits, subs, freeTokensUsed }: { name: string; initials: string; plan: string; credits: string; subs: SubscriptionInfo[]; freeTokensUsed?: number }) {
   const privileged = plan === "SUPERUSER";
+  const showFree = plan !== "SUPERUSER" && plan !== "SUBSCRIPTION";
+  const FREE_LIMIT = 20_000_000;
+  const freeUsed = freeTokensUsed ?? 0;
+  const freePct = showFree ? Math.min(100, Math.round((freeUsed / FREE_LIMIT) * 100)) : 0;
   return <div className="account-card">
     <div className="account-identity"><span className="account-avatar">{initials}</span><div className="account-names"><strong>{name}</strong><small>{privileged ? <span className="plan-badge plan-privileged">{plan}</span> : plan}</small></div></div>
     <div className="account-credits"><span className="account-credits-label"><Coins size={14}/> Credits</span><strong>{formatCredits(credits)}</strong></div>
+    {showFree && <div className="account-free-tokens">
+      <span className="account-free-tokens-label"><Sparkles size={12}/> Free tokens</span>
+      <span className="account-free-tokens-value">{tokens(freeUsed)} / 20M</span>
+      {freePct > 0 && <div className="account-sub-bar"><i style={{ width: `${freePct}%` }} /></div>}
+    </div>}
     <SubscriptionBadge subs={subs}/>
   </div>;
 }
 
-function ConfiguredAccountCard({ plan, credits, subs }: { plan: string | null; credits: string; subs: SubscriptionInfo[] }) {
+function ConfiguredAccountCard({ plan, credits, subs, freeTokensUsed }: { plan: string | null; credits: string; subs: SubscriptionInfo[]; freeTokensUsed?: number }) {
   const { user } = useUser();
   const name = user ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.primaryEmailAddress?.emailAddress || "Account" : "Account";
   const initials = user ? [user.firstName?.[0], user.lastName?.[0]].filter(Boolean).join("").toUpperCase() || name.slice(0, 2).toUpperCase() : "A";
   const metadataPlan = user?.publicMetadata?.plan;
   const fallbackPlan = typeof metadataPlan === "string" && metadataPlan.trim() ? metadataPlan.trim().toUpperCase() : "STANDARD";
-  return <AccountCard name={name} initials={initials} plan={plan ?? fallbackPlan} credits={credits} subs={subs}/>;
+  return <AccountCard name={name} initials={initials} plan={plan ?? fallbackPlan} credits={credits} subs={subs} freeTokensUsed={freeTokensUsed}/>;
 }
 
 function AccountCardFallback() {
@@ -117,7 +126,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   // Resolved once for the whole shell so the nav and the account card agree, and
   // so the ADMIN group appears in the same render as the SUPERUSER badge.
   const { getToken } = useAuth();
-  const [account, setAccount] = useState<{ plan: string | null; credits: string; subs: SubscriptionInfo[] }>({ plan: null, credits: "0", subs: [] });
+  const [account, setAccount] = useState<{ plan: string | null; credits: string; subs: SubscriptionInfo[]; freeTokensUsed?: number }>({ plan: null, credits: "0", subs: [] });
 
   useEffect(() => {
     if (!CLERK_ENABLED) return;
@@ -128,12 +137,13 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         if (!token) return;
         const res = await fetch("/backend/api/v1/users/me", { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) return;
-        const data = await res.json() as { user?: { plan?: string; credits?: unknown }; subscriptions?: SubscriptionInfo[] };
+        const data = await res.json() as { user?: { plan?: string; credits?: unknown; freeTokensUsed?: number }; subscriptions?: SubscriptionInfo[] };
         if (cancelled) return;
         setAccount({
           plan: data.user?.plan ?? null,
           credits: typeof data.user?.credits === "string" ? data.user.credits : "0",
           subs: Array.isArray(data.subscriptions) ? data.subscriptions : [],
+          freeTokensUsed: typeof data.user?.freeTokensUsed === "number" ? data.user.freeTokensUsed : 0,
         });
       } catch {
         // Leave the defaults; the console stays usable without a plan.
@@ -152,7 +162,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         {groups.map(group => <section key={group.group} className="nav-group"><div className="nav-label">{group.group}</div>{group.items.map(item => {const Icon=item.icon; const active=pathname===item.href; return <Link key={item.href} href={item.href} onClick={()=>setOpen(false)} className={`nav-link ${active?"nav-active":""}`} aria-current={active?"page":undefined}><Icon size={17}/>{item.label}</Link>;})}</section>)}
       </nav>
       <div className="sidebar-bottom">
-        {CLERK_ENABLED ? <ConfiguredAccountCard plan={account.plan} credits={account.credits} subs={account.subs}/> : <AccountCardFallback/>}
+        {CLERK_ENABLED ? <ConfiguredAccountCard plan={account.plan} credits={account.credits} subs={account.subs} freeTokensUsed={account.freeTokensUsed}/> : <AccountCardFallback/>}
         <ConsoleSignOutButton/>
       </div>
     </aside>

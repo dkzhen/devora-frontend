@@ -1244,6 +1244,11 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .account-sub-meta{display:flex;align-items:center;gap:6px;font-size:var(--fs-note);color:#8b857a}
 .account-sub-bar{height:4px;background:#eae4d8;overflow:hidden}
 .account-sub-bar i{display:block;height:100%;background:var(--mint)}
+.account-free-tokens{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding-top:9px;border-top:1px solid #eae4d8}
+.account-free-tokens-label{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-note);color:#857f73}
+.account-free-tokens-label svg{color:var(--violet)}
+.account-free-tokens-value{font:700 var(--fs-note) var(--display);color:var(--ink);margin-left:auto}
+.account-free-tokens .account-sub-bar{flex-basis:100%}
 
 /* Reads a raw token count back in K/M/B under the field that takes it — entering
  "200000000" and counting zeroes is the chore this removes. */
