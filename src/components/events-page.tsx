@@ -1,5 +1,6 @@
 "use client";
 
+import { LandingNav } from "@/components/landing-nav";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowRight, CalendarClock, Flame, Gift, Loader2, Plus, Zap } from "lucide-react";
@@ -144,11 +145,7 @@ export function EventsPage() {
   return <main className="landing events-landing">
     {/* The same nav as the marketing page, so arriving from / does not feel like leaving
         the product. "Open console" stays: most visitors have an account already. */}
-    <nav className="landing-nav">
-      <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="#faq">How it works</Link><Link href="/events">Events</Link><Link href="/pricing">Pricing</Link></div>
-      <PrimaryLink href="/console/billing">Open console</PrimaryLink>
-    </nav>
+    <LandingNav/>
 
     <section className="ev-hero">
       <div className="ev-hero-content">

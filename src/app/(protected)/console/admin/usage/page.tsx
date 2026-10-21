@@ -59,6 +59,7 @@ type AccountRollup = {
   modelCount: number;
   firstRequestAt: string;
   lastRequestAt: string;
+  freeTokensUsed: number;
 };
 
 /** All-time figures across every account, from the snapshot — unaffected by pruning history. */
@@ -300,7 +301,7 @@ export default function AdminUsagePage() {
         {status === "ready" && data && (data.accounts.length === 0
           ? <div className="table-empty"><Zap size={22}/><strong>No usage yet</strong><p>Nothing has gone through the gateway.</p></div>
           : <div className="model-table-wrap"><table className="model-table usage-table accounts-table">
-              <thead><tr><th>Account</th><th>Plan</th><th>Requests</th><th>Tokens</th><th>Credits</th><th>Last used</th></tr></thead>
+              <thead><tr><th>Account</th><th>Plan</th><th>Requests</th><th>Tokens</th><th>Free tokens</th><th>Credits</th><th>Last used</th></tr></thead>
               <tbody>
                 {data.accounts.map(a => (
                   <tr key={a.userId} className={applied.userId === a.userId ? "row-selected" : undefined}>
@@ -308,6 +309,7 @@ export default function AdminUsagePage() {
                     <td><span className={`plan-tag plan-${a.plan.toLowerCase()}`}>{a.plan}</span></td>
                     <td className="cell-num">{formatCount(a.requests)}{a.errors > 0 && <span className="cell-sub">{a.errors} failed</span>}</td>
                     <td className="cell-num">{formatCounter(a.totalTokens)}</td>
+                    <td className="cell-num">{formatCounter(a.freeTokensUsed)}/{formatCounter(20_000_000)}</td>
                     <td className="cell-num">{trimCredits(a.chargedCredits)}</td>
                     <td className="cell-muted">{stamp(a.lastRequestAt)}</td>
                   </tr>

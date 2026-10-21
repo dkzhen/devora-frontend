@@ -1,5 +1,6 @@
 "use client";
 
+import { LandingNav } from "@/components/landing-nav";
 import { formatCounter } from "@/lib/format-counter";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -172,11 +173,7 @@ export function StatsPage() {
   return <main className="landing events-landing">
     {/* The same nav as every other public page, so arriving here does not feel like a
         different site. */}
-    <nav className="landing-nav">
-      <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/#how">How it works</Link><Link href="/events">Events</Link><Link href="/stats">Stats</Link><Link href="/pricing">Pricing</Link></div>
-      <PrimaryLink href="/console/billing">Open console</PrimaryLink>
-    </nav>
+    <LandingNav/>
 
     <section className="mp-head">
       <div className="section-tag"><Activity size={13}/> OBSERVE</div>
@@ -267,11 +264,7 @@ export function StatsPage() {
             </div>
             {/* The live indicator belongs to the section it describes. Seconds are always
                 shown, so this reads as running even when the last call was hours ago. */}
-            <span className="st-live" title={`Page clock ${clk.day} ${clk.hms} · feed re-read every 15s while visible`}>
-              <i className="st-live-dot"/>
-              <span className="st-live-clock">{clk.hms}</span>
-              <span className="st-live-label">live</span>
-            </span>
+
           </div>
           {/* A timeline, as in the design: one vertical rule down the left with each call marked
               against it. The rule is what turns a column of rows into a sequence — without it
@@ -279,7 +272,7 @@ export function StatsPage() {
           <div className="st-timeline">
             <span className="st-timeline-rule" aria-hidden="true"/>
             <ul className="st-feed">
-            {data.recentRequests.slice(0, 4).map((r, i) => <li key={`${r.at}-${i}`}
+            {data.recentRequests.slice(0, 8).map((r, i) => <li key={`${r.at}-${i}`}
                 className={i === 0 ? "st-feed-card st-feed-newest" : "st-feed-card"}>
               {/* One row per call, read left to right: who served it, what was called and by which
                   route, whether it worked, and when. Four columns rather than three stacked

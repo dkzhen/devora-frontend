@@ -1,5 +1,6 @@
 "use client";
 
+import { LandingNav } from "@/components/landing-nav";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, Gift, Infinity as InfinityIcon, Loader2, Package, Sparkles, Zap } from "lucide-react";
@@ -44,11 +45,7 @@ export function PricingPage() {
   useEffect(() => { void load(); }, [load]);
 
   return <main className="landing events-landing">
-    <nav className="landing-nav">
-      <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/models">Models</Link><Link href="/events">Events</Link></div>
-      <PrimaryLink href="/console/billing">Open console</PrimaryLink>
-    </nav>
+    <LandingNav/>
 
     <section className="mp-head">
       <div className="section-tag"><Package size={13}/> PRICING</div>

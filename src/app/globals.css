@@ -1272,6 +1272,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .billing-sub-bar{height:5px;background:#eae4d8;overflow:hidden}
 .billing-sub-bar i{display:block;height:100%;background:var(--mint)}
 .billing-sub-capped .billing-sub-bar i{background:var(--coral)}
+.free-tokens-card{padding:16px 0 4px}.free-tokens-stats{display:flex;gap:50px;padding-bottom:14px}.free-tokens-stats>div{display:flex;flex-direction:column;gap:7px}.free-tokens-stats small{font-size:var(--fs-micro);letter-spacing:.7px;color:#827c71;font-weight:700}.free-tokens-stats strong{font:700 var(--fs-subhead) var(--display)}.free-tokens-bar{height:8px;background:#eae4d8;overflow:hidden;margin-bottom:12px}.free-tokens-bar i{display:block;height:100%;background:var(--mint);transition:width .3s}.free-tokens-bar.exhausted i{background:var(--coral)}.free-tokens-foot{font-size:13px;color:#7d766a;display:flex;align-items:center;gap:8px;line-height:1.5}
 .billing-sub-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:#6f695d}
 .billing-sub-state{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
 .billing-badge{font:700 var(--fs-micro) var(--display);letter-spacing:.5px;padding:2px 6px;border:1px solid var(--ink)}
@@ -1450,6 +1451,31 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gs-cell{display:flex;flex-direction:column;align-items:center;gap:9px;min-width:0}
 .gs-cell strong{font:700 var(--fs-display)/.92 var(--font-brand);letter-spacing:-2px;font-variant-numeric:tabular-nums;color:var(--ink)}
 .gs-cell span{font:700 var(--fs-micro)/1.3 var(--font-brand);letter-spacing:1.3px;text-transform:uppercase;color:#726c60}
+.model-spotlights{max-width:1240px;margin:0 auto;padding:0 7.5% 64px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.spotlight-card{border:2px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:0;display:flex;flex-direction:column;overflow:hidden}
+.spotlight-head{padding:18px 20px 16px;border-bottom:2px solid var(--ink)}
+.spotlight-free .spotlight-head{background:var(--mint)}
+.spotlight-discount .spotlight-head{background:var(--mustard)}
+.spotlight-head h3{font:700 var(--fs-h4)/1.1 var(--display);letter-spacing:-.3px;margin:0}
+.spotlight-head p{font-size:13px;color:#3d3830;margin:4px 0 0}
+.spotlight-body{padding:4px 20px 16px;flex:1;display:flex;flex-direction:column}
+.spotlight-list{list-style:none;margin:0;padding:0}
+.spotlight-list li{display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid #eee9df}
+.spotlight-list li:last-child{border-bottom:0}
+.spotlight-model-info{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.spotlight-model-info strong{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spotlight-model-info span{font-size:11px;color:#8b857a}
+.spotlight-badge{font:700 var(--fs-micro) var(--font-brand);letter-spacing:.4px;padding:2px 6px;white-space:nowrap;background:rgba(255,255,255,.7);color:var(--ink)}
+.spotlight-free .spotlight-badge-event{background:var(--ink);color:var(--cream)}
+.spotlight-discount .spotlight-badge-off{background:var(--ink);color:var(--cream)}
+.spotlight-price{font-size:13px;font-weight:700;white-space:nowrap;text-align:right}
+.spotlight-price-free{color:var(--ink)}
+.spotlight-price-discount{display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.spotlight-price-discount s{font:400 11px var(--body);color:#a9a294}
+.spotlight-price-discount strong{font:700 13px var(--display);color:var(--ink)}
+.spotlight-foot{display:flex;align-items:center;gap:5px;font:700 13px var(--body);color:var(--ink);padding:12px 0 0;margin-top:auto}
+.spotlight-foot svg{width:14px;height:14px}
+@media(max-width:700px){.model-spotlights{grid-template-columns:1fr;padding:0 23px 46px;gap:16px}.spotlight-head{padding:15px 16px 13px}.spotlight-body{padding:4px 16px 14px}.spotlight-head h3{font-size:var(--fs-h5)}.spotlight-list li{padding:10px 0}.spotlight-model-info strong{font-size:12px}}
 
 @media(max-width:900px){
  .gateway-stats{padding:60px 6% 54px}

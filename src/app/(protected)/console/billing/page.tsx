@@ -168,6 +168,8 @@ export default function BillingPage() {
   const [plan, setPlan] = useState<string | null>(null);
   const [credits, setCredits] = useState("0");
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [freeUsed, setFreeUsed] = useState(0);
+  const [freeLimit, setFreeLimit] = useState(20_000_000);
   const [status, setStatus] = useState<Status>("loading");
 
   const load = useCallback(async () => {
@@ -177,11 +179,13 @@ export default function BillingPage() {
       const res = await fetch("/backend/api/v1/users/me", { headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store" });
       if (!res.ok) { setStatus("error"); return; }
       const data = await res.json() as {
-        user?: { plan?: string; credits?: unknown };
+        user?: { plan?: string; credits?: unknown; freeTokensUsed?: number; freeTokensLimit?: number };
         subscriptions?: Subscription[];
       };
       setPlan(typeof data.user?.plan === "string" ? data.user.plan : "STANDARD");
       setCredits(typeof data.user?.credits === "string" ? data.user.credits : "0");
+      setFreeUsed(typeof data.user?.freeTokensUsed === "number" ? data.user.freeTokensUsed : 0);
+      setFreeLimit(typeof data.user?.freeTokensLimit === "number" ? data.user.freeTokensLimit : 20_000_000);
       setSubs(Array.isArray(data.subscriptions) ? data.subscriptions : []);
       setStatus("ready");
     } catch { setStatus("error"); }
@@ -191,6 +195,7 @@ export default function BillingPage() {
 
   const activeTier = plan ?? "STANDARD";
   const hasSubs = subs.length > 0;
+  const freeCapLifted = activeTier !== "STANDARD" || hasSubs;
   // The soonest expiry across every live subscription is what the account should plan around.
   const nextExpiry = subs
     .map(s => s.expiresAt)
@@ -219,10 +224,43 @@ export default function BillingPage() {
       </div>
     </section>
 
+    {/* ---------- free tokens ---------- */}
+    <section className="console-section free-tokens-section">
+      <div className="section-title-row">
+        <div><span className="section-index">01</span><div><h2>Free tokens</h2><p>Your lifetime allowance for free and event-covered models — used before credits.</p></div></div>
+      </div>
+      <div className="free-tokens-card">
+        <div className="free-tokens-stats">
+          <div>
+            <small>USED</small>
+            <strong>{formatCounter(freeUsed)}</strong>
+          </div>
+          <div>
+            <small>LIMIT</small>
+            <strong>{formatCounter(freeLimit)}</strong>
+          </div>
+          <div>
+            <small>REMAINING</small>
+            <strong>{formatCounter(Math.max(0, freeLimit - freeUsed))}</strong>
+          </div>
+        </div>
+        <div className={`free-tokens-bar${freeUsed >= freeLimit ? " exhausted" : ""}`}>
+          <i style={{ width: `${Math.min(100, Math.round((freeUsed / freeLimit) * 100))}%` }}/>
+        </div>
+        <div className="free-tokens-foot">
+          {freeCapLifted
+            ? <><span className="billing-badge billing-badge-ok">CAP LIFTED</span> Your tier has no free token limit — free and event models are unlimited.</>
+            : freeUsed >= freeLimit
+              ? <><span className="billing-badge billing-badge-warn">EXHAUSTED</span> Free tokens used up — requests fall through to credits.</>
+              : <><span className="billing-badge billing-badge-ok">{Math.round((freeUsed / freeLimit) * 100)}% USED</span> {formatCounter(freeLimit - freeUsed)} tokens remaining</>}
+        </div>
+      </div>
+    </section>
+
     {/* ---------- subscriptions ---------- */}
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">01</span><div><h2>Active packages</h2><p>The free allowances your account holds. A request uses these before your credits.</p></div></div>
+        <div><span className="section-index">02</span><div><h2>Active packages</h2><p>The free allowances your account holds. A request uses these before your credits.</p></div></div>
       </div>
 
       {status === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading your plan…</strong></div>}
@@ -238,7 +276,7 @@ export default function BillingPage() {
 
     {/* ---------- invoices ---------- */}
     <section className="console-section invoice-section">
-      <div className="section-title-row"><div><span className="section-index">02</span><div><h2>Invoice history</h2><p>Your billing history will appear here.</p></div></div></div>
+      <div className="section-title-row"><div><span className="section-index">03</span><div><h2>Invoice history</h2><p>Your billing history will appear here.</p></div></div></div>
       <div className="invoice-empty"><span className="invoice-empty-icon"><ReceiptText size={19}/></span><strong>No invoices yet</strong><p>Once card payment is enabled, invoices will show up in this list.</p></div>
     </section>
   </div>;

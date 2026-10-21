@@ -1,5 +1,6 @@
 "use client";
 
+import { LandingNav } from "@/components/landing-nav";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownToLine, ArrowUpFromLine, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Wrench, X, Zap } from "lucide-react";
@@ -110,11 +111,7 @@ export function ModelsPage() {
   }, [models, query, provider, sort]);
 
   return <main className="landing events-landing">
-    <nav className="landing-nav">
-      <Brand/>
-      <div className="landing-links"><Link href="/#why">Why Devora</Link><Link href="/#how">How it works</Link><Link href="/events">Events</Link><Link href="/pricing">Pricing</Link></div>
-      <PrimaryLink href="/console/billing">Open console</PrimaryLink>
-    </nav>
+    <LandingNav/>
 
     <section className="mp-head">
       <div className="section-tag"><Layers size={13}/> CATALOGUE</div>
