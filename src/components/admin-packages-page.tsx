@@ -401,10 +401,16 @@ export function AdminPackagesPage() {
   };
 
   /** Package options for the plan form's select dropdown. */
-  const packageOptions = useMemo(
-    () => packages.map(p => ({ value: p.id, label: `${p.name} (${p.tier})` })),
-    [packages],
-  );
+  const packageOptions = useMemo(() => {
+    // Exclude packages already linked to another pricing plan — one card per package.
+    // When editing, allow the plan's own package to stay in the list.
+    const usedPackageIds = new Set(
+      pricingPlans.filter(p => p.id !== editingPlanId).map(p => p.packageId)
+    );
+    return packages
+      .filter(p => !usedPackageIds.has(p.id))
+      .map(p => ({ value: p.id, label: `${p.name} (${p.tier})` }));
+  }, [packages, pricingPlans, editingPlanId]);
 
   const field = (label: string, key: keyof ModelForm, placeholder: string, hint?: string) =>
     <label className="admin-field">
