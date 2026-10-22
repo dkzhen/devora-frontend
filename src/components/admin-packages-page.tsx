@@ -75,6 +75,45 @@ const EMPTY: ModelForm = {
   durationDays: "30", tokenCap: "", fairUseCap: "", baseRpm: "", throttledRpm: "20",
 };
 
+/** A pricing plan: a marketing card linked to a package. */
+type PricingPlan = {
+  id: string;
+  displayName: string;
+  displayDescription: string;
+  features: string[];
+  priceIdr: number;
+  priceCredits: string;
+  packageId: string;
+  packageName: string;
+  sortOrder: number;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Form state for creating/editing a pricing plan. */
+type PlanForm = {
+  displayName: string;
+  displayDescription: string;
+  features: string[];
+  priceIdr: string;
+  priceCredits: string;
+  paymentType: "idr" | "credits" | "both";
+  packageId: string;
+  sortOrder: string;
+  isPublic: boolean;
+};
+
+const EMPTY_PLAN: PlanForm = {
+  displayName: "", displayDescription: "", features: [],
+  priceIdr: "0", priceCredits: "0", paymentType: "idr", packageId: "", sortOrder: "0", isPublic: true,
+};
+
+function slugifyPlan(input: string): string {
+  return input.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s-]/g, "")
+    .trim().replace(/[\s-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
+}
+
 function slugify(input: string): string {
   return input.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s_-]/g, "")
     .trim().replace(/\s+/g, "_").replace(/[-_]+/g, "_").slice(0, 63);
@@ -98,6 +137,17 @@ export function AdminPackagesPage() {
   const [modelIds, setModelIds] = useState<string[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelFilter, setModelFilter] = useState("");
+
+  // ---- pricing plans state ----
+  const [pricingPlans, setPricingPlans] = useState<PricingPlan[]>([]);
+  const [plansStatus, setPlansStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [planForm, setPlanForm] = useState<PlanForm>(EMPTY_PLAN);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [planNotice, setPlanNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [confirmDeletePlan, setConfirmDeletePlan] = useState<PricingPlan | null>(null);
+  const [planFeatureInput, setPlanFeatureInput] = useState("");
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -244,6 +294,117 @@ export function AdminPackagesPage() {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
     } finally { setBusyId(null); setConfirmDelete(null); }
   };
+
+  // ---- pricing plans CRUD ----
+  const loadPlans = useCallback(async () => {
+    setPlansStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/pricing-plans", { headers: await authHeaders(), cache: "no-store" });
+      if (!res.ok) { setPlansStatus("error"); return; }
+      const data = await res.json() as { pricingPlans?: PricingPlan[] };
+      setPricingPlans(Array.isArray(data.pricingPlans) ? data.pricingPlans : []);
+      setPlansStatus("ready");
+    } catch { setPlansStatus("error"); }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadPlans(); }, [loadPlans]);
+
+  const startEditPlan = (p: PricingPlan) => {
+    setPlanForm({
+      displayName: p.displayName,
+      displayDescription: p.displayDescription,
+      features: [...p.features],
+      priceIdr: String(p.priceIdr),
+      priceCredits: p.priceCredits,
+      paymentType: Number(p.priceCredits) > 0 && p.priceIdr > 0 ? "both" : Number(p.priceCredits) > 0 ? "credits" : "idr",
+      packageId: p.packageId,
+      sortOrder: String(p.sortOrder),
+      isPublic: p.isPublic,
+    });
+    setEditingPlanId(p.id);
+    setPlanModalOpen(true);
+    setPlanNotice(null);
+  };
+
+  const resetPlanForm = () => {
+    setPlanForm(EMPTY_PLAN);
+    setEditingPlanId(null);
+    setPlanModalOpen(false);
+    setPlanNotice(null);
+    setPlanFeatureInput("");
+  };
+
+  const addFeature = () => {
+    const f = planFeatureInput.trim();
+    if (!f) return;
+    setPlanForm(prev => ({ ...prev, features: [...prev.features, f] }));
+    setPlanFeatureInput("");
+  };
+
+  const removeFeature = (idx: number) => {
+    setPlanForm(prev => ({ ...prev, features: prev.features.filter((_, i) => i !== idx) }));
+  };
+
+  const submitPlan = async () => {
+    setPlanNotice(null);
+    const displayName = planForm.displayName.trim();
+    if (!displayName) { setPlanNotice({ kind: "error", text: "Give the plan a display name." }); return; }
+    if (!planForm.packageId) { setPlanNotice({ kind: "error", text: "Select a package to link." }); return; }
+
+    const payload = {
+      displayName,
+      displayDescription: planForm.displayDescription.trim(),
+      features: planForm.features,
+      priceIdr: planForm.paymentType === "credits" ? "0" : (planForm.priceIdr.trim() || "0"),
+      priceCredits: planForm.paymentType === "idr" ? "0" : (planForm.priceCredits.trim() || "0"),
+      packageId: planForm.packageId,
+      sortOrder: planForm.sortOrder.trim() || "0",
+      isPublic: planForm.isPublic,
+    };
+
+    setSavingPlan(true);
+    try {
+      const url = editingPlanId
+        ? `/backend/api/v1/admin/pricing-plans/${encodeURIComponent(editingPlanId)}`
+        : "/backend/api/v1/admin/pricing-plans";
+      const method = editingPlanId ? "PATCH" : "POST";
+      const res = await fetch(url, { method, headers: await authHeaders(), body: JSON.stringify(payload) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setPlanNotice({ kind: "error", text: body?.error?.message ?? "Could not save the pricing plan." });
+        return;
+      }
+      setPlanNotice({ kind: "ok", text: `${displayName} saved.` });
+      resetPlanForm();
+      await loadPlans();
+    } catch {
+      setPlanNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally { setSavingPlan(false); }
+  };
+
+  const removePlan = async (p: PricingPlan) => {
+    setBusyId(p.id);
+    try {
+      const res = await fetch(`/backend/api/v1/admin/pricing-plans/${encodeURIComponent(p.id)}`, {
+        method: "DELETE", headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setPlanNotice({ kind: "error", text: body?.error?.message ?? "Could not delete the pricing plan." });
+        return;
+      }
+      setPlanNotice({ kind: "ok", text: `${p.displayName} deleted.` });
+      await loadPlans();
+    } catch {
+      setPlanNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally { setBusyId(null); setConfirmDeletePlan(null); }
+  };
+
+  /** Package options for the plan form's select dropdown. */
+  const packageOptions = useMemo(
+    () => packages.map(p => ({ value: p.id, label: `${p.name} (${p.tier})` })),
+    [packages],
+  );
 
   const field = (label: string, key: keyof ModelForm, placeholder: string, hint?: string) =>
     <label className="admin-field">
@@ -484,6 +645,188 @@ export function AdminPackagesPage() {
       <div className="table-note"><Users size={14}/> Live means the window is still open and allowance remains — a lapsed package is not listed here.</div>
     </section>
 
+    {/* ---- Pricing cards: marketing layer over packages ---- */}
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">04</span><div><h2>Pricing cards</h2><p>Marketing cards linked to packages — what the public pricing page shows.</p></div></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="button button-outline compact-button" type="button" onClick={() => void loadPlans()}><RefreshCw size={15}/> Refresh</button>
+          <button className="button button-ink compact-button" type="button" onClick={() => { setPlanForm(EMPTY_PLAN); setEditingPlanId(null); setPlanModalOpen(true); setPlanNotice(null); setPlanFeatureInput(""); }}><Plus size={15}/> Create pricing card</button>
+        </div>
+      </div>
+
+      {planNotice && <p className={planNotice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
+        {planNotice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{planNotice.text}
+      </p>}
+
+      <div className="model-table-wrap">
+        {plansStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading pricing cards…</strong></div>}
+        {plansStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load pricing cards</strong></div>}
+        {plansStatus === "ready" && pricingPlans.length === 0 && <div className="table-empty">
+          <Layers size={19}/><strong>No pricing cards yet</strong><p>Create one to show it on the public pricing page.</p>
+        </div>}
+        {plansStatus === "ready" && pricingPlans.length > 0 && <table className="model-table table-events">
+          <thead><tr>
+            <th>DISPLAY NAME</th><th>PACKAGE</th><th>PRICE IDR</th><th>PRICE CREDITS</th><th>SORT</th><th>PUBLIC</th><th></th>
+          </tr></thead>
+          <tbody>{pricingPlans.map(p => <tr key={p.id}>
+            <td>
+              <strong>{p.displayName}</strong>
+              <small className="cell-sub"><code>{p.id}</code></small>
+            </td>
+            <td>
+              <strong>{p.packageName}</strong>
+              <small className="cell-sub"><code>{p.packageId}</code></small>
+            </td>
+            <td className="cell-num">
+              {p.priceIdr > 0 ? `Rp ${p.priceIdr.toLocaleString("id-ID")}` : <span className="cell-muted">free</span>}
+            </td>
+            <td className="cell-num">{p.priceCredits !== "0" && p.priceCredits !== "" ? p.priceCredits : <span className="cell-muted">—</span>}</td>
+            <td className="cell-num">{p.sortOrder}</td>
+            <td>{p.isPublic ? <span className="plan-tag">public</span> : <span className="cell-muted">hidden</span>}</td>
+            <td>
+              <span className="row-actions">
+                <button className="row-action" type="button" title="Edit" aria-label={`Edit ${p.displayName}`} onClick={() => startEditPlan(p)} disabled={busyId === p.id}><Save size={14}/></button>
+                <button className="row-action row-action-danger" type="button" title="Delete" aria-label={`Delete ${p.displayName}`} onClick={() => setConfirmDeletePlan(p)} disabled={busyId === p.id}>
+                  {busyId === p.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}
+                </button>
+              </span>
+            </td>
+          </tr>)}</tbody>
+        </table>}
+      </div>
+      <div className="table-note"><AlertTriangle size={14}/> A pricing card is marketing copy over a package. Deleting it does not affect the package or any subscriptions.</div>
+    </section>
+
+    {/* Create / edit pricing plan modal */}
+    <Modal open={planModalOpen} title={editingPlanId ? "Edit pricing card" : "Create pricing card"}
+      subtitle={editingPlanId ? editingPlanId : slugifyPlan(planForm.displayName) || "auto-generated id"}
+      onClose={resetPlanForm} wide
+      footer={<>
+        <button className="button button-outline" type="button" onClick={resetPlanForm}>Cancel</button>
+        <button className="button button-ink compact-button" type="button" onClick={() => void submitPlan()} disabled={savingPlan}>
+          {savingPlan ? <><Loader2 size={15} className="row-spinner"/> Saving…</> : <>{editingPlanId ? "Save card" : "Create card"} <Save size={15}/></>}
+        </button>
+      </>}>
+      {planNotice && <p className={planNotice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status" style={{ marginBottom: 12 }}>
+        {planNotice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{planNotice.text}
+      </p>}
+      <div className="admin-form">
+        <label className="admin-field">
+          <span>Display name</span>
+          <input value={planForm.displayName} placeholder="Starter Plan"
+            onChange={e => setPlanForm(f => ({ ...f, displayName: e.target.value }))} />
+          <small>Shown as the card title on the public pricing page.</small>
+        </label>
+      </div>
+      <div className="admin-form">
+        <label className="admin-field">
+          <span>Display description</span>
+          <textarea value={planForm.displayDescription} placeholder="Perfect for getting started with AI APIs."
+            rows={2}
+            onChange={e => setPlanForm(f => ({ ...f, displayDescription: e.target.value }))} />
+          <small>One or two lines under the title.</small>
+        </label>
+      </div>
+
+      {/* Features: a tag editor — type a feature, press Enter or click Add. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Features <em>{planForm.features.length} listed</em></span>
+        <p className="admin-subfield-hint">Bullet points shown on the card. Type one and press Enter.</p>
+        <div className="pkg-models-toolbar">
+          <input value={planFeatureInput}
+            onChange={e => setPlanFeatureInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addFeature(); } }}
+            placeholder="Add a feature…"
+            className="admin-field-input"
+            style={{ flex: 1, height: 36, padding: "0 10px", border: "1.5px solid #d8d1c5", background: "#fff", fontSize: "var(--fs-small)" }}
+          />
+          <button className="button button-outline compact-button" type="button" onClick={addFeature} disabled={!planFeatureInput.trim()}><Plus size={14}/> Add</button>
+        </div>
+        {planForm.features.length > 0 && <div className="plan-features-list">
+          {planForm.features.map((f, idx) => <span key={idx} className="plan-feature-chip">
+            <Check size={11}/> {f}
+            <button type="button" onClick={() => removeFeature(idx)} aria-label="Remove feature"><X size={11}/></button>
+          </span>)}
+        </div>}
+      </div>
+
+      <div className="admin-form">
+        <label className="admin-field">
+          <span>Payment method</span>
+          <Select label="Payment method" value={planForm.paymentType}
+            onChange={v => setPlanForm(f => ({ ...f, paymentType: v as PlanForm["paymentType"] }))}
+            options={[
+              { value: "idr", label: "IDR (Kasir)" },
+              { value: "credits", label: "Credits" },
+              { value: "both", label: "IDR + Credits" },
+            ]} />
+          <small>{planForm.paymentType === "idr" ? "Bayar lewat kasir (Rupiah)." : planForm.paymentType === "credits" ? "Charge dari balance credits user." : "Pembeli pilih bayar Rupiah atau credits."}</small>
+        </label>
+      </div>
+      <div className="admin-form">
+        {(planForm.paymentType === "idr" || planForm.paymentType === "both") && (
+          <label className="admin-field">
+            <span>Price IDR</span>
+            <input value={planForm.priceIdr} placeholder="0" type="number" min={0}
+              onChange={e => setPlanForm(f => ({ ...f, priceIdr: e.target.value }))} />
+            <small>0 = free. Formatted as Rp on the card.</small>
+          </label>
+        )}
+        {(planForm.paymentType === "credits" || planForm.paymentType === "both") && (
+          <label className="admin-field">
+            <span>Price credits</span>
+            <input value={planForm.priceCredits} placeholder="0"
+              onChange={e => setPlanForm(f => ({ ...f, priceCredits: e.target.value }))} />
+            <small>Credit cost charged from user balance.</small>
+          </label>
+        )}
+      </div>
+      <div className="admin-form">
+        <label className="admin-field">
+          <span>Linked package</span>
+          <Select label="Linked package" value={planForm.packageId}
+            onChange={v => setPlanForm(f => ({ ...f, packageId: v }))}
+            options={packageOptions} placeholder="Select a package…" />
+          <small>The package provides the actual entitlement.</small>
+        </label>
+        <label className="admin-field">
+          <span>Sort order</span>
+          <input value={planForm.sortOrder} placeholder="0" type="number"
+            onChange={e => setPlanForm(f => ({ ...f, sortOrder: e.target.value }))} />
+          <small>Lower = appears first on the pricing page.</small>
+        </label>
+      </div>
+      <div className="admin-form">
+        <label className="admin-field">
+          <span>Public</span>
+          <div className="toggle-row" style={{ cursor: "pointer" }} onClick={() => setPlanForm(f => ({ ...f, isPublic: !f.isPublic }))}>
+            <span className={"toggle" + (planForm.isPublic ? " toggle-on" : "")} />
+            <span className="toggle-label"><strong>{planForm.isPublic ? "Visible" : "Hidden"}</strong><small>Hidden cards don't appear on the public page.</small></span>
+          </div>
+        </label>
+      </div>
+    </Modal>
+
+    {/* Delete pricing plan confirmation */}
+    <Modal open={confirmDeletePlan !== null} tone="danger" title="Delete this pricing card?"
+      subtitle={confirmDeletePlan ? confirmDeletePlan.id : ""} onClose={() => setConfirmDeletePlan(null)}
+      footer={<>
+        <button className="button button-outline" type="button" onClick={() => setConfirmDeletePlan(null)}>Cancel</button>
+        <button className="button button-ink compact-button" type="button" onClick={() => confirmDeletePlan && void removePlan(confirmDeletePlan)} disabled={busyId !== null}>
+          {busyId !== null ? <Loader2 size={15} className="row-spinner"/> : <Trash2 size={15}/>} Delete
+        </button>
+      </>}>
+      {confirmDeletePlan && <div className="events-dialog">
+        <p><AlertTriangle size={15}/> <span><strong>{confirmDeletePlan.displayName}</strong> will be removed from the public pricing page. The linked package and any subscriptions are unaffected.</span></p>
+        <div className="modal-danger-note">
+          <strong>Cannot be undone</strong>
+          <span>The card stops appearing on the pricing page immediately. Recreate it if needed.</span>
+        </div>
+      </div>}
+    </Modal>
+
+    {/* Delete package confirmation */}
     <Modal open={confirmDelete !== null} tone="danger" title="Delete this package?"
       subtitle={confirmDelete ? confirmDelete.id : ""} onClose={() => setConfirmDelete(null)}
       footer={<>

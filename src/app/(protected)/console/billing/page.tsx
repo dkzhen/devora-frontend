@@ -1,13 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {ArrowUpRight, Coins, CreditCard, Infinity as InfinityIcon, Loader2, Lock, Package, ReceiptText, X} from "lucide-react";
+import QRCode from "qrcode";
+import {
+  AlertTriangle, Check, Clock, Coins, CreditCard,
+  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, X,
+} from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
-import { formatCredits } from "@/lib/credits";
+import { formatCredits, formatRupiah } from "@/lib/credits";
 import { CLERK_ENABLED } from "@/lib/clerk-config";
 import { PackageActions } from "@/components/package-actions";
 import { ProviderMark } from "@/components/provider-mark";
+import { Modal } from "@/components/modal";
 
 /**
  * A live subscription, as /api/v1/users/me reports it. Shape mirrors the backend's mapping.
@@ -40,6 +45,46 @@ type Subscription = {
 };
 
 type Status = "loading" | "ready" | "error";
+
+/* ── Pricing plans (public) ── */
+type PlanPackage = {
+  id: string;
+  name: string;
+  tier: string;
+  category: "hard_cap" | "unlimited";
+  durationDays: number | null;
+  tokenCap: string | null;
+  fairUseCap: string | null;
+  baseRpm: number | null;
+  throttledRpm: number | null;
+  modelCount: number;
+};
+
+type PricingPlan = {
+  id: string;
+  displayName: string;
+  displayDescription: string;
+  features: string[];
+  priceIdr: number;
+  priceCredits: string;
+  package: PlanPackage;
+};
+
+const formatIdr = (n: number): string => "Rp " + n.toLocaleString("id-ID");
+const PLAN_POLL_MS = 4_000;
+
+function QrCanvas({ value, size = 232 }: { value: string; size?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    QRCode.toCanvas(canvas, value, {
+      width: size, margin: 1, errorCorrectionLevel: "M",
+      color: { dark: "#111111", light: "#ffffff" },
+    }).catch(() => {});
+  }, [value, size]);
+  return <canvas ref={ref} width={size} height={size} aria-label="QRIS payment code" role="img" />;
+}
 
 const stamp = (iso: string | null): string => {
   if (iso === null) return "—";
@@ -172,6 +217,17 @@ export default function BillingPage() {
   const [freeLimit, setFreeLimit] = useState(20_000_000);
   const [status, setStatus] = useState<Status>("loading");
 
+  // Browse plans: public catalogue + purchase flow (QRIS / credits / free).
+  const [pubPlans, setPubPlans] = useState<PricingPlan[]>([]);
+  const [pubStatus, setPubStatus] = useState<Status>("loading");
+  // QRIS purchase modal state.
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrOrder, setQrOrder] = useState<{ orderId: string; qrString: string | null; totalIdr: number; expiresAt: string | null } | null>(null);
+  const [qrStatus, setQrStatus] = useState<"pending" | "completed" | "canceled">("pending");
+  const [qrError, setQrError] = useState("");
+  const [purchasing, setPurchasing] = useState<string | null>(null); // planId being purchased
+  const [planError, setPlanError] = useState("");
+
   const load = useCallback(async () => {
     setStatus("loading");
     try {
@@ -192,6 +248,120 @@ export default function BillingPage() {
   }, [getToken]);
 
   useEffect(() => { if (CLERK_ENABLED) void load(); else setStatus("ready"); }, [load]);
+
+  // Load public pricing plans (no auth needed, but we pass it anyway).
+  const loadPlans = useCallback(async () => {
+    setPubStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/pricing-plans", { cache: "no-store" });
+      if (!res.ok) { setPubStatus("error"); return; }
+      const data = await res.json() as { data?: PricingPlan[] };
+      setPubPlans(Array.isArray(data.data) ? data.data : []);
+      setPubStatus("ready");
+    } catch { setPubStatus("error"); }
+  }, []);
+
+  useEffect(() => { void loadPlans(); }, [loadPlans]);
+
+  // QRIS order polling.
+  const qrOrderId = qrOrder?.orderId ?? null;
+  const qrOrderStatus = qrStatus;
+  const qrExpiresAt = qrOrder?.expiresAt ?? null;
+
+  useEffect(() => {
+    if (!qrOpen || qrOrderId === null || qrOrderStatus !== "pending") return;
+    let stopped = false;
+    let handle: number | undefined;
+    const expiryMs = qrExpiresAt === null ? null : new Date(qrExpiresAt).getTime();
+
+    const poll = async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(qrOrderId)}`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store",
+        });
+        if (stopped) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+          if (res.status === 409 && body?.error?.message) {
+            setQrError(body.error.message);
+            if (handle !== undefined) window.clearInterval(handle);
+            stopped = true;
+          }
+          return;
+        }
+        const data = await res.json() as { topup?: { orderId: string; status: "pending" | "completed" | "canceled"; qrString: string | null } };
+        if (stopped || !data.topup) return;
+        setQrStatus(data.topup.status);
+        if (data.topup.status === "completed") {
+          if (handle !== undefined) window.clearInterval(handle);
+          stopped = true;
+          setQrOpen(false);
+          void load();
+        }
+        if (data.topup.status !== "pending" && handle !== undefined) {
+          window.clearInterval(handle);
+          stopped = true;
+        }
+      } catch { /* transient, next tick retries */ }
+    };
+
+    handle = window.setInterval(() => {
+      if (stopped) return;
+      if (expiryMs !== null && Number.isFinite(expiryMs) && Date.now() > expiryMs) {
+        window.clearInterval(handle!);
+        stopped = true;
+        void poll();
+        return;
+      }
+      void poll();
+    }, PLAN_POLL_MS);
+
+    return () => {
+      stopped = true;
+      if (handle !== undefined) window.clearInterval(handle);
+    };
+  }, [qrOpen, qrOrderId, qrOrderStatus, qrExpiresAt, getToken, load]);
+
+  // Purchase handler: POST /api/v1/pricing-plans/:id/purchase
+  const buy = useCallback(async (planId: string, method: "idr" | "credits" | "free") => {
+    setPlanError("");
+    setPurchasing(planId);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/pricing-plans/${encodeURIComponent(planId)}/purchase`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" },
+        body: JSON.stringify({ paymentMethod: method }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setPlanError(body?.error?.message ?? "Purchase failed.");
+        return;
+      }
+      const data = await res.json() as {
+        ok?: boolean;
+        method?: string;
+        orderId?: string;
+        qrString?: string | null;
+        totalIdr?: number;
+        expiresAt?: string | null;
+      };
+      if (method === "idr" && data.orderId) {
+        setQrOrder({ orderId: data.orderId, qrString: data.qrString ?? null, totalIdr: data.totalIdr ?? 0, expiresAt: data.expiresAt ?? null });
+        setQrStatus("pending");
+        setQrError("");
+        setQrOpen(true);
+      } else {
+        // credits or free → success → reload
+        void load();
+      }
+    } catch {
+      setPlanError("Could not reach the server.");
+    } finally {
+      setPurchasing(null);
+    }
+  }, [getToken, load]);
 
   const activeTier = plan ?? "STANDARD";
   const hasSubs = subs.length > 0;
@@ -219,8 +389,7 @@ export default function BillingPage() {
       <div className="plan-details">
         <div><small>CREDITS</small><strong>{formatCredits(credits)} <span>pay-as-you-go</span></strong></div>
         <div><small>ACTIVE PACKAGES</small><strong>{subs.length} <span>{hasSubs ? "see below" : "none yet"}</span></strong></div>
-        <div><small>{nextExpiry === null ? "RENEWAL DATE" : "NEXT EXPIRY"}</small><strong>{nextExpiry === null ? "—" : stamp(nextExpiry)} <span>{nextExpiry === null ? "no active subscription" : daysLeft(nextExpiry)}</span></strong></div>
-        <button className="button button-ink" type="button" disabled aria-disabled="true" title="Purchase is not available in the console yet"><Lock size={15}/> Change plan <ArrowUpRight size={16}/></button>
+        <div><small>{nextExpiry === null ? "RENEWAL DATE" : "NEXT EXPIRY"}</small><strong>{nextExpiry === null ? "—": stamp(nextExpiry)} <span>{nextExpiry === null ? "no active subscription" : daysLeft(nextExpiry)}</span></strong></div>
       </div>
     </section>
 
@@ -274,10 +443,130 @@ export default function BillingPage() {
       </div>}
     </section>
 
+    {/* ---------- browse plans ---------- */}
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">03</span><div><h2>Browse plans</h2><p>Purchase a package with IDR (QRIS), credits, or activate a free plan.</p></div></div>
+      </div>
+
+      {planError && <p className="voucher-message voucher-error" role="alert"><AlertTriangle size={14}/>{planError}</p>}
+
+      {pubStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading plans…</strong></div>}
+      {pubStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load plans</strong><button type="button" className="button button-outline compact-button" onClick={() => void loadPlans()}>Retry</button></div>}
+      {pubStatus === "ready" && pubPlans.length === 0 && <div className="table-empty"><Package size={19}/><strong>No plans available</strong></div>}
+
+      {pubStatus === "ready" && pubPlans.length > 0 && <div className="billing-plans-grid">
+        {pubPlans.map((p, i) => {
+          const pkg = p.package;
+          const unlimited = pkg.category === "unlimited";
+          const granted = unlimited ? pkg.fairUseCap : pkg.tokenCap;
+          const hasIdr = p.priceIdr > 0;
+          const hasCredits = p.priceCredits !== "0" && p.priceCredits !== "";
+          const isFree = !hasIdr && !hasCredits;
+          const isCurrent = subs.some(s => s.packageId === pkg.id);
+          const busy = purchasing === p.id;
+          return <article key={p.id} className={`billing-plan-card pkg-card pkg-card-${["mint", "coral", "violet"][i % 3]}`}>
+            <div className="pkg-card-top">
+              <span className="pkg-icon">{unlimited ? <InfinityIcon size={20}/> : <Package size={20}/>}</span>
+              <span className="plan-tag">{pkg.tier}</span>
+            </div>
+            <h2 className="pkg-name">{p.displayName}</h2>
+            {p.displayDescription && <p className="pkg-desc">{p.displayDescription}</p>}
+
+            {p.features.length > 0 && <ul className="pkg-features">
+              {p.features.map((f, idx) => <li key={idx}><Check size={13}/> {f}</li>)}
+            </ul>}
+
+            <div className="pkg-price">
+              {hasIdr && <span className="pkg-price-idr">{formatIdr(p.priceIdr)}</span>}
+              {hasIdr && hasCredits && <span className="pkg-price-or">or</span>}
+              {hasCredits && <span className="pkg-price-credits">{formatCredits(p.priceCredits)} credits</span>}
+              {isFree && <span className="pkg-price-free">Free</span>}
+            </div>
+
+            <dl className="pkg-facts">
+              <div>
+                <dt>{unlimited ? "Fair use" : "Token allowance"}</dt>
+                <dd>{granted ? formatCounter(Number(granted)) : "—"}<small>tokens</small></dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd>{pkg.durationDays === null ? "Lifetime" : `${pkg.durationDays}`}<small>{pkg.durationDays === null ? "" : "days"}</small></dd>
+              </div>
+              <div>
+                <dt>Request rate</dt>
+                <dd>{pkg.baseRpm === null ? "Unlimited" : `${pkg.baseRpm}`}<small>rpm</small></dd>
+              </div>
+            </dl>
+
+            <div className="billing-plan-actions">
+              {isCurrent
+                ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
+                : <>
+                    {hasIdr && <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "idr")}>
+                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy with IDR</>}
+                    </button>}
+                    {hasCredits && <button className="button button-outline compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "credits")}>
+                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Coins size={14}/> Buy with credits</>}
+                    </button>}
+                    {isFree && <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "free")}>
+                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Check size={14}/> Activate</>}
+                    </button>}
+                  </>}
+            </div>
+          </article>;
+        })}
+      </div>}
+    </section>
+
     {/* ---------- invoices ---------- */}
     <section className="console-section invoice-section">
-      <div className="section-title-row"><div><span className="section-index">03</span><div><h2>Invoice history</h2><p>Your billing history will appear here.</p></div></div></div>
+      <div className="section-title-row"><div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Your billing history will appear here.</p></div></div></div>
       <div className="invoice-empty"><span className="invoice-empty-icon"><ReceiptText size={19}/></span><strong>No invoices yet</strong><p>Once card payment is enabled, invoices will show up in this list.</p></div>
     </section>
+
+    {/* ---------- QRIS purchase modal ---------- */}
+    <Modal
+      open={qrOpen}
+      onClose={() => setQrOpen(false)}
+      title={qrStatus === "completed" ? "Purchase complete" : "Pay with QRIS"}
+      subtitle={qrStatus === "completed" ? "Your plan is now active." : "Scan with any QRIS app — GoPay, OVO, DANA, ShopeePay, or your bank."}
+      footer={qrStatus === "completed"
+        ? <button className="button button-ink compact-button" type="button" onClick={() => setQrOpen(false)}><Check size={15}/> Done</button>
+        : <button className="button button-outline" type="button" onClick={() => setQrOpen(false)}>Close</button>}
+    >
+      {qrError && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{qrError}</p>}
+      {qrStatus === "pending" && qrOrder && <div className="topup-pay">
+        <div className="topup-qr">
+          {qrOrder.qrString
+            ? <QrCanvas value={qrOrder.qrString}/>
+            : <div className="table-empty"><QrIcon size={22}/><strong>No QR returned</strong></div>}
+        </div>
+        <div className="topup-facts">
+          <div className="topup-fact">
+            <small>YOU PAY</small>
+            <strong>{formatRupiah(qrOrder.totalIdr)}</strong>
+          </div>
+        </div>
+        <div className="topup-status" role="status" aria-live="polite">
+          <Loader2 size={14} className="row-spinner"/>
+          <span>Waiting for payment… checking every few seconds.</span>
+        </div>
+      </div>}
+      {qrStatus === "completed" && <div className="topup-settled">
+        <span className="topup-settled-mark"><Check size={26}/></span>
+        <div className="topup-settled-copy">
+          <strong>Plan activated</strong>
+          <small>Your new package is now live.</small>
+        </div>
+      </div>}
+      {qrStatus === "canceled" && <div className="topup-dead" role="status">
+        <Clock size={15}/>
+        <div>
+          <strong>Payment canceled</strong>
+          <span>The order was canceled. Try again to start a new one.</span>
+        </div>
+      </div>}
+    </Modal>
   </div>;
 }
