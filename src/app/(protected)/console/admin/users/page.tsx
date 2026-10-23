@@ -6,6 +6,7 @@ import {
   AlertTriangle, Check, Coins, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
+import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
@@ -217,6 +218,62 @@ function deltaPreview(raw: string, current: string): string {
   /** Draft value for the credits field. Kept separate from the row so typing never mutates it. */
   const [creditDraft, setCreditDraft] = useState("");
 
+  // ---- free token allocation ----
+  type FreeTokenStats = {
+    totalUsers: number; exhaustedUsers: number; activeUsers: number; untouchedUsers: number;
+    totalUsed: string; avgUsed: number; fivePercentCount: number;
+  };
+  const [freeStats, setFreeStats] = useState<FreeTokenStats | null>(null);
+  const [freeStatsStatus, setFreeStatsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [freeStatsError, setFreeStatsError] = useState("");
+  const [resetPercent, setResetPercent] = useState(5);
+  const [resetting, setResetting] = useState(false);
+  const [resetResult, setResetResult] = useState<{ count: number; emails: string[]; message: string } | null>(null);
+  const [resetError, setResetError] = useState("");
+
+  const loadFreeStats = useCallback(async () => {
+    setFreeStatsStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/users/free-tokens-stats", { headers: await authHeaders() });
+      if (!res.ok) { setFreeStatsError("Could not load free token stats."); setFreeStatsStatus("error"); return; }
+      setFreeStats(await res.json() as FreeTokenStats);
+      setFreeStatsStatus("ready");
+    } catch {
+      setFreeStatsError("Could not reach the gateway."); setFreeStatsStatus("error");
+    }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadFreeStats(); }, [loadFreeStats]);
+
+  const performReset = async () => {
+    setResetting(true); setResetError(""); setResetResult(null);
+    try {
+      const res = await fetch("/backend/api/v1/admin/users/free-tokens/reset", {
+        method: "POST", headers: await authHeaders(), body: JSON.stringify({ percent: resetPercent }),
+      });
+      const body = await res.json().catch(() => null) as { resetCount?: number; sampledUserIds?: string[]; message?: string; error?: { message?: string } } | null;
+      if (!res.ok) { setResetError(body?.error?.message ?? "Reset failed."); return; }
+      // Fetch emails for sampled users
+      let emails: string[] = [];
+      if (body?.sampledUserIds?.length) {
+        try {
+          const eRes = await fetch(`/backend/api/v1/admin/users?limit=100`, { headers: await authHeaders() });
+          if (eRes.ok) {
+            const eData = await eRes.json() as { users?: { id: string; email: string }[] };
+            const byId = new Map((eData.users ?? []).map(u => [u.id, u.email]));
+            emails = (body.sampledUserIds ?? []).map(uid => byId.get(uid)).filter((e): e is string => typeof e === "string");
+          }
+        } catch { /* emails optional */ }
+      }
+      setResetResult({ count: body?.resetCount ?? 0, emails, message: body?.message ?? "Reset complete." });
+      await loadFreeStats();
+    } catch {
+      setResetError("Could not reach the gateway.");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return <div className="page-stack">
     <div className="page-heading"><div>
       <div className="eyebrow small-eyebrow"><Users size={14}/> ADMIN / USERS</div>
@@ -317,7 +374,87 @@ function deltaPreview(raw: string, current: string): string {
     </section>
 
     <section className="console-section">
-      <div className="section-title-row"><div><span className="section-index">02</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
+      <div className="section-title-row">
+        <div><span className="section-index">02</span><div><h2>Free token allocation</h2><p>Every user gets 20M tokens. Reset a random sample each cycle.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadFreeStats()} disabled={freeStatsStatus === "loading"}><RefreshCw size={15}/> Refresh</button>
+      </div>
+
+      {freeStatsStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading free token stats…</div>}
+      {freeStatsStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {freeStatsError}</p>}
+      {freeStatsStatus === "ready" && freeStats && <>
+        <div className="usage-grid stats-grid">
+          <article className="usage-stat">
+            <div className="stat-top"><span>Total users</span><Users size={16}/></div>
+            <strong>{formatCount(freeStats.totalUsers)}</strong>
+            <small>{freeStats.fivePercentCount} in a 5% sample</small>
+          </article>
+          <article className="usage-stat">
+            <div className="stat-top"><span>Exhausted</span><AlertTriangle size={16}/></div>
+            <strong>{formatCount(freeStats.exhaustedUsers)}</strong>
+            <small>at 20M/20M</small>
+          </article>
+          <article className="usage-stat">
+            <div className="stat-top"><span>Avg usage</span><Coins size={16}/></div>
+            <strong>{formatCounter(freeStats.avgUsed)}</strong>
+            <small>per active user</small>
+          </article>
+          <article className="usage-stat">
+            <div className="stat-top"><span>Total used</span><Coins size={16}/></div>
+            <strong>{formatCounter(Number(freeStats.totalUsed))}</strong>
+            <small>free tokens spent</small>
+          </article>
+        </div>
+
+        {freeStats.totalUsers > 0 && (
+          <div className="progress-bar-wrap" style={{ margin: "16px 0" }}>
+            <div className="progress-bar-label">
+              <span>Exhausted users</span>
+              <span>{freeStats.exhaustedUsers} of {freeStats.totalUsers} ({Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%)</span>
+            </div>
+            <div className="progress-bar">
+              <div className="progress-bar-fill" style={{ width: `${(freeStats.exhaustedUsers / freeStats.totalUsers) * 100}%` }} />
+            </div>
+          </div>
+        )}
+      </>}
+
+      <div className="reset-panel" style={{ marginTop: 20, padding: 16, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <RefreshCw size={16}/>
+          <strong>Rolling reset</strong>
+        </div>
+        <p style={{ color: "var(--muted, #6b7280)", fontSize: 14, marginBottom: 12 }}>
+          Reset free tokens for {resetPercent}% of eligible users. Those who haven&apos;t used any are skipped.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <Select
+            label="Reset percentage"
+            value={String(resetPercent)}
+            onChange={v => setResetPercent(Number(v))}
+            width={100}
+            options={[5, 10, 25, 50].map(p => ({ value: String(p), label: `${p}%` }))}
+          />
+          <button
+            className="button button-ink compact-button"
+            type="button"
+            onClick={() => void performReset()}
+            disabled={resetting || freeStatsStatus !== "ready"}
+          >
+            {resetting ? <><Loader2 size={14} className="row-spinner"/> Resetting…</> : `Reset ${resetPercent}% sample`}
+          </button>
+        </div>
+        {resetError && <p className="success-line row-fail" role="status" style={{ marginTop: 12 }}><AlertTriangle size={14}/> {resetError}</p>}
+        {resetResult && <div style={{ marginTop: 12 }}>
+          <p className="success-line" role="status" style={{ color: "var(--green, #16a34a)" }}><Check size={14}/> {resetResult.message}</p>
+          {resetResult.emails.length > 0 && <small style={{ display: "block", marginTop: 6, color: "var(--muted, #6b7280)" }}>
+            Reset: {resetResult.emails.slice(0, 5).join(", ")}{resetResult.emails.length > 5 ? ` +${resetResult.emails.length - 5} more` : ""}
+          </small>}
+        </div>}
+      </div>
+    </section>
+
+    <section className="console-section">
+      <div className="section-title-row"><div><span className="section-index">03</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
       <ul className="rules-list">
         <li>You cannot change your own plan — that would let the last operator lock itself out irrecoverably.</li>
         <li>You cannot delete your own account, for the same reason.</li>

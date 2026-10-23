@@ -151,8 +151,8 @@ export function AdminBillingSettingsPage() {
   return <div className="page-stack">
     <div className="page-heading">
       <div>
-        <div className="eyebrow small-eyebrow"><Coins size={14}/> ADMIN / BILLING</div>
-        <h1>Credit rate</h1>
+        <div className="eyebrow small-eyebrow"><Coins size={14}/> ADMIN / TRANSACTIONS</div>
+        <h1>Transaction rate</h1>
         <p>What a credit is worth in rupiah. This prices every top-up and values every balance in the console.</p>
       </div>
       <button className="button button-outline compact-button" type="button" onClick={() => void load()} disabled={status === "loading"}>

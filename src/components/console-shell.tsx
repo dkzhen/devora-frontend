@@ -17,7 +17,7 @@ const nav = [
 
 /** Operator-only group. Mounted only for a SUPERUSER plan — the real gate is server-side. */
 const adminNav = { group: "ADMIN", items: [
-  { href: "/console/admin/billing", label: "Credit rate", icon: Wallet },
+  { href: "/console/admin/transactions", label: "Transactions", icon: Wallet },
   { href: "/console/admin/events", label: "Events", icon: Flame },
   { href: "/console/admin/packages", label: "Packages", icon: Package },
   { href: "/console/admin/models", label: "Models", icon: Layers },
