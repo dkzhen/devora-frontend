@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import QRCode from "qrcode";
 import {
   AlertTriangle, Check, Clock, Coins, CreditCard,
-  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, X,
+  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, X,
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
 import { formatCredits, formatRupiah } from "@/lib/credits";
@@ -99,6 +99,38 @@ function daysLeft(iso: string | null): string {
   const d = Math.ceil(ms / 86_400_000);
   if (d <= 0) return "expired";
   return d === 1 ? "1 day left" : `${d} days left`;
+}
+
+/** Plan-purchase order, same shape as the credits page TopupRow. */
+type TopupRow = {
+  orderId: string;
+  status: "pending" | "completed" | "canceled";
+  credits: string;
+  amountIdr: number;
+  feeIdr: number;
+  totalIdr: number;
+  paymentMethod: string;
+  expiresAt: string | null;
+  isSandbox: boolean;
+  expired: boolean;
+  createdAt: string;
+  completedAt: string | null;
+};
+
+const TOPUP_STATUS: Record<TopupRow["status"], { label: string; tone: string }> = {
+  completed: { label: "PAID", tone: "topup-tag-ok" },
+  pending: { label: "AWAITING PAYMENT", tone: "topup-tag-wait" },
+  canceled: { label: "CANCELED", tone: "topup-tag-off" },
+};
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function RefChip({ value }: { value: string }) {
+  return <code className="ref-chip" title={`Reference ${value}`}>{value}</code>;
 }
 
 /**
@@ -228,6 +260,9 @@ export default function BillingPage() {
   const [qrError, setQrError] = useState("");
   const [purchasing, setPurchasing] = useState<string | null>(null); // planId being purchased
   const [planError, setPlanError] = useState("");
+
+  const [invoiceTopups, setInvoiceTopups] = useState<TopupRow[]>([]);
+  const [invoiceStatus, setInvoiceStatus] = useState<Status>("loading");
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -364,6 +399,24 @@ export default function BillingPage() {
       setPurchasing(null);
     }
   }, [getToken, load]);
+
+  /** Plan-purchase invoices: DEVORA-PLAN-* orders only (not credit top-ups). */
+  const loadInvoices = useCallback(async () => {
+    setInvoiceStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/topups", {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) { setInvoiceStatus("error"); return; }
+      const data = await res.json() as { topups?: TopupRow[] };
+      setInvoiceTopups((Array.isArray(data.topups) ? data.topups : []).filter(t => t.orderId.startsWith("DEVORA-PLAN-")));
+      setInvoiceStatus("ready");
+    } catch { setInvoiceStatus("error"); }
+  }, [getToken]);
+
+  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
 
   const activeTier = plan ?? "STANDARD";
   const hasSubs = subs.length > 0;
@@ -529,8 +582,42 @@ export default function BillingPage() {
 
     {/* ---------- invoices ---------- */}
     <section className="console-section invoice-section">
-      <div className="section-title-row"><div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Your billing history will appear here.</p></div></div></div>
-      <div className="invoice-empty"><span className="invoice-empty-icon"><ReceiptText size={19}/></span><strong>No invoices yet</strong><p>Once card payment is enabled, invoices will show up in this list.</p></div>
+      <div className="section-title-row">
+        <div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Plan purchases paid over QRIS.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadInvoices()} disabled={invoiceStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+      <div className="model-table-wrap">
+        <table className="model-table">
+          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>AMOUNT</th></tr></thead>
+          <tbody>
+            {invoiceTopups.length > 0
+              ? invoiceTopups.map(t => <tr key={t.orderId}>
+                  <td>{formatWhen(t.createdAt)}</td>
+                  <td>
+                    <RefChip value={t.orderId}/>
+                    {t.isSandbox && <small className="cell-sub">test payment</small>}
+                  </td>
+                  <td className="cell-status">
+                    <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
+                    {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
+                  </td>
+                  <td className="cell-num">
+                    {formatRupiah(t.totalIdr)}
+                    {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                  </td>
+                </tr>)
+              : <tr><td colSpan={4}><div className="table-empty">
+                  {invoiceStatus === "loading"
+                    ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
+                    : invoiceStatus === "error"
+                      ? <><X size={19}/><strong>Could not load invoice history</strong></>
+                      : <><ReceiptText size={19}/><strong>No invoices yet</strong><p>Plan purchases will appear here.</p></>}
+                </div></td></tr>}
+          </tbody>
+        </table>
+      </div>
     </section>
 
     {/* ---------- QRIS purchase modal ---------- */}

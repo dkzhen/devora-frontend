@@ -231,7 +231,7 @@ export default function CreditsPage() {
       });
       if (!res.ok) { setTopupStatus("error"); return; }
       const data = await res.json() as { topups?: TopupRow[] };
-      setTopups(Array.isArray(data.topups) ? data.topups : []);
+      setTopups((Array.isArray(data.topups) ? data.topups : []).filter(t => !t.orderId.startsWith("DEVORA-PLAN-")));
       setTopupStatus("ready");
     } catch { setTopupStatus("error"); }
   }, [getToken]);
