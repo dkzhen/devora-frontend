@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Save, Search, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Save, Search, Settings, X } from "lucide-react";
 import { formatRupiah, moneyToCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
+import { Modal } from "@/components/modal";
 
 /**
  * The credit-to-rupiah rate: the one number that prices every top-up and values every balance.
@@ -89,6 +90,12 @@ export function AdminBillingSettingsPage() {
   const [subSearch, setSubSearch] = useState("");
   const [subPage, setSubPage] = useState(1);
 
+  // Order override modal (section 04): force-complete or cancel a pending order.
+  const [overrideTarget, setOverrideTarget] = useState<TopupRow | null>(null);
+  const [overrideStatus, setOverrideStatus] = useState<"completed" | "canceled">("completed");
+  const [overriding, setOverriding] = useState(false);
+  const [overrideError, setOverrideError] = useState("");
+
   // Reset to page 1 when the search query changes.
   useEffect(() => { setTopupPage(1); }, [topupSearch]);
   useEffect(() => { setSubPage(1); }, [subSearch]);
@@ -169,6 +176,28 @@ export function AdminBillingSettingsPage() {
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
     } finally { setSaving(false); }
+  };
+
+  const doOverride = async () => {
+    if (!overrideTarget) return;
+    setOverriding(true);
+    setOverrideError("");
+    try {
+      const res = await fetch(`/backend/api/v1/admin/topups/${overrideTarget.orderId}/override`, {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ status: overrideStatus }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setOverrideError(body?.error?.message ?? "Could not override the order.");
+        return;
+      }
+      setOverrideTarget(null);
+      void loadTopups();
+    } catch {
+      setOverrideError("Could not reach the gateway.");
+    } finally { setOverriding(false); }
   };
 
   // A live reading of the draft, so the operator sees the rate as money before saving it. This
@@ -344,9 +373,9 @@ export function AdminBillingSettingsPage() {
             </label>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th></tr></thead>
+                <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th><th>ACTIONS</th></tr></thead>
                 <tbody>
-                  {filtered.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
+                  {filtered.length === 0 && <tr><td colSpan={8} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
                   {rows.map(t => <tr key={t.orderId}>
                     <td>{t.email}</td>
                     <td className="cell-num">{t.orderId}</td>
@@ -355,6 +384,18 @@ export function AdminBillingSettingsPage() {
                     <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
                     <td>{t.kind}</td>
                     <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
+                    <td>
+                      {t.status === "pending" && (
+                        <button
+                          className="button button-outline compact-button"
+                          type="button"
+                          title="Override order status"
+                          onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
+                        >
+                          <Settings size={14}/>
+                        </button>
+                      )}
+                    </td>
                   </tr>)}
                 </tbody>
               </table>
@@ -446,5 +487,61 @@ export function AdminBillingSettingsPage() {
         })()}
       </>}
     </section>}
+
+    {/* Override modal: force-complete or cancel a pending order. */}
+    <Modal
+      open={overrideTarget !== null}
+      title="Override order status"
+      subtitle="Force-settle or cancel a pending order. This cannot be undone."
+      onClose={() => { if (!overriding) setOverrideTarget(null); }}
+      busy={overriding}
+      footer={<>
+        <button className="button button-outline compact-button" type="button" onClick={() => setOverrideTarget(null)} disabled={overriding}>
+          Cancel
+        </button>
+        <button className="button button-ink" type="button" onClick={() => void doOverride()} disabled={overriding}>
+          {overriding ? <><Loader2 size={15} className="row-spinner"/> Overriding…</> : <>Confirm override</>}
+        </button>
+      </>}
+    >
+      {overrideTarget && <>
+        <div className="model-table-wrap">
+          <table className="model-table">
+            <tbody>
+              <tr><td><strong>Order ID</strong></td><td className="cell-num">{overrideTarget.orderId}</td></tr>
+              <tr><td><strong>User email</strong></td><td>{overrideTarget.email}</td></tr>
+              <tr><td><strong>Current status</strong></td><td><span className={`status-pill status-${overrideTarget.status}`}>{overrideTarget.status}</span></td></tr>
+              <tr><td><strong>Kind</strong></td><td>{overrideTarget.kind}</td></tr>
+              <tr><td><strong>Amount</strong></td><td className="cell-num">{formatRupiah(overrideTarget.amountIdr)}</td></tr>
+              <tr><td><strong>Credits</strong></td><td className="cell-num">{formatCounter(Number(overrideTarget.credits))}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="admin-subfield" style={{ marginTop: 16 }}>
+          <span className="admin-subfield-label">Set new status</span>
+          <div className="kind-tiles">
+            <button type="button"
+              className={overrideStatus === "completed" ? "kind-tile kind-tile-on" : "kind-tile"}
+              aria-pressed={overrideStatus === "completed"}
+              onClick={() => setOverrideStatus("completed")}
+            >
+              <span className="kind-tile-flag">{overrideStatus === "completed" ? "SELECTED" : ""}</span>
+              <strong>Mark as paid</strong>
+              <small>Force-settle the order: grants credits or activates the subscription.</small>
+            </button>
+            <button type="button"
+              className={overrideStatus === "canceled" ? "kind-tile kind-tile-on" : "kind-tile"}
+              aria-pressed={overrideStatus === "canceled"}
+              onClick={() => setOverrideStatus("canceled")}
+            >
+              <span className="kind-tile-flag">{overrideStatus === "canceled" ? "SELECTED" : ""}</span>
+              <strong>Cancel order</strong>
+              <small>Mark the order as canceled. No credits or subscription are granted.</small>
+            </button>
+          </div>
+        </div>
+        {overrideError && <p className="voucher-message voucher-error" role="status"><X size={14}/>{overrideError}</p>}
+      </>}
+    </Modal>
   </div>;
 }
