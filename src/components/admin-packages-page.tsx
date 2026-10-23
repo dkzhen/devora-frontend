@@ -196,11 +196,13 @@ export function AdminPackagesPage() {
       try {
         const res = await fetch("/backend/api/v1/admin/models", { headers: await authHeaders(), cache: "no-store" });
         if (!res.ok) return;
-        const data = await res.json() as { models?: { id: string; displayName?: string; name?: string; provider: string; accessPlans?: string[] }[] };
-        setModels((Array.isArray(data.models) ? data.models : []).map(m => ({
-          id: m.id, name: m.displayName ?? m.name ?? m.id, provider: m.provider,
-          accessPlans: Array.isArray(m.accessPlans) ? m.accessPlans : [],
-        })));
+        const data = await res.json() as { models?: { id: string; displayName?: string; name?: string; provider: string; accessPlans?: string[]; status?: string }[] };
+        setModels((Array.isArray(data.models) ? data.models : [])
+          .filter(m => m.status !== "disabled")
+          .map(m => ({
+            id: m.id, name: m.displayName ?? m.name ?? m.id, provider: m.provider,
+            accessPlans: Array.isArray(m.accessPlans) ? m.accessPlans : [],
+          })));
       } catch { /* the picker stays empty; the form refuses to save without a model */ }
     })();
   }, [authHeaders]);
