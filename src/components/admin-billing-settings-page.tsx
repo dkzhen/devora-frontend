@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, Coins, Loader2, RefreshCw, Save, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Save, Search, X } from "lucide-react";
 import { formatRupiah, moneyToCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 
@@ -28,6 +28,29 @@ function trimRate(value: string): string {
   if (!value.includes(".")) return value;
   const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
   return trimmed === "" ? "0" : trimmed;
+}
+
+const TX_PAGE_SIZE = 20;
+
+/**
+ * Which page buttons to render: a window around the current page, plus the first and last.
+ *
+ * Copied from the credits page so the admin transaction tables get the same pagination
+ * behaviour — first and last always reachable, middle collapses to a gap.
+ */
+function pageWindow(current: number, total: number, span = 1): (number | "gap")[] {
+  if (total <= span * 2 + 5) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const out: (number | "gap")[] = [1];
+  const from = Math.max(2, current - span);
+  const to = Math.min(total - 1, current + span);
+
+  if (from > 2) out.push("gap");
+  for (let n = from; n <= to; n++) out.push(n);
+  if (to < total - 1) out.push("gap");
+  out.push(total);
+
+  return out;
 }
 
 export function AdminBillingSettingsPage() {
@@ -59,6 +82,16 @@ export function AdminBillingSettingsPage() {
   const [topupsStatus, setTopupsStatus] = useState<"loading" | "ready" | "error">("loading");
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  // Search + pagination state for the topups table (section 04) and subscriptions table (section 05).
+  const [topupSearch, setTopupSearch] = useState("");
+  const [topupPage, setTopupPage] = useState(1);
+  const [subSearch, setSubSearch] = useState("");
+  const [subPage, setSubPage] = useState(1);
+
+  // Reset to page 1 when the search query changes.
+  useEffect(() => { setTopupPage(1); }, [topupSearch]);
+  useEffect(() => { setSubPage(1); }, [subSearch]);
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -292,23 +325,52 @@ export function AdminBillingSettingsPage() {
           </div>;
         })()}
 
-        <div className="model-table-wrap" style={{ marginTop: 14 }}>
-          <table className="model-table">
-            <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th></tr></thead>
-            <tbody>
-              {topups.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>No transactions yet.</td></tr>}
-              {topups.map(t => <tr key={t.orderId}>
-                <td>{t.email}</td>
-                <td className="cell-num">{t.orderId}</td>
-                <td className="cell-num">{formatCounter(Number(t.credits))}</td>
-                <td className="cell-num">{formatRupiah(t.amountIdr)}</td>
-                <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
-                <td>{t.kind}</td>
-                <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
-              </tr>)}
-            </tbody>
-          </table>
-        </div>
+        {(() => {
+          const q = topupSearch.trim().toLowerCase();
+          const filtered = q === ""
+            ? topups
+            : topups.filter(t =>
+                t.email.toLowerCase().includes(q) ||
+                t.orderId.toLowerCase().includes(q) ||
+                t.status.toLowerCase().includes(q) ||
+                t.kind.toLowerCase().includes(q));
+          const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
+          const page = Math.min(topupPage, pageCount);
+          const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
+          return <>
+            <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <Search size={14}/>
+              <input value={topupSearch} onChange={e => setTopupSearch(e.target.value)} placeholder="Search by email, order ID, status, kind…" aria-label="Search transactions"/>
+            </label>
+            <div className="model-table-wrap" style={{ marginTop: 8 }}>
+              <table className="model-table">
+                <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th></tr></thead>
+                <tbody>
+                  {filtered.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
+                  {rows.map(t => <tr key={t.orderId}>
+                    <td>{t.email}</td>
+                    <td className="cell-num">{t.orderId}</td>
+                    <td className="cell-num">{formatCounter(Number(t.credits))}</td>
+                    <td className="cell-num">{formatRupiah(t.amountIdr)}</td>
+                    <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
+                    <td>{t.kind}</td>
+                    <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
+                  </tr>)}
+                </tbody>
+              </table>
+            </div>
+            {filtered.length > TX_PAGE_SIZE && <div className="pagination">
+              <span className="pagination-summary">Showing {(page - 1) * TX_PAGE_SIZE + 1}–{Math.min(page * TX_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+              <div className="pagination-controls">
+                <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setTopupPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+                {pageWindow(page, pageCount).map((n, i) => n === "gap"
+                  ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
+                  : <button key={n} type="button" className={`page-number ${n === page ? "page-current" : ""}`} aria-current={n === page ? "page" : undefined} onClick={() => setTopupPage(n)}>{n}</button>)}
+                <button type="button" className="icon-button" aria-label="Next page" disabled={page === pageCount} onClick={() => setTopupPage(p => Math.min(pageCount, p + 1))}><ChevronRight size={15}/></button>
+              </div>
+            </div>}
+          </>;
+        })()}
       </>}
     </section>}
 
@@ -336,23 +398,52 @@ export function AdminBillingSettingsPage() {
           </div>;
         })()}
 
-        <div className="model-table-wrap" style={{ marginTop: 14 }}>
-          <table className="model-table">
-            <thead><tr><th>EMAIL</th><th>PACKAGE</th><th>TIER</th><th>STATUS</th><th>STARTED</th><th>EXPIRES</th><th>TOKENS USED</th></tr></thead>
-            <tbody>
-              {subscriptions.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>No subscriptions yet.</td></tr>}
-              {subscriptions.map(s => <tr key={s.id}>
-                <td>{s.email}</td>
-                <td>{s.packageName}</td>
-                <td>{s.tier}</td>
-                <td><span className={`status-pill status-${s.status}`}>{s.status}</span></td>
-                <td className="cell-num">{new Date(s.startedAt).toLocaleString("en-GB")}</td>
-                <td className="cell-num">{s.expiresAt ? new Date(s.expiresAt).toLocaleString("en-GB") : "lifetime"}</td>
-                <td className="cell-num">{formatCounter(Number(s.tokensUsed))}{s.tokenCap ? ` / ${formatCounter(Number(s.tokenCap))}` : ""}</td>
-              </tr>)}
-            </tbody>
-          </table>
-        </div>
+        {(() => {
+          const q = subSearch.trim().toLowerCase();
+          const filtered = q === ""
+            ? subscriptions
+            : subscriptions.filter(s =>
+                s.email.toLowerCase().includes(q) ||
+                s.packageName.toLowerCase().includes(q) ||
+                s.tier.toLowerCase().includes(q) ||
+                s.status.toLowerCase().includes(q));
+          const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
+          const page = Math.min(subPage, pageCount);
+          const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
+          return <>
+            <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <Search size={14}/>
+              <input value={subSearch} onChange={e => setSubSearch(e.target.value)} placeholder="Search by email, package, tier, status…" aria-label="Search subscriptions"/>
+            </label>
+            <div className="model-table-wrap" style={{ marginTop: 8 }}>
+              <table className="model-table">
+                <thead><tr><th>EMAIL</th><th>PACKAGE</th><th>TIER</th><th>STATUS</th><th>STARTED</th><th>EXPIRES</th><th>TOKENS USED</th></tr></thead>
+                <tbody>
+                  {filtered.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No subscriptions yet."}</td></tr>}
+                  {rows.map(s => <tr key={s.id}>
+                    <td>{s.email}</td>
+                    <td>{s.packageName}</td>
+                    <td>{s.tier}</td>
+                    <td><span className={`status-pill status-${s.status}`}>{s.status}</span></td>
+                    <td className="cell-num">{new Date(s.startedAt).toLocaleString("en-GB")}</td>
+                    <td className="cell-num">{s.expiresAt ? new Date(s.expiresAt).toLocaleString("en-GB") : "lifetime"}</td>
+                    <td className="cell-num">{formatCounter(Number(s.tokensUsed))}{s.tokenCap ? ` / ${formatCounter(Number(s.tokenCap))}` : ""}</td>
+                  </tr>)}
+                </tbody>
+              </table>
+            </div>
+            {filtered.length > TX_PAGE_SIZE && <div className="pagination">
+              <span className="pagination-summary">Showing {(page - 1) * TX_PAGE_SIZE + 1}–{Math.min(page * TX_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+              <div className="pagination-controls">
+                <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setSubPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+                {pageWindow(page, pageCount).map((n, i) => n === "gap"
+                  ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
+                  : <button key={n} type="button" className={`page-number ${n === page ? "page-current" : ""}`} aria-current={n === page ? "page" : undefined} onClick={() => setSubPage(n)}>{n}</button>)}
+                <button type="button" className="icon-button" aria-label="Next page" disabled={page === pageCount} onClick={() => setSubPage(p => Math.min(pageCount, p + 1))}><ChevronRight size={15}/></button>
+              </div>
+            </div>}
+          </>;
+        })()}
       </>}
     </section>}
   </div>;
