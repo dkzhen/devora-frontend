@@ -228,25 +228,29 @@ function deltaPreview(raw: string, current: string): string {
   const [freeStatsError, setFreeStatsError] = useState("");
   const [freeUsers, setFreeUsers] = useState<{ id: string; email: string; plan: string; freeTokensUsed: number; credits: string; createdAt: string; freeTokensResetAt: string | null }[]>([]);
   const [freeUsersStatus, setFreeUsersStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [freeUsersPage, setFreeUsersPage] = useState(1);
+  const [freeUsersPager, setFreeUsersPager] = useState({ total: 0, perPage: 25, totalPages: 1 });
   const [resetPercent, setResetPercent] = useState(5);
   const [resetting, setResetting] = useState(false);
   const [resetResult, setResetResult] = useState<{ count: number; emails: string[]; message: string } | null>(null);
   const [resetError, setResetError] = useState("");
 
-  const loadFreeStats = useCallback(async () => {
+  const loadFreeStats = useCallback(async (pageNo = 1) => {
     setFreeStatsStatus("loading");
     setFreeUsersStatus("loading");
     try {
       const [statsRes, listRes] = await Promise.all([
         fetch("/backend/api/v1/admin/users/free-tokens-stats", { headers: await authHeaders() }),
-        fetch("/backend/api/v1/admin/users/free-tokens-list", { headers: await authHeaders() }),
+        fetch(`/backend/api/v1/admin/users/free-tokens-list?page=${pageNo}&limit=25`, { headers: await authHeaders() }),
       ]);
       if (!statsRes.ok) { setFreeStatsError("Could not load free token stats."); setFreeStatsStatus("error"); return; }
       setFreeStats(await statsRes.json() as FreeTokenStats);
       setFreeStatsStatus("ready");
       if (listRes.ok) {
-        const listData = await listRes.json() as { users?: { id: string; email: string; plan: string; freeTokensUsed: number; credits: string; createdAt: string; freeTokensResetAt: string | null }[] };
+        const listData = await listRes.json() as { users?: { id: string; email: string; plan: string; freeTokensUsed: number; credits: string; createdAt: string; freeTokensResetAt: string | null }[]; page?: number; perPage?: number; total?: number; totalPages?: number };
         setFreeUsers(Array.isArray(listData.users) ? listData.users : []);
+        setFreeUsersPager({ total: Number(listData.total ?? 0), perPage: Number(listData.perPage ?? 25), totalPages: Number(listData.totalPages ?? 1) });
+        setFreeUsersPage(Number(listData.page ?? 1));
         setFreeUsersStatus("ready");
       } else {
         setFreeUsersStatus("error");
@@ -434,6 +438,19 @@ function deltaPreview(raw: string, current: string): string {
           </div>
         )}
         {freeUsersStatus === "ready" && freeUsers.length === 0 && <div className="table-empty"><Users size={18}/><strong>No active users</strong></div>}
+
+        {freeUsersStatus === "ready" && freeUsersPager.total > freeUsersPager.perPage && (
+          <div className="pagination" style={{ marginTop: 12 }}>
+            <span className="pagination-info">
+              {(freeUsersPage - 1) * freeUsersPager.perPage + 1}–{Math.min(freeUsersPage * freeUsersPager.perPage, freeUsersPager.total)} of {freeUsersPager.total}
+            </span>
+            <div className="pagination-controls">
+              <button className="icon-button" type="button" onClick={() => { setFreeUsersPage(freeUsersPage - 1); void loadFreeStats(freeUsersPage - 1); }} disabled={freeUsersPage <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
+              <span className="page-number page-current">{freeUsersPage}</span>
+              <button className="icon-button" type="button" onClick={() => { setFreeUsersPage(freeUsersPage + 1); void loadFreeStats(freeUsersPage + 1); }} disabled={freeUsersPage >= freeUsersPager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
+            </div>
+          </div>
+        )}
       </>}
 
       <div className="reset-panel" style={{ marginTop: 20, padding: 16, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10 }}>
