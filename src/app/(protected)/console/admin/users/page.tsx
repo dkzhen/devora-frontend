@@ -226,6 +226,8 @@ function deltaPreview(raw: string, current: string): string {
   const [freeStats, setFreeStats] = useState<FreeTokenStats | null>(null);
   const [freeStatsStatus, setFreeStatsStatus] = useState<"loading" | "ready" | "error">("loading");
   const [freeStatsError, setFreeStatsError] = useState("");
+  const [freeUsers, setFreeUsers] = useState<{ id: string; email: string; plan: string; freeTokensUsed: number; credits: string; createdAt: string; freeTokensResetAt: string | null }[]>([]);
+  const [freeUsersStatus, setFreeUsersStatus] = useState<"loading" | "ready" | "error">("loading");
   const [resetPercent, setResetPercent] = useState(5);
   const [resetting, setResetting] = useState(false);
   const [resetResult, setResetResult] = useState<{ count: number; emails: string[]; message: string } | null>(null);
@@ -233,13 +235,24 @@ function deltaPreview(raw: string, current: string): string {
 
   const loadFreeStats = useCallback(async () => {
     setFreeStatsStatus("loading");
+    setFreeUsersStatus("loading");
     try {
-      const res = await fetch("/backend/api/v1/admin/users/free-tokens-stats", { headers: await authHeaders() });
-      if (!res.ok) { setFreeStatsError("Could not load free token stats."); setFreeStatsStatus("error"); return; }
-      setFreeStats(await res.json() as FreeTokenStats);
+      const [statsRes, listRes] = await Promise.all([
+        fetch("/backend/api/v1/admin/users/free-tokens-stats", { headers: await authHeaders() }),
+        fetch("/backend/api/v1/admin/users/free-tokens-list", { headers: await authHeaders() }),
+      ]);
+      if (!statsRes.ok) { setFreeStatsError("Could not load free token stats."); setFreeStatsStatus("error"); return; }
+      setFreeStats(await statsRes.json() as FreeTokenStats);
       setFreeStatsStatus("ready");
+      if (listRes.ok) {
+        const listData = await listRes.json() as { users?: { id: string; email: string; plan: string; freeTokensUsed: number; credits: string; createdAt: string; freeTokensResetAt: string | null }[] };
+        setFreeUsers(Array.isArray(listData.users) ? listData.users : []);
+        setFreeUsersStatus("ready");
+      } else {
+        setFreeUsersStatus("error");
+      }
     } catch {
-      setFreeStatsError("Could not reach the gateway."); setFreeStatsStatus("error");
+      setFreeStatsError("Could not reach the gateway."); setFreeStatsStatus("error"); setFreeUsersStatus("error");
     }
   }, [authHeaders]);
 
@@ -382,40 +395,45 @@ function deltaPreview(raw: string, current: string): string {
       {freeStatsStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading free token stats…</div>}
       {freeStatsStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {freeStatsError}</p>}
       {freeStatsStatus === "ready" && freeStats && <>
-        <div className="usage-grid stats-grid">
-          <article className="usage-stat">
-            <div className="stat-top"><span>Total users</span><Users size={16}/></div>
-            <strong>{formatCount(freeStats.totalUsers)}</strong>
-            <small>{freeStats.fivePercentCount} in a 5% sample</small>
-          </article>
-          <article className="usage-stat">
-            <div className="stat-top"><span>Exhausted</span><AlertTriangle size={16}/></div>
-            <strong>{formatCount(freeStats.exhaustedUsers)}</strong>
-            <small>at 20M/20M</small>
-          </article>
-          <article className="usage-stat">
-            <div className="stat-top"><span>Avg usage</span><Coins size={16}/></div>
-            <strong>{formatCounter(freeStats.avgUsed)}</strong>
-            <small>per active user</small>
-          </article>
-          <article className="usage-stat">
-            <div className="stat-top"><span>Total used</span><Coins size={16}/></div>
-            <strong>{formatCounter(Number(freeStats.totalUsed))}</strong>
-            <small>free tokens spent</small>
-          </article>
-        </div>
-
         {freeStats.totalUsers > 0 && (
-          <div className="progress-bar-wrap" style={{ margin: "16px 0" }}>
-            <div className="progress-bar-label">
-              <span>Exhausted users</span>
-              <span>{freeStats.exhaustedUsers} of {freeStats.totalUsers} ({Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%)</span>
+          <div style={{ margin: "0 0 16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+              <span style={{ font: "700 var(--fs-micro) var(--display)", letterSpacing: ".6px", textTransform: "uppercase", color: "#8b8579" }}>Exhausted users</span>
+              <span style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.exhaustedUsers} of {freeStats.totalUsers} ({Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%)</span>
             </div>
-            <div className="progress-bar">
-              <div className="progress-bar-fill" style={{ width: `${(freeStats.exhaustedUsers / freeStats.totalUsers) * 100}%` }} />
+            <div style={{ height: 10, border: "2px solid var(--ink)", background: "#f4f0e8" }}>
+              <div style={{ height: "100%", width: `${(freeStats.exhaustedUsers / freeStats.totalUsers) * 100}%`, background: "var(--coral)" }} />
             </div>
           </div>
         )}
+
+        {freeUsersStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading free token usage…</div>}
+        {freeUsersStatus === "ready" && freeUsers.length > 0 && (
+          <div className="model-table-wrap">
+            <table className="model-table">
+              <thead><tr><th>Email</th><th>Plan</th><th>Free tokens used</th><th>Progress</th><th>Credits</th><th>Last reset</th></tr></thead>
+              <tbody>
+                {freeUsers.map(u => {
+                  const pct = Math.min(100, Math.round((u.freeTokensUsed / 20_000_000) * 100));
+                  const exhausted = u.freeTokensUsed >= 20_000_000;
+                  return <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td><span className={`plan-tag plan-${u.plan.toLowerCase()}`}>{u.plan}</span></td>
+                    <td className="cell-num"><strong>{formatCounter(u.freeTokensUsed)}</strong> <span className="cell-sub">/ {formatCounter(20_000_000)}</span></td>
+                    <td className="cell-num" style={{ minWidth: 120 }}>
+                      <div style={{ height: 8, border: "1.5px solid var(--ink)", background: "#f4f0e8", position: "relative" }}>
+                        <div style={{ height: "100%", width: `${pct}%`, background: exhausted ? "var(--coral)" : "var(--mint)" }} />
+                      </div>
+                    </td>
+                    <td className="cell-num">{formatCounter(Number(u.credits))}</td>
+                    <td className="cell-muted">{u.freeTokensResetAt ? new Date(u.freeTokensResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {freeUsersStatus === "ready" && freeUsers.length === 0 && <div className="table-empty"><Users size={18}/><strong>No active users</strong></div>}
       </>}
 
       <div className="reset-panel" style={{ marginTop: 20, padding: 16, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10 }}>
@@ -424,7 +442,7 @@ function deltaPreview(raw: string, current: string): string {
           <strong>Rolling reset</strong>
         </div>
         <p style={{ color: "var(--muted, #6b7280)", fontSize: 14, marginBottom: 12 }}>
-          Reset free tokens for {resetPercent}% of eligible users. Those who haven&apos;t used any are skipped.
+          Reset free tokens for {resetPercent}% of exhausted users (20M/20M). Users who haven&apos;t hit the cap are not affected.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <Select

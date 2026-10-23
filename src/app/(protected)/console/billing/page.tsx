@@ -215,6 +215,7 @@ export default function BillingPage() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [freeUsed, setFreeUsed] = useState(0);
   const [freeLimit, setFreeLimit] = useState(20_000_000);
+  const [freeResetAt, setFreeResetAt] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("loading");
 
   // Browse plans: public catalogue + purchase flow (QRIS / credits / free).
@@ -235,13 +236,14 @@ export default function BillingPage() {
       const res = await fetch("/backend/api/v1/users/me", { headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store" });
       if (!res.ok) { setStatus("error"); return; }
       const data = await res.json() as {
-        user?: { plan?: string; credits?: unknown; freeTokensUsed?: number; freeTokensLimit?: number };
+        user?: { plan?: string; credits?: unknown; freeTokensUsed?: number; freeTokensLimit?: number; freeTokensResetAt?: string | null };
         subscriptions?: Subscription[];
       };
       setPlan(typeof data.user?.plan === "string" ? data.user.plan : "STANDARD");
       setCredits(typeof data.user?.credits === "string" ? data.user.credits : "0");
       setFreeUsed(typeof data.user?.freeTokensUsed === "number" ? data.user.freeTokensUsed : 0);
       setFreeLimit(typeof data.user?.freeTokensLimit === "number" ? data.user.freeTokensLimit : 20_000_000);
+      setFreeResetAt(data.user?.freeTokensResetAt ?? null);
       setSubs(Array.isArray(data.subscriptions) ? data.subscriptions : []);
       setStatus("ready");
     } catch { setStatus("error"); }
@@ -422,6 +424,12 @@ export default function BillingPage() {
             : freeUsed >= freeLimit
               ? <><span className="billing-badge billing-badge-warn">EXHAUSTED</span> Free tokens used up — requests fall through to credits.</>
               : <><span className="billing-badge billing-badge-ok">{Math.round((freeUsed / freeLimit) * 100)}% USED</span> {formatCounter(freeLimit - freeUsed)} tokens remaining</>}
+        </div>
+        <div className="free-tokens-reset">
+          {freeResetAt
+            ? <>Last reset: {new Date(freeResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</>
+            : <>Never reset — your full allowance is intact.</>}
+          <span className="cell-sub"> · Resets are rolled daily across exhausted accounts.</span>
         </div>
       </div>
     </section>
