@@ -46,6 +46,13 @@ const GROUPS: Group[] = [
       { label: "Create account", href: "/auth" },
     ],
   },
+  {
+    heading: "Support",
+    links: [
+      { label: "dani@dkzhen.org", href: "mailto:dani@dkzhen.org" },
+      { label: "Telegram @dk_zhen2", href: "https://t.me/dk_zhen2" },
+    ],
+  },
 ];
 
 export function LandingFooter() {

@@ -385,16 +385,14 @@ export function AdminBillingSettingsPage() {
                     <td>{t.kind}</td>
                     <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
                     <td>
-                      {t.status === "pending" && (
-                        <button
-                          className="button button-outline compact-button"
-                          type="button"
-                          title="Override order status"
-                          onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
-                        >
-                          <Settings size={14}/>
-                        </button>
-                      )}
+                      <button
+                        className="button button-outline compact-button"
+                        type="button"
+                        title="Override order status"
+                        onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
+                      >
+                        <Settings size={14}/>
+                      </button>
                     </td>
                   </tr>)}
                 </tbody>
