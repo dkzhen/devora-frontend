@@ -198,7 +198,7 @@ export function AdminPackagesPage() {
         if (!res.ok) return;
         const data = await res.json() as { models?: { id: string; displayName?: string; name?: string; provider: string; accessPlans?: string[]; status?: string }[] };
         setModels((Array.isArray(data.models) ? data.models : [])
-          .filter(m => m.status !== "disabled")
+          .filter(m => m.status === "active")
           .map(m => ({
             id: m.id, name: m.displayName ?? m.name ?? m.id, provider: m.provider,
             accessPlans: Array.isArray(m.accessPlans) ? m.accessPlans : [],
