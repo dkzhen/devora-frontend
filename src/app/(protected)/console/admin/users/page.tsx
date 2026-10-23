@@ -51,6 +51,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState<Plan | "">("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"created" | "credits">("created");
   // Its own pager state. Filters reset it because a narrowed list has fewer pages, and
   // staying on page 7 of a 1-page result would render an empty table.
   const [page, setPage] = useState(1);
@@ -61,12 +62,13 @@ export default function AdminUsersPage() {
     return { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
   }, [getToken]);
 
-  const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1) => {
+  const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1, sort: "created" | "credits" = "created") => {
     setStatus("loading");
     try {
       const params = new URLSearchParams({ page: String(pageNo), limit: "25" });
       if (term.trim()) params.set("search", term.trim());
       if (plan) params.set("plan", plan);
+      if (sort === "credits") params.set("sort", "credits");
       const qs = params.toString();
       const res = await fetch(`/backend/api/v1/admin/users?${qs}`, { headers: await authHeaders() });
       if (!res.ok) { setError("Could not load accounts."); setStatus("error"); return; }
@@ -110,7 +112,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => { void load("", "", 1); }, [load]);
 
-  const applySearch = () => { setAppliedSearch(search); setPage(1); void load(search, planFilter, 1); };
+  const applySearch = () => { setAppliedSearch(search); setPage(1); void load(search, planFilter, 1, sortBy); };
 
   /** Confirm a plan change. The dialog sets `dialog`, this performs it. */
   const changePlan = async (row: AccountRow, plan: Plan) => {
@@ -225,7 +227,7 @@ function deltaPreview(raw: string, current: string): string {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Accounts</h2><p>Search by email or name, filter by plan. Every registered account is listed.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void load(appliedSearch, planFilter)}><RefreshCw size={15}/> Refresh</button>
+        <button className="button button-outline compact-button" type="button" onClick={() => void load(appliedSearch, planFilter, page, sortBy)}><RefreshCw size={15}/> Refresh</button>
       </div>
 
       <div className="users-toolbar">
@@ -241,12 +243,16 @@ function deltaPreview(raw: string, current: string): string {
         </label>
         <button className="button button-ink compact-button" type="button" onClick={applySearch}>Search</button>
         <div className="plan-pills">
-          <button type="button" className={planFilter === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); setPage(1); void load(appliedSearch, "", 1); }}>ALL</button>
+          <button type="button" className={planFilter === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); setPage(1); void load(appliedSearch, "", 1, sortBy); }}>ALL</button>
           {ALL_PLANS.map(p => <button
             key={p} type="button"
             className={planFilter === p ? "plan-pill plan-pill-on" : "plan-pill"}
-            onClick={() => { setPlanFilter(p); setPage(1); void load(appliedSearch, p, 1); }}
+            onClick={() => { setPlanFilter(p); setPage(1); void load(appliedSearch, p, 1, sortBy); }}
           >{p}</button>)}
+        </div>
+        <div className="plan-pills">
+          <button type="button" className={sortBy === "created" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("created"); setPage(1); void load(appliedSearch, planFilter, 1, "created"); }}>Newest</button>
+          <button type="button" className={sortBy === "credits" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("credits"); setPage(1); void load(appliedSearch, planFilter, 1, "credits"); }}>Most credits</button>
         </div>
       </div>
 
@@ -300,9 +306,9 @@ function deltaPreview(raw: string, current: string): string {
               {formatCount((page - 1) * pager.perPage + 1)}–{formatCount(Math.min(page * pager.perPage, pager.total))} of {formatCount(pager.total)}
             </span>
             <div className="pagination-controls">
-              <button className="icon-button" type="button" onClick={() => { setPage(page - 1); void load(appliedSearch, planFilter, page - 1); }} disabled={page <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
+              <button className="icon-button" type="button" onClick={() => { setPage(page - 1); void load(appliedSearch, planFilter, page - 1, sortBy); }} disabled={page <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
               <span className="page-number page-current">{page}</span>
-              <button className="icon-button" type="button" onClick={() => { setPage(page + 1); void load(appliedSearch, planFilter, page + 1); }} disabled={page >= pager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
+              <button className="icon-button" type="button" onClick={() => { setPage(page + 1); void load(appliedSearch, planFilter, page + 1, sortBy); }} disabled={page >= pager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
             </div>
           </div>
         )}

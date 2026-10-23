@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AlertTriangle, Check, Coins, Loader2, RefreshCw, Save, X } from "lucide-react";
 import { formatRupiah, moneyToCredits } from "@/lib/credits";
+import { formatCounter } from "@/lib/format-counter";
 
 /**
  * The credit-to-rupiah rate: the one number that prices every top-up and values every balance.
@@ -41,6 +42,24 @@ export function AdminBillingSettingsPage() {
   const [idr, setIdr] = useState("");
   const [feeBearer, setFeeBearer] = useState<"buyer" | "merchant">("buyer");
 
+  // Section 04 + 05: admin-wide transaction and subscription lists.
+  type TopupRow = {
+    orderId: string; userId: string; email: string; credits: string;
+    amountIdr: number; totalIdr: number; status: string; paymentMethod: string;
+    kind: string; pricingPlanId: string | null; isSandbox: boolean;
+    createdAt: string; completedAt: string | null;
+  };
+  type SubscriptionRow = {
+    id: string; userId: string; email: string; packageId: string;
+    packageName: string; tier: string; status: string;
+    startedAt: string; expiresAt: string | null;
+    tokensUsed: string; tokenCap: string | null;
+  };
+  const [topups, setTopups] = useState<TopupRow[] | null>(null);
+  const [topupsStatus, setTopupsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
+  const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
+
   const authHeaders = useCallback(async () => {
     const token = await getToken();
     return { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" };
@@ -60,7 +79,30 @@ export function AdminBillingSettingsPage() {
     } catch { setStatus("error"); }
   }, [authHeaders]);
 
+  const loadTopups = useCallback(async () => {
+    setTopupsStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/topups", { headers: await authHeaders(), cache: "no-store" });
+      if (!res.ok) { setTopupsStatus("error"); return; }
+      const data = await res.json() as { topups?: TopupRow[] };
+      setTopups(data.topups ?? []);
+      setTopupsStatus("ready");
+    } catch { setTopupsStatus("error"); }
+  }, [authHeaders]);
+
+  const loadSubscriptions = useCallback(async () => {
+    setSubsStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/subscriptions", { headers: await authHeaders(), cache: "no-store" });
+      if (!res.ok) { setSubsStatus("error"); return; }
+      const data = await res.json() as { subscriptions?: SubscriptionRow[] };
+      setSubscriptions(data.subscriptions ?? []);
+      setSubsStatus("ready");
+    } catch { setSubsStatus("error"); }
+  }, [authHeaders]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (status === "ready") { void loadTopups(); void loadSubscriptions(); } }, [status, loadTopups, loadSubscriptions]);
 
   const submit = async () => {
     setNotice(null);
@@ -222,6 +264,96 @@ export function AdminBillingSettingsPage() {
           </tbody>
         </table>
       </div>
+    </section>}
+
+    {/* Section 04: Credit transactions across all users. */}
+    {status === "ready" && <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">04</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupsStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+
+      {topupsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading transactions…</strong></div>}
+      {topupsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load transactions</strong></div>}
+
+      {topupsStatus === "ready" && topups && <>
+        {(() => {
+          const pending = topups.filter(t => t.status === "pending").length;
+          const completed = topups.filter(t => t.status === "completed").length;
+          const canceled = topups.filter(t => t.status === "canceled").length;
+          const totalIdr = topups.filter(t => t.status === "completed").reduce((s, t) => s + t.totalIdr, 0);
+          return <div className="usage-grid stats-grid">
+            <article className="usage-stat"><strong>{pending}</strong><small><span>Pending</span></small></article>
+            <article className="usage-stat"><strong>{completed}</strong><small><span>Completed</span></small></article>
+            <article className="usage-stat"><strong>{canceled}</strong><small><span>Canceled</span></small></article>
+            <article className="usage-stat"><strong>{formatCounter(totalIdr)}</strong><small><span>IDR volume (completed)</span></small></article>
+          </div>;
+        })()}
+
+        <div className="model-table-wrap" style={{ marginTop: 14 }}>
+          <table className="model-table">
+            <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th></tr></thead>
+            <tbody>
+              {topups.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>No transactions yet.</td></tr>}
+              {topups.map(t => <tr key={t.orderId}>
+                <td>{t.email}</td>
+                <td className="cell-num">{t.orderId}</td>
+                <td className="cell-num">{formatCounter(Number(t.credits))}</td>
+                <td className="cell-num">{formatRupiah(t.amountIdr)}</td>
+                <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
+                <td>{t.kind}</td>
+                <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </>}
+    </section>}
+
+    {/* Section 05: Package subscriptions across all users. */}
+    {status === "ready" && <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">05</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadSubscriptions()} disabled={subsStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+
+      {subsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading subscriptions…</strong></div>}
+      {subsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load subscriptions</strong></div>}
+
+      {subsStatus === "ready" && subscriptions && <>
+        {(() => {
+          const active = subscriptions.filter(s => s.status === "active").length;
+          const expired = subscriptions.filter(s => s.status === "expired").length;
+          const cancelled = subscriptions.filter(s => s.status === "cancelled").length;
+          return <div className="usage-grid stats-grid">
+            <article className="usage-stat"><strong>{active}</strong><small><span>Active</span></small></article>
+            <article className="usage-stat"><strong>{expired}</strong><small><span>Expired</span></small></article>
+            <article className="usage-stat"><strong>{cancelled}</strong><small><span>Cancelled</span></small></article>
+          </div>;
+        })()}
+
+        <div className="model-table-wrap" style={{ marginTop: 14 }}>
+          <table className="model-table">
+            <thead><tr><th>EMAIL</th><th>PACKAGE</th><th>TIER</th><th>STATUS</th><th>STARTED</th><th>EXPIRES</th><th>TOKENS USED</th></tr></thead>
+            <tbody>
+              {subscriptions.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>No subscriptions yet.</td></tr>}
+              {subscriptions.map(s => <tr key={s.id}>
+                <td>{s.email}</td>
+                <td>{s.packageName}</td>
+                <td>{s.tier}</td>
+                <td><span className={`status-pill status-${s.status}`}>{s.status}</span></td>
+                <td className="cell-num">{new Date(s.startedAt).toLocaleString("en-GB")}</td>
+                <td className="cell-num">{s.expiresAt ? new Date(s.expiresAt).toLocaleString("en-GB") : "lifetime"}</td>
+                <td className="cell-num">{formatCounter(Number(s.tokensUsed))}{s.tokenCap ? ` / ${formatCounter(Number(s.tokenCap))}` : ""}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </>}
     </section>}
   </div>;
 }
