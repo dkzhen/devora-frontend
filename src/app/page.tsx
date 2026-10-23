@@ -6,6 +6,7 @@ import { GatewayStats } from "@/components/gateway-stats";
 import { FeatureCards, productCards } from "@/components/feature-cards";
 import { FeaturedEvents } from "@/components/featured-events";
 import { HowItWorks } from "@/components/how-it-works";
+import { LandingPricing } from "@/components/landing-pricing";
 import { LandingFaq } from "@/components/landing-faq";
 import { LandingFooter } from "@/components/landing-footer";
 import { FeaturedModels } from "@/components/featured-models";
@@ -28,6 +29,7 @@ export default function Home() {
     <FeaturedModels/>
     <FeaturedEvents/>
     <HowItWorks/>
+    <LandingPricing/>
     <LandingFaq/>
     <LandingFooter/>
   </main>;

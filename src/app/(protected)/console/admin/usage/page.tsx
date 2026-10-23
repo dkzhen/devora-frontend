@@ -278,7 +278,7 @@ export default function AdminUsagePage() {
           </article>
           <article className="usage-stat">
             <div className="stat-top"><span>Credits used</span><Coins size={16}/></div>
-            <strong>{trim(data.totals.chargedCredits)}</strong>
+            <strong>{formatCounter(Number(data.totals.chargedCredits))}</strong>
             <small>{data.totals.lastRequestAt ? `last used ${stamp(data.totals.lastRequestAt)}` : "never used"}</small>
           </article>
           <article className="usage-stat">
@@ -310,7 +310,7 @@ export default function AdminUsagePage() {
                     <td className="cell-num">{formatCount(a.requests)}{a.errors > 0 && <span className="cell-sub">{a.errors} failed</span>}</td>
                     <td className="cell-num">{formatCounter(a.totalTokens)}</td>
                     <td className="cell-num">{formatCounter(a.freeTokensUsed)}/{formatCounter(20_000_000)}</td>
-                    <td className="cell-num">{trimCredits(a.chargedCredits)}</td>
+                    <td className="cell-num">{formatCounter(Number(a.chargedCredits))}</td>
                     <td className="cell-muted">{stamp(a.lastRequestAt)}</td>
                   </tr>
                 ))}

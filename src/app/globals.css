@@ -1211,6 +1211,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pkg-card-foot{margin-top:auto}
 .pkg-note{display:flex;align-items:center;gap:8px;margin-top:22px;font-size:var(--fs-small);color:#6f695d}
 @media (max-width:640px){.pkg-facts{grid-template-columns:1fr;gap:12px}}
+.landing-pricing-cta{display:flex;justify-content:center;margin-top:32px}
 
 /* Pricing plan card additions: feature bullets, price block, and the admin
    feature chip list. Neobrutalist: ink borders, hard shadow, solid colors. */
