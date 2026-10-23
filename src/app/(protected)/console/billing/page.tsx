@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import QRCode from "qrcode";
 import {
-  AlertTriangle, Check, Clock, Coins, CreditCard,
+  AlertTriangle, Check, Clock, Coins, Copy, CreditCard,
   Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, X,
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
@@ -84,6 +84,28 @@ function QrCanvas({ value, size = 232 }: { value: string; size?: number }) {
     }).catch(() => {});
   }, [value, size]);
   return <canvas ref={ref} width={size} height={size} aria-label="QRIS payment code" role="img" />;
+}
+
+function useTimeLeft(expiresAt: string | null): number | null {
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (expiresAt === null) { setLeft(null); return; }
+    const ms = new Date(expiresAt).getTime();
+    if (!Number.isFinite(ms)) { setLeft(null); return; }
+    const tick = () => setLeft(ms - Date.now());
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [expiresAt]);
+  return left;
+}
+
+function Countdown({ left }: { left: number | null }) {
+  if (left === null) return null;
+  if (left <= 0) return <span className="topup-expiry topup-expiry-out"><Clock size={13}/> Expired — start a new one.</span>;
+  const mins = Math.floor(left / 60_000);
+  const secs = Math.floor((left % 60_000) / 1000);
+  return <span className="topup-expiry"><Clock size={13}/> Expires in {mins}:{String(secs).padStart(2, "0")}</span>;
 }
 
 const stamp = (iso: string | null): string => {
@@ -255,9 +277,18 @@ export default function BillingPage() {
   const [pubStatus, setPubStatus] = useState<Status>("loading");
   // QRIS purchase modal state.
   const [qrOpen, setQrOpen] = useState(false);
-  const [qrOrder, setQrOrder] = useState<{ orderId: string; qrString: string | null; totalIdr: number; expiresAt: string | null } | null>(null);
+  const [qrOrder, setQrOrder] = useState<{
+    orderId: string;
+    qrString: string | null;
+    totalIdr: number;
+    amountIdr: number;
+    feeIdr: number;
+    expiresAt: string | null;
+    isSandbox: boolean;
+  } | null>(null);
   const [qrStatus, setQrStatus] = useState<"pending" | "completed" | "canceled">("pending");
   const [qrError, setQrError] = useState("");
+  const [copied, setCopied] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null); // planId being purchased
   const [planError, setPlanError] = useState("");
 
@@ -305,6 +336,22 @@ export default function BillingPage() {
   const qrOrderStatus = qrStatus;
   const qrExpiresAt = qrOrder?.expiresAt ?? null;
 
+  const qrTimeLeft = useTimeLeft(qrOrder?.expiresAt ?? null);
+  const qrPastDeadline = qrTimeLeft !== null && qrTimeLeft <= 0;
+  const sandboxRefused = qrError.includes("sandbox mode");
+  const qrDead = (qrStatus === "pending" && qrPastDeadline) || sandboxRefused;
+
+  const copyQrString = async () => {
+    if (!qrOrder?.qrString) return;
+    try {
+      await navigator.clipboard.writeText(qrOrder.qrString);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setQrError("Clipboard is blocked on this connection — select the text and copy it manually.");
+    }
+  };
+
   useEffect(() => {
     if (!qrOpen || qrOrderId === null || qrOrderStatus !== "pending") return;
     let stopped = false;
@@ -327,16 +374,41 @@ export default function BillingPage() {
           }
           return;
         }
-        const data = await res.json() as { topup?: { orderId: string; status: "pending" | "completed" | "canceled"; qrString: string | null } };
+        const data = await res.json() as { topup?: {
+          orderId: string;
+          status: "pending" | "completed" | "canceled";
+          credits: string;
+          amountIdr: number;
+          feeIdr: number;
+          totalIdr: number;
+          paymentMethod: string;
+          qrString: string | null;
+          vaNumber: string | null;
+          expiresAt: string | null;
+          isSandbox: boolean;
+          expired: boolean;
+          createdAt: string;
+          completedAt: string | null;
+        } };
         if (stopped || !data.topup) return;
-        setQrStatus(data.topup.status);
-        if (data.topup.status === "completed") {
+        const t = data.topup;
+        setQrStatus(t.status);
+        setQrOrder(prev => prev ? {
+          ...prev,
+          qrString: t.qrString ?? prev.qrString,
+          totalIdr: t.totalIdr,
+          amountIdr: t.amountIdr,
+          feeIdr: t.feeIdr,
+          expiresAt: t.expiresAt,
+          isSandbox: t.isSandbox,
+        } : prev);
+        if (t.status === "completed") {
           if (handle !== undefined) window.clearInterval(handle);
           stopped = true;
           setQrOpen(false);
           void load();
         }
-        if (data.topup.status !== "pending" && handle !== undefined) {
+        if (t.status !== "pending" && handle !== undefined) {
           window.clearInterval(handle);
           stopped = true;
         }
@@ -385,9 +457,18 @@ export default function BillingPage() {
         expiresAt?: string | null;
       };
       if (method === "idr" && data.orderId) {
-        setQrOrder({ orderId: data.orderId, qrString: data.qrString ?? null, totalIdr: data.totalIdr ?? 0, expiresAt: data.expiresAt ?? null });
+        setQrOrder({
+          orderId: data.orderId,
+          qrString: data.qrString ?? null,
+          totalIdr: data.totalIdr ?? 0,
+          amountIdr: 0,
+          feeIdr: 0,
+          expiresAt: data.expiresAt ?? null,
+          isSandbox: false,
+        });
         setQrStatus("pending");
         setQrError("");
+        setCopied(false);
         setQrOpen(true);
       } else {
         // credits or free → success → reload
@@ -632,20 +713,60 @@ export default function BillingPage() {
     >
       {qrError && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{qrError}</p>}
       {qrStatus === "pending" && qrOrder && <div className="topup-pay">
-        <div className="topup-qr">
-          {qrOrder.qrString
-            ? <QrCanvas value={qrOrder.qrString}/>
-            : <div className="table-empty"><QrIcon size={22}/><strong>No QR returned</strong></div>}
-        </div>
+        {qrDead
+          ? <div className="topup-qr topup-qr-dead" aria-hidden>
+              <span className="topup-qr-void"><QrIcon size={30}/><small>CODE EXPIRED</small></span>
+            </div>
+          : <div className="topup-qr">
+              {qrOrder.qrString
+                ? <QrCanvas value={qrOrder.qrString}/>
+                : <div className="table-empty"><QrIcon size={22}/><strong>No QR returned</strong></div>}
+            </div>}
         <div className="topup-facts">
           <div className="topup-fact">
             <small>YOU PAY</small>
             <strong>{formatRupiah(qrOrder.totalIdr)}</strong>
           </div>
+          {qrOrder.feeIdr > 0 && <div className="topup-fact topup-fact-sub">
+            <small>BREAKDOWN</small>
+            <strong>{formatRupiah(qrOrder.amountIdr)} + {formatRupiah(qrOrder.feeIdr)} fee</strong>
+          </div>}
+          {!qrDead && <Countdown left={qrTimeLeft}/>}
         </div>
-        <div className="topup-status" role="status" aria-live="polite">
+        {qrDead ? <div className="topup-dead" role="status">
+          <Clock size={15}/>
+          <div>
+            <strong>{sandboxRefused ? "Sandbox payment not credited" : "This code has expired"}</strong>
+            <span>
+              {sandboxRefused
+                ? "The payment went through, but this project is in sandbox mode so no credits were added."
+                : "It was not paid in time, so it is canceled and cannot be scanned."}
+              {" "}Try again to start a new one.
+            </span>
+          </div>
+        </div> : <div className="topup-status" role="status" aria-live="polite">
           <Loader2 size={14} className="row-spinner"/>
-          <span>Waiting for payment… checking every few seconds.</span>
+          <span>Waiting for payment… the page checks every few seconds.</span>
+        </div>}
+        {!qrDead && qrOrder.qrString && <details className="topup-raw">
+          <summary>Can&apos;t scan it? Copy the code</summary>
+          <div className="topup-raw-row">
+            <code>{qrOrder.qrString}</code>
+            <button className="button button-outline compact-button" type="button" onClick={() => void copyQrString()}>
+              {copied ? <><Check size={14}/> Copied</> : <><Copy size={14}/> Copy</>}
+            </button>
+          </div>
+        </details>}
+        {!qrDead && qrOrder.isSandbox && <div className="modal-danger-note">
+          <strong>Sandbox</strong>
+          <span>This project is not live yet, so the QR cannot be paid from a real wallet. The plan is still activated so the flow can be tested.</span>
+        </div>}
+      </div>}
+      {qrStatus === "canceled" && <div className="topup-dead" role="status">
+        <Clock size={15}/>
+        <div>
+          <strong>Payment canceled</strong>
+          <span>The order was canceled. Try again to start a new one.</span>
         </div>
       </div>}
       {qrStatus === "completed" && <div className="topup-settled">
@@ -653,13 +774,6 @@ export default function BillingPage() {
         <div className="topup-settled-copy">
           <strong>Plan activated</strong>
           <small>Your new package is now live.</small>
-        </div>
-      </div>}
-      {qrStatus === "canceled" && <div className="topup-dead" role="status">
-        <Clock size={15}/>
-        <div>
-          <strong>Payment canceled</strong>
-          <span>The order was canceled. Try again to start a new one.</span>
         </div>
       </div>}
     </Modal>
