@@ -303,14 +303,23 @@ export function AdminBillingSettingsPage() {
       </div>
 
       <div className="billing-plan-top" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
           <span className={`status-pill status-${pakasirEnabled ? (pakasirHealth?.status === "ready" ? "completed" : "pending") : "canceled"}`}>
             {pakasirHealth?.status === "ready" ? "Ready" : pakasirHealth?.status ?? "Checking…"}
           </span>
           {pakasirEnabled !== null && (
-            <button className={`button ${pakasirEnabled ? "button-outline" : "button-ink"} compact-button`} type="button"
-              onClick={() => void togglePakasir()} disabled={pakasirToggling}>
-              {pakasirToggling ? <><Loader2 size={14} className="row-spinner"/> …</> : pakasirEnabled ? "Disable" : "Enable"}
+            <button
+              className={`button ${pakasirEnabled ? "button-ink" : "button-outline"} compact-button`}
+              type="button"
+              onClick={() => void togglePakasir()}
+              disabled={pakasirToggling}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              {pakasirToggling
+                ? <><Loader2 size={14} className="row-spinner"/> …</>
+                : pakasirEnabled
+                  ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block" }}/> Disable</>
+                  : <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block" }}/> Enable</>}
             </button>
           )}
         </div>
@@ -326,12 +335,12 @@ export function AdminBillingSettingsPage() {
         <div className="model-table-wrap">
           <table className="model-table">
             <tbody>
-              <tr><td><strong>Slug</strong></td><td className="cell-num">{pakasirHealth.slug ?? "—"}</td></tr>
-              <tr><td><strong>Gateway reachable</strong></td><td className="cell-num">{pakasirHealth.gatewayReachable ? "✅ Yes" : "❌ No"}</td></tr>
-              <tr><td><strong>Webhook secret</strong></td><td className="cell-num">{pakasirHealth.webhookSecretSet ? "✅ Set" : "❌ Missing"}</td></tr>
+              <tr><td><strong>Slug</strong></td><td className="cell-num"><code>{pakasirHealth.slug ?? "—"}</code></td></tr>
+              <tr><td><strong>Gateway reachable</strong></td><td className="cell-num">{pakasirHealth.gatewayReachable ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Yes</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#c44" }}><X size={14}/> No</span>}</td></tr>
+              <tr><td><strong>Webhook secret</strong></td><td className="cell-num">{pakasirHealth.webhookSecretSet ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Set</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#c44" }}><X size={14}/> Missing</span>}</td></tr>
               <tr><td><strong>QRIS fee (Rp 1000)</strong></td><td className="cell-num">{pakasirHealth.qrisFee != null ? `Rp ${pakasirHealth.qrisFee}` : "—"}</td></tr>
-              <tr><td><strong>Sandbox mode</strong></td><td className="cell-num">{pakasirHealth.sandbox ? "🟡 Sandbox" : "🟢 Production"}</td></tr>
-              <tr><td><strong>Telegram notifications</strong></td><td className="cell-num">{pakasirHealth.telegramConfigured ? "✅ Configured" : "❌ Not set"}</td></tr>
+              <tr><td><strong>Mode</strong></td><td className="cell-num">{pakasirHealth.sandbox ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AlertTriangle size={14}/> Sandbox</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Production</span>}</td></tr>
+              <tr><td><strong>Telegram notifications</strong></td><td className="cell-num">{pakasirHealth.telegramConfigured ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Configured</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#8b8579" }}><X size={14}/> Not set</span>}</td></tr>
             </tbody>
           </table>
         </div>
