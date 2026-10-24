@@ -87,8 +87,10 @@ export function AdminBillingSettingsPage() {
   // Search + pagination state for the topups table (section 04) and subscriptions table (section 05).
   const [topupSearch, setTopupSearch] = useState("");
   const [topupPage, setTopupPage] = useState(1);
+  const [topupFilter, setTopupFilter] = useState<"all" | "completed" | "pending" | "canceled">("all");
   const [subSearch, setSubSearch] = useState("");
   const [subPage, setSubPage] = useState(1);
+  const [subFilter, setSubFilter] = useState<"all" | "active" | "expired" | "cancelled">("all");
 
   // Order override modal (section 04): force-complete or cancel a pending order.
   const [overrideTarget, setOverrideTarget] = useState<TopupRow | null>(null);
@@ -356,13 +358,12 @@ export function AdminBillingSettingsPage() {
 
         {(() => {
           const q = topupSearch.trim().toLowerCase();
-          const filtered = q === ""
-            ? topups
-            : topups.filter(t =>
-                t.email.toLowerCase().includes(q) ||
-                t.orderId.toLowerCase().includes(q) ||
-                t.status.toLowerCase().includes(q) ||
-                t.kind.toLowerCase().includes(q));
+          const filtered = (topupFilter === "all" ? topups : topups.filter(t => t.status === topupFilter)).filter(t =>
+            q === "" ||
+            t.email.toLowerCase().includes(q) ||
+            t.orderId.toLowerCase().includes(q) ||
+            t.status.toLowerCase().includes(q) ||
+            t.kind.toLowerCase().includes(q));
           const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
           const page = Math.min(topupPage, pageCount);
           const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
@@ -371,6 +372,15 @@ export function AdminBillingSettingsPage() {
               <Search size={14}/>
               <input value={topupSearch} onChange={e => setTopupSearch(e.target.value)} placeholder="Search by email, order ID, status, kind…" aria-label="Search transactions"/>
             </label>
+            <div className="filter-pills" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              {(["all", "completed", "pending", "canceled"] as const).map(f => (
+                <button key={f} type="button"
+                  className={topupFilter === f ? "plan-pill plan-pill-on" : "plan-pill"}
+                  onClick={() => { setTopupFilter(f); setTopupPage(1); }}>
+                  {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
                 <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th><th>ACTIONS</th></tr></thead>
@@ -439,13 +449,12 @@ export function AdminBillingSettingsPage() {
 
         {(() => {
           const q = subSearch.trim().toLowerCase();
-          const filtered = q === ""
-            ? subscriptions
-            : subscriptions.filter(s =>
-                s.email.toLowerCase().includes(q) ||
-                s.packageName.toLowerCase().includes(q) ||
-                s.tier.toLowerCase().includes(q) ||
-                s.status.toLowerCase().includes(q));
+          const filtered = (subFilter === "all" ? subscriptions : subscriptions.filter(s => s.status === subFilter)).filter(s =>
+            q === "" ||
+            s.email.toLowerCase().includes(q) ||
+            s.packageName.toLowerCase().includes(q) ||
+            s.tier.toLowerCase().includes(q) ||
+            s.status.toLowerCase().includes(q));
           const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
           const page = Math.min(subPage, pageCount);
           const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
@@ -454,6 +463,15 @@ export function AdminBillingSettingsPage() {
               <Search size={14}/>
               <input value={subSearch} onChange={e => setSubSearch(e.target.value)} placeholder="Search by email, package, tier, status…" aria-label="Search subscriptions"/>
             </label>
+            <div className="filter-pills" style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              {(["all", "active", "expired", "cancelled"] as const).map(f => (
+                <button key={f} type="button"
+                  className={subFilter === f ? "plan-pill plan-pill-on" : "plan-pill"}
+                  onClick={() => { setSubFilter(f); setSubPage(1); }}>
+                  {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
                 <thead><tr><th>EMAIL</th><th>PACKAGE</th><th>TIER</th><th>STATUS</th><th>STARTED</th><th>EXPIRES</th><th>TOKENS USED</th></tr></thead>
