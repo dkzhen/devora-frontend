@@ -292,6 +292,8 @@ export default function BillingPage() {
   const [copied, setCopied] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null); // planId being purchased
   const [planError, setPlanError] = useState("");
+  const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   const [invoiceTopups, setInvoiceTopups] = useState<TopupRow[]>([]);
   const [invoiceStatus, setInvoiceStatus] = useState<Status>("loading");
@@ -500,6 +502,34 @@ export default function BillingPage() {
 
   useEffect(() => { void loadInvoices(); }, [loadInvoices]);
 
+  // Pre-flight: check that Pakasir is ready before allowing QRIS plan purchases.
+  // Fetched once on mount — not polled, because it is a one-time gate, not a live status.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/backend/api/v1/health/pakasir")
+      .then(res => {
+        if (cancelled) return;
+        if (res.ok) {
+          setPaymentReady(true);
+        } else {
+          setPaymentReady(false);
+          res.json()
+            .then((body: { message?: string }) => {
+              if (!cancelled) setPaymentMessage(body?.message ?? "The payment gateway is not available.");
+            })
+            .catch(() => {
+              if (!cancelled) setPaymentMessage("The payment gateway is not available.");
+            });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPaymentReady(false);
+        setPaymentMessage("Could not reach the payment gateway.");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const activeTier = plan ?? "STANDARD";
   const hasSubs = subs.length > 0;
   const freeCapLifted = activeTier !== "STANDARD" || hasSubs;
@@ -593,6 +623,9 @@ export default function BillingPage() {
       </div>
 
       {planError && <p className="voucher-message voucher-error" role="alert"><AlertTriangle size={14}/>{planError}</p>}
+      {paymentReady === false && (
+        <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is not available right now. {paymentMessage}</p>
+      )}
 
       {pubStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading plans…</strong></div>}
       {pubStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load plans</strong><button type="button" className="button button-outline compact-button" onClick={() => void loadPlans()}>Retry</button></div>}
@@ -646,7 +679,7 @@ export default function BillingPage() {
               {isCurrent
                 ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
                 : <>
-                    {hasIdr && <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "idr")}>
+                    {hasIdr && <button className="button button-ink compact-button" type="button" disabled={busy || paymentReady === false} onClick={() => void buy(p.id, "idr")}>
                       {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy with IDR</>}
                     </button>}
                     {hasCredits && <button className="button button-outline compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "credits")}>

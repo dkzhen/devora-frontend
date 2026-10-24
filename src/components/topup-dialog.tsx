@@ -123,6 +123,8 @@ export function TopupDialog({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   /**
    * Derived from the order's own status, not from a flag set inside the poll.
@@ -144,6 +146,37 @@ export function TopupDialog({
     setTopup(null);
     setError("");
     setCopied(false);
+  }, [open]);
+
+  // Pre-flight: check that Pakasir is ready before allowing a QRIS payment.
+  // Fetched when the dialog opens — not polled, because it is a one-time gate, not a live status.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setPaymentReady(null);
+    setPaymentMessage("");
+    fetch("/backend/api/v1/health/pakasir")
+      .then(res => {
+        if (cancelled) return;
+        if (res.ok) {
+          setPaymentReady(true);
+        } else {
+          setPaymentReady(false);
+          res.json()
+            .then((body: { message?: string }) => {
+              if (!cancelled) setPaymentMessage(body?.message ?? "The payment gateway is not available.");
+            })
+            .catch(() => {
+              if (!cancelled) setPaymentMessage("The payment gateway is not available.");
+            });
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPaymentReady(false);
+        setPaymentMessage("Could not reach the payment gateway.");
+      });
+    return () => { cancelled = true; };
   }, [open]);
 
   const create = async () => {
@@ -304,7 +337,7 @@ export function TopupDialog({
       : topup === null
         ? <>
             <button className="button button-outline" type="button" onClick={onClose} disabled={creating}>Cancel</button>
-            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
+            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || paymentReady === false}>
               {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Show QR code <QrCode size={15}/></>}
             </button>
           </>
@@ -318,6 +351,9 @@ export function TopupDialog({
     {error && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
     {!settled && topup === null && Number(credits) < MIN_TOPUP && (
       <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {MIN_TOPUP.toLocaleString()} credits.</p>
+    )}
+    {!settled && topup === null && paymentReady === false && (
+      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is not available right now. {paymentMessage}</p>
     )}
 
     {settled && topup && <div className="topup-settled">
