@@ -225,13 +225,14 @@ function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: ()
         : <>
             <div className={`model-chips${allModels ? "" : " model-chips-mini"}`}>
               {(allModels ? models : models.slice(0, MODELS_SHOWN)).map(m =>
-                allModels
+                // When collapsed AND there are more than MODELS_SHOWN, show icon-only chips
+                // to save space. When collapsed but everything fits (≤ MODELS_SHOWN), show
+                // full names — a handful of icons with no names tells the user nothing.
+                (allModels || models.length <= MODELS_SHOWN)
                   ? <span className="model-chip" key={`${m.provider}/${m.name}`}>
                       <ProviderMark provider={m.provider} size={16}/>
                       <span>{m.name}</span>
                     </span>
-                  // Collapsed: the mark alone, named on hover. Counting is not the job here —
-                  // recognising a provider is, and a logo does that faster than a word.
                   : <span className="model-chip-mini" key={`${m.provider}/${m.name}`} title={m.name}>
                       <ProviderMark provider={m.provider} size={18}/>
                     </span>)}
