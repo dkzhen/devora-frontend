@@ -353,7 +353,7 @@ export function TopupDialog({
       <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {MIN_TOPUP.toLocaleString()} credits.</p>
     )}
     {!settled && topup === null && paymentReady === false && (
-      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is not available right now. {paymentMessage}</p>
+      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is temporarily unavailable. Please try again later.</p>
     )}
 
     {settled && topup && <div className="topup-settled">

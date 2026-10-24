@@ -624,7 +624,7 @@ export default function BillingPage() {
 
       {planError && <p className="voucher-message voucher-error" role="alert"><AlertTriangle size={14}/>{planError}</p>}
       {paymentReady === false && (
-        <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is not available right now. {paymentMessage}</p>
+        <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is temporarily unavailable. Please try again later.</p>
       )}
 
       {pubStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading plans…</strong></div>}
