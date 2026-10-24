@@ -297,42 +297,36 @@ export function AdminBillingSettingsPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">00</span><div><h2>Payment gateway</h2><p>Pakasir (QRIS) status and controls.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadPakasirHealth()} disabled={!pakasirHealth}>
-          <RefreshCw size={15}/> Refresh
-        </button>
-      </div>
-
-      <div className="billing-plan-top" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className={`status-pill status-${pakasirEnabled ? (pakasirHealth?.status === "ready" ? "completed" : "pending") : "canceled"}`}>
             {pakasirHealth?.status === "ready" ? "Ready" : pakasirHealth?.status ?? "Checking…"}
           </span>
           {pakasirEnabled !== null && (
             <button
-              className={`button ${pakasirEnabled ? "button-ink" : "button-outline"} compact-button`}
+              className={`button ${pakasirEnabled ? "button-outline" : "button-ink"} compact-button`}
               type="button"
               onClick={() => void togglePakasir()}
               disabled={pakasirToggling}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
               {pakasirToggling
                 ? <><Loader2 size={14} className="row-spinner"/> …</>
-                : pakasirEnabled
-                  ? <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block" }}/> Disable</>
-                  : <><span style={{ width: 8, height: 8, borderRadius: "50%", background: "currentColor", display: "inline-block" }}/> Enable</>}
+                : pakasirEnabled ? "Disable" : "Enable"}
             </button>
           )}
+          <button className="button button-outline compact-button" type="button" onClick={() => void loadPakasirHealth()} disabled={!pakasirHealth}>
+            <RefreshCw size={15}/>
+          </button>
         </div>
       </div>
 
       {pakasirHealth && pakasirHealth.status !== "ready" && pakasirHealth.message && (
-        <p className="voucher-message voucher-error" style={{ marginBottom: 12 }}>
+        <p className="voucher-message voucher-error" style={{ marginTop: 14 }}>
           <AlertTriangle size={14}/>{pakasirHealth.message}
         </p>
       )}
 
       {pakasirHealth && pakasirHealth.status === "ready" && (
-        <div className="model-table-wrap">
+        <div className="model-table-wrap" style={{ marginTop: 14 }}>
           <table className="model-table">
             <tbody>
               <tr><td><strong>Slug</strong></td><td className="cell-num"><code>{pakasirHealth.slug ?? "—"}</code></td></tr>
