@@ -91,6 +91,7 @@ export function AdminBillingSettingsPage() {
   const [subSearch, setSubSearch] = useState("");
   const [subPage, setSubPage] = useState(1);
   const [subFilter, setSubFilter] = useState<"all" | "active" | "expired" | "cancelled">("all");
+  const [sweeping, setSweeping] = useState(false);
 
   // Order override modal (section 04): force-complete or cancel a pending order.
   const [overrideTarget, setOverrideTarget] = useState<TopupRow | null>(null);
@@ -142,6 +143,24 @@ export function AdminBillingSettingsPage() {
       setSubsStatus("ready");
     } catch { setSubsStatus("error"); }
   }, [authHeaders]);
+
+  const doSweep = async () => {
+    setSweeping(true);
+    try {
+      const res = await fetch("/backend/api/v1/admin/sweep-subscriptions", {
+        method: "POST", headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        setNotice({ kind: "error", text: "Could not sweep subscriptions." });
+        return;
+      }
+      const data = await res.json() as { expired?: number; planReset?: boolean };
+      setNotice({ kind: "ok", text: `Swept ${data.expired ?? 0} lapsed subscriptions${data.planReset ? " — plan tiers reset" : ""}.` });
+      void loadSubscriptions();
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the server." });
+    } finally { setSweeping(false); }
+  };
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (status === "ready") { void loadTopups(); void loadSubscriptions(); } }, [status, loadTopups, loadSubscriptions]);
@@ -427,9 +446,14 @@ export function AdminBillingSettingsPage() {
     {status === "ready" && <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">05</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadSubscriptions()} disabled={subsStatus === "loading"}>
-          <RefreshCw size={15}/> Refresh
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
+            {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
+          </button>
+          <button className="button button-outline compact-button" type="button" onClick={() => void loadSubscriptions()} disabled={subsStatus === "loading"}>
+            <RefreshCw size={15}/> Refresh
+          </button>
+        </div>
       </div>
 
       {subsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading subscriptions…</strong></div>}
