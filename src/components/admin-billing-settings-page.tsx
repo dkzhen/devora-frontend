@@ -231,6 +231,48 @@ export function AdminBillingSettingsPage() {
     settings.feeBearer !== feeBearer
   );
 
+  // Pakasir payment gateway status.
+  const [pakasirHealth, setPakasirHealth] = useState<{
+    status?: string; slug?: string; gatewayReachable?: boolean;
+    webhookSecretSet?: boolean; qrisFee?: number | null;
+    telegramConfigured?: boolean; sandbox?: boolean; message?: string;
+  } | null>(null);
+  const [pakasirToggling, setPakasirToggling] = useState(false);
+  const [pakasirEnabled, setPakasirEnabled] = useState<boolean | null>(null);
+
+  const loadPakasirHealth = useCallback(async () => {
+    try {
+      const res = await fetch("/backend/api/v1/health/pakasir", { cache: "no-store" });
+      const data = await res.json() as { status?: string; message?: string; slug?: string; gatewayReachable?: boolean; webhookSecretSet?: boolean; qrisFee?: number | null; telegramConfigured?: boolean; sandbox?: boolean };
+      setPakasirHealth(data);
+      // 200 = enabled & ready; 503 with "disabled" = deliberately off; 503 with other = error but still "enabled" in config
+      if (res.ok) { setPakasirEnabled(true); }
+      else if (data.status === "disabled") { setPakasirEnabled(false); }
+      else { setPakasirEnabled(true); } // configured but unreachable — still "enabled" at config level
+    } catch {
+      setPakasirHealth({ status: "unreachable", message: "Could not reach the backend." });
+    }
+  }, []);
+
+  const togglePakasir = async () => {
+    if (pakasirEnabled === null) return;
+    setPakasirToggling(true);
+    try {
+      const res = await fetch("/backend/api/v1/admin/pakasir/toggle", {
+        method: "POST", headers: await authHeaders(),
+        body: JSON.stringify({ enabled: !pakasirEnabled }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { enabled?: boolean };
+        setPakasirEnabled(data.enabled ?? !pakasirEnabled);
+        void loadPakasirHealth();
+      }
+    } catch { /* ignore — health check will show real state */ }
+    finally { setPakasirToggling(false); }
+  };
+
+  useEffect(() => { void loadPakasirHealth(); }, [loadPakasirHealth]);
+
   return <div className="page-stack">
     <div className="page-heading">
       <div>
@@ -250,6 +292,51 @@ export function AdminBillingSettingsPage() {
     {status === "error" && <section className="console-section">
       <div className="table-empty"><X size={19}/><strong>Could not load the rate</strong><p>Check that the backend is reachable.</p></div>
     </section>}
+
+    {/* Section 00: Payment gateway status. */}
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">00</span><div><h2>Payment gateway</h2><p>Pakasir (QRIS) status and controls.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadPakasirHealth()} disabled={!pakasirHealth}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+
+      <div className="billing-plan-top" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span className={`status-pill status-${pakasirEnabled ? (pakasirHealth?.status === "ready" ? "completed" : "pending") : "canceled"}`}>
+            {pakasirHealth?.status === "ready" ? "Ready" : pakasirHealth?.status ?? "Checking…"}
+          </span>
+          {pakasirEnabled !== null && (
+            <button className={`button ${pakasirEnabled ? "button-outline" : "button-ink"} compact-button`} type="button"
+              onClick={() => void togglePakasir()} disabled={pakasirToggling}>
+              {pakasirToggling ? <><Loader2 size={14} className="row-spinner"/> …</> : pakasirEnabled ? "Disable" : "Enable"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {pakasirHealth && pakasirHealth.status !== "ready" && pakasirHealth.message && (
+        <p className="voucher-message voucher-error" style={{ marginBottom: 12 }}>
+          <AlertTriangle size={14}/>{pakasirHealth.message}
+        </p>
+      )}
+
+      {pakasirHealth && pakasirHealth.status === "ready" && (
+        <div className="model-table-wrap">
+          <table className="model-table">
+            <tbody>
+              <tr><td><strong>Slug</strong></td><td className="cell-num">{pakasirHealth.slug ?? "—"}</td></tr>
+              <tr><td><strong>Gateway reachable</strong></td><td className="cell-num">{pakasirHealth.gatewayReachable ? "✅ Yes" : "❌ No"}</td></tr>
+              <tr><td><strong>Webhook secret</strong></td><td className="cell-num">{pakasirHealth.webhookSecretSet ? "✅ Set" : "❌ Missing"}</td></tr>
+              <tr><td><strong>QRIS fee (Rp 1000)</strong></td><td className="cell-num">{pakasirHealth.qrisFee != null ? `Rp ${pakasirHealth.qrisFee}` : "—"}</td></tr>
+              <tr><td><strong>Sandbox mode</strong></td><td className="cell-num">{pakasirHealth.sandbox ? "🟡 Sandbox" : "🟢 Production"}</td></tr>
+              <tr><td><strong>Telegram notifications</strong></td><td className="cell-num">{pakasirHealth.telegramConfigured ? "✅ Configured" : "❌ Not set"}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
 
     {status === "ready" && <section className="console-section">
       <div className="section-title-row">
