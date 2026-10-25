@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Check, Coins, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
+  AlertTriangle, Check, Coins, Flag, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
+import { AdminSignupRiskSection } from "@/components/admin-signup-risk-section";
+import { AdminAccountReputationSection } from "@/components/admin-account-reputation-section";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
 type Plan = (typeof ALL_PLANS)[number];
@@ -24,6 +26,10 @@ type AccountRow = {
   createdAt: string;
   updatedAt: string;
   keyCount: number;
+  /** Admin-only internal label. Never rendered on any user-facing page. */
+  abuseFlagged: boolean;
+  abuseReason: string | null;
+  freeTokensUsed: number;
 };
 
 type Status = "loading" | "ready" | "error";
@@ -82,6 +88,9 @@ export default function AdminUsersPage() {
       setUsers(rows.map(row => ({
         ...row,
         keyCount: Number(row.keyCount ?? 0),
+        abuseFlagged: Boolean(row.abuseFlagged),
+        abuseReason: typeof row.abuseReason === "string" ? row.abuseReason : null,
+        freeTokensUsed: Number(row.freeTokensUsed ?? 0),
         credits: String(row.credits ?? "0"),
         status: String(row.status ?? "ACTIVE"),
       })));
@@ -161,6 +170,41 @@ export default function AdminUsersPage() {
   };
 
   /** Perform the deletion. Confirmation is the dialog's job. */
+  /**
+   * Flag or unflag one account.
+   *
+   * The flag is an internal label: it excludes the account from the free-token
+   * roll so routine maintenance cannot hand it a fresh allowance. It does NOT
+   * touch the free-token counter — that penalty belongs to the signup path,
+   * where the account is being admitted. An account that has been working for
+   * months is not retroactively punished by a label an operator applied today.
+   */
+  const toggleFlag = async (row: AccountRow) => {
+    setNotice(null);
+    setBusyId(row.id);
+    try {
+      const next = !row.abuseFlagged;
+      const res = await fetch("/backend/api/v1/admin/users/flag", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ userId: row.id, flagged: next }),
+      });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not change the flag." }); return; }
+      setNotice({
+        kind: "ok",
+        text: next
+          ? `${row.email} flagged. Excluded from the free-token roll; allowance unchanged.`
+          : `${row.email} unflagged.`,
+      });
+      await load(appliedSearch, planFilter, page);
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const remove = async (row: AccountRow) => {
     setNotice(null);
     setBusyId(row.id);
@@ -341,7 +385,7 @@ function deltaPreview(raw: string, current: string): string {
           ? <div className="table-empty"><Users size={19}/><strong>No accounts found</strong><p>Try a different search or clear the plan filter.</p></div>
           : <table className="model-table users-table">
               <thead><tr>
-                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th></th>
+                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>FLAG</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th></th>
               </tr></thead>
               <tbody>{users.map(u => <tr key={u.id}>
                 <td>
@@ -360,11 +404,24 @@ function deltaPreview(raw: string, current: string): string {
                   />
                 </td>
                 <td><span className={`status-pill status-${u.status.toLowerCase()}`}>{u.status}</span></td>
+                <td>{u.abuseFlagged
+                  ? <span className="outcome-pill outcome-error" title={u.abuseReason ?? "flagged"}>flagged</span>
+                  : <span className="cell-muted">—</span>}</td>
                 <td><span className="credit-cell"><Coins size={13}/>{formatCredits(u.credits)}</span></td>
                 <td>{u.keyCount}</td>
                 <td>{shortDate(u.createdAt)}</td>
                 <td><span className="row-actions">
                   <button className="row-action" type="button" title="Adjust credits" aria-label={`Adjust credits for ${u.email}`} onClick={() => { setCreditDraft(""); setDialog({ kind: "credits", row: u }); }} disabled={busyId === u.id}><UserCog size={14}/></button>
+                  <button
+                    className={u.abuseFlagged ? "row-action row-action-danger" : "row-action"}
+                    type="button"
+                    title={u.abuseFlagged ? "Remove the flag" : "Flag this account (excluded from the free-token roll, allowance untouched)"}
+                    aria-label={`${u.abuseFlagged ? "Unflag" : "Flag"} ${u.email}`}
+                    onClick={() => void toggleFlag(u)}
+                    disabled={busyId === u.id || isSelf(u)}
+                  >
+                    {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : <Flag size={14}/>}
+                  </button>
                   <button className="row-action row-action-danger" type="button" title={isSelf(u) ? "You cannot delete yourself" : "Delete account"} aria-label={`Delete ${u.email}`} onClick={() => setDialog({ kind: "delete", row: u })} disabled={busyId === u.id || isSelf(u)}>
                     {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}
                   </button>
@@ -488,8 +545,12 @@ function deltaPreview(raw: string, current: string): string {
       </div>
     </section>
 
+    <AdminSignupRiskSection />
+
+    <AdminAccountReputationSection />
+
     <section className="console-section">
-      <div className="section-title-row"><div><span className="section-index">03</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
+      <div className="section-title-row"><div><span className="section-index">05</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
       <ul className="rules-list">
         <li>You cannot change your own plan — that would let the last operator lock itself out irrecoverably.</li>
         <li>You cannot delete your own account, for the same reason.</li>
