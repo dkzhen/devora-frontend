@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, Gift, Infinity as InfinityIcon, Loader2, Package, Sparkles, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { PublicFooter } from "@/components/public-footer";
+import { ProviderMark } from "@/components/provider-mark";
+import { Modal } from "@/components/modal";
 import { formatTokens } from "@/lib/tokens";
 
 /**
@@ -24,6 +26,7 @@ type PlanPackage = {
   baseRpm: number | null;
   throttledRpm: number | null;
   modelCount: number;
+  models?: { name: string; provider: string }[];
 };
 
 /**
@@ -49,6 +52,7 @@ function formatIdr(n: number): string {
 export function PricingPage() {
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [modelPopup, setModelPopup] = useState<{ models: { name: string; provider: string }[]; name: string } | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -119,6 +123,22 @@ export function PricingPage() {
               </div>
             </dl>
 
+            {pkg.models && pkg.models.length > 0 && <div className="pkg-models">
+              <span className="pkg-models-label">Models</span>
+              <div className="model-chips model-chips-mini">
+                {pkg.models.slice(0, 5).map(m =>
+                  <span className="model-chip" key={`${m.provider}/${m.name}`} title={`${m.provider} · ${m.name}`}>
+                    <ProviderMark provider={m.provider} size={16}/>
+                    <span>{m.name}</span>
+                  </span>)}
+                {pkg.models.length > 5 && <button
+                  className="models-more" type="button"
+                  onClick={() => setModelPopup({ models: pkg.models!, name: plan.displayName })}>
+                  +{pkg.models.length - 5} more
+                </button>}
+              </div>
+            </div>}
+
             <p className="pkg-outcome">
               {unlimited
                 ? <>Past fair use, requests continue at <strong>{pkg.throttledRpm ?? "a reduced"} rpm</strong> — never cut off.</>
@@ -138,5 +158,20 @@ export function PricingPage() {
     </section>
 
     <PublicFooter/>
+
+    <Modal
+      open={modelPopup !== null}
+      onClose={() => setModelPopup(null)}
+      title={modelPopup ? `Models in ${modelPopup.name}` : "Models"}
+      subtitle="Every model this package covers."
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setModelPopup(null)}><Check size={15}/> Done</button>}
+    >
+      {modelPopup && <div className="model-chips" style={{ gap: 7 }}>
+        {modelPopup.models.map(m => <span className="model-chip" key={`${m.provider}/${m.name}`}>
+          <ProviderMark provider={m.provider} size={16}/>
+          <span>{m.name}</span>
+        </span>)}
+      </div>}
+    </Modal>
   </main>;
 }

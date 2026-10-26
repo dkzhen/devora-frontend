@@ -43,6 +43,8 @@ type Topup = {
   expired: boolean;
 };
 
+export type { Topup };
+
 /** A handful of sensible sizes. The field takes any whole number of credits. */
 const MIN_TOPUP = 1_000;
 const PRESETS = [1_000, 5_000, 10_000, 25_000];
@@ -109,13 +111,24 @@ function Countdown({ left }: { left: number | null }) {
 }
 
 export function TopupDialog({
-  open, onClose, onSettled, balance,
+  open, onClose, onSettled, onCanceled, balance, resumeTopup,
 }: {
   open: boolean;
   onClose: () => void;
   /** Called once a payment settles, so the page can refresh the balance. */
   onSettled: () => void;
+  /**
+   * Called once an order is canceled from inside the dialog (a resumed order whose cancel button
+   * the payer tapped), so the page can refresh its history without a manual reload.
+   */
+  onCanceled?: () => void;
   balance: string;
+  /**
+   * A top-up resumed from the history table. When provided, the dialog skips the amount-selection
+   * step and shows the existing order's QR directly — no new order is minted. The caller clears
+   * this on close so the next open starts fresh unless another row is resumed.
+   */
+  resumeTopup?: Topup | null;
 }) {
   const { getToken } = useAuth();
   const [credits, setCredits] = useState("25000");
@@ -141,12 +154,48 @@ export function TopupDialog({
   }, [getToken]);
 
   // Reset whenever the dialog is reopened, so a stale QR from a previous visit never shows.
+  // A resumed order is the exception: instead of clearing, the existing order is seeded so the
+  // dialog opens straight on its QR without minting a new one.
   useEffect(() => {
     if (!open) return;
-    setTopup(null);
+    setTopup(resumeTopup ?? null);
     setError("");
     setCopied(false);
-  }, [open]);
+  }, [open, resumeTopup]);
+
+  /**
+   * Cancel the current (resumed) order from inside the dialog.
+   *
+   * Only meaningful for a resumed order the payer no longer wants to pay: it calls the
+   * user-facing cancel endpoint, which closes the order at the gateway first and then locally.
+   * The dialog's own copy is updated from the response so the canceled state shows immediately,
+   * and `onCanceled` lets the history table reload without a manual refresh.
+   */
+  const cancelOrder = useCallback(async () => {
+    const orderId = topup?.orderId;
+    if (!orderId) return;
+    setCreating(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(orderId)}/cancel`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setError(body?.error?.message ?? "Could not cancel the top-up.");
+        return;
+      }
+      setError("");
+      setTopup(prev => prev ? { ...prev, status: "canceled" } : prev);
+      onCanceled?.();
+    } catch {
+      setError("Could not reach the gateway.");
+    } finally {
+      setCreating(false);
+    }
+  }, [topup, getToken, onCanceled]);
 
   // Pre-flight: check that Pakasir is ready before allowing a QRIS payment.
   // Fetched when the dialog opens — not polled, because it is a one-time gate, not a live status.
@@ -317,10 +366,15 @@ export function TopupDialog({
   // credit step. That message is what distinguishes the two dead cases, and it arrives on its own
   // — the order may still read `pending` in the client's copy, so it must not be gated on status.
   const sandboxRefused = error.includes("sandbox mode");
+  const canceled = topup !== null && topup.status === "canceled";
   const terminalButUnsettled = topup !== null && topup.status !== "pending" && !settled;
   // `topup.expired` is the server's verdict; `pastDeadline` is the local clock. Either closes the
   // dialog — the server's is authoritative, the local one is what stops a payer waiting.
   const dead = pastDeadline || terminalButUnsettled || sandboxRefused || topup?.expired === true;
+  // "Live" means the QR is still payable right now: pending, not past the deadline, not canceled.
+  // This is the gate for the "Important" info card and the copy-code box — a dead or canceled
+  // order has nothing left to pay, so neither applies.
+  const live = topup !== null && topup.status === "pending" && !pastDeadline && !topup.expired && !sandboxRefused;
 
   return <Modal
     open={open}
@@ -341,12 +395,17 @@ export function TopupDialog({
               {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Show QR code <QrCode size={15}/></>}
             </button>
           </>
-        : <>
-            <button className="button button-outline" type="button" onClick={onClose}>Close</button>
-            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
-              {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
-            </button>
-          </>}
+        : canceled
+          ? <button className="button button-ink compact-button" type="button" onClick={onClose}>Close</button>
+          : live
+            ? <button className="button button-ink compact-button" type="button" onClick={onClose}>Close</button>
+            : <>
+
+                <button className="button button-outline" type="button" onClick={onClose}>Close</button>
+                <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
+                  {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
+                </button>
+              </>}
     >
     {error && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
     {!settled && topup === null && Number(credits) < MIN_TOPUP && (
@@ -396,8 +455,13 @@ export function TopupDialog({
       <div className="topup-pay">
         {/* A dead code is not shown. Leaving a scannable-looking QR above a box that says it
             cannot be scanned is the contradiction the payer would act on — they would scan it,
-            get nothing, and have no idea which of the two messages to believe. */}
-        {dead
+            get nothing, and have no idea which of the two messages to believe. A canceled order
+            is the same: the QR is void, so it reads ORDER CANCELED rather than CODE EXPIRED. */}
+        {canceled
+          ? <div className="topup-qr topup-qr-dead" aria-hidden>
+              <span className="topup-qr-void"><QrCode size={30}/><small>ORDER CANCELED</small></span>
+            </div>
+        : dead
           ? <div className="topup-qr topup-qr-dead" aria-hidden>
               <span className="topup-qr-void"><QrCode size={30}/><small>CODE EXPIRED</small></span>
             </div>
@@ -419,14 +483,21 @@ export function TopupDialog({
             <small>BREAKDOWN</small>
             <strong>{formatRupiah(topup.amountIdr)} + {formatRupiah(fee)} fee</strong>
           </div>}
-          {!dead && <Countdown left={timeLeft}/>}
+          {!dead && !canceled && <Countdown left={timeLeft}/>}
         </div>
       </div>
 
       {/* The code is dead but the order never settled. Without this the dialog kept showing a
           scannable QR and "waiting for payment" indefinitely, because the local countdown and
-          the poll disagreed about what expiry meant. */}
-      {dead ? <div className="topup-dead" role="status">
+          the poll disagreed about what expiry meant. A canceled order gets its own card so the
+          payer knows it was closed (not just expired) and what to do next. */}
+      {canceled ? <div className="topup-dead" role="status">
+        <AlertTriangle size={15}/>
+        <div>
+          <strong>This order was canceled</strong>
+          <span>This QRIS can no longer be used — if you already paid, contact support. Please start a new purchase.</span>
+        </div>
+      </div> : dead ? <div className="topup-dead" role="status">
         <Clock size={15}/>
         <div>
           <strong>{sandboxRefused ? "Sandbox payment not credited" : "This code has expired"}</strong>
@@ -442,7 +513,14 @@ export function TopupDialog({
         <span>Waiting for payment… the page checks every few seconds.</span>
       </div>}
 
-      {!dead && topup.qrString && <details className="topup-raw">
+      {/* The "only pay this QR" note is for a live order — a canceled or dead order has nothing
+          left to pay, so telling the payer which QR to use would only be confusing. */}
+      {live && <div className="modal-info-note">
+        <strong>Important</strong>
+        <span>Only pay using this QRIS. If you started another checkout, the previous QR is canceled and cannot be used.</span>
+      </div>}
+
+      {live && topup.qrString && <details className="topup-raw">
         <summary>Can&apos;t scan it? Copy the code</summary>
         <div className="topup-raw-row">
           <code>{topup.qrString}</code>
@@ -452,7 +530,7 @@ export function TopupDialog({
         </div>
       </details>}
 
-      {!dead && topup.isSandbox && <div className="modal-danger-note">
+      {live && topup.isSandbox && <div className="modal-danger-note">
         <strong>Sandbox</strong>
         <span>This project is not live yet, so the QR cannot be paid from a real wallet. The balance is still credited so the flow can be tested.</span>
       </div>}

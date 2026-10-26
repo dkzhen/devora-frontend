@@ -58,6 +58,7 @@ type PlanPackage = {
   baseRpm: number | null;
   throttledRpm: number | null;
   modelCount: number;
+  models?: { name: string; provider: string }[];
 };
 
 type PricingPlan = {
@@ -132,6 +133,7 @@ type TopupRow = {
   feeIdr: number;
   totalIdr: number;
   paymentMethod: string;
+  qrString: string | null;
   expiresAt: string | null;
   isSandbox: boolean;
   expired: boolean;
@@ -278,6 +280,7 @@ export default function BillingPage() {
   const [pubStatus, setPubStatus] = useState<Status>("loading");
   // QRIS purchase modal state.
   const [qrOpen, setQrOpen] = useState(false);
+  const [modelPopup, setModelPopup] = useState<{ models: { name: string; provider: string }[]; name: string } | null>(null);
   const [qrOrder, setQrOrder] = useState<{
     orderId: string;
     qrString: string | null;
@@ -675,6 +678,22 @@ export default function BillingPage() {
               </div>
             </dl>
 
+            {pkg.models && pkg.models.length > 0 && <div className="pkg-models">
+              <span className="pkg-models-label">Models</span>
+              <div className="model-chips model-chips-mini">
+                {pkg.models.slice(0, 5).map(m =>
+                  <span className="model-chip" key={`${m.provider}/${m.name}`} title={`${m.provider} · ${m.name}`}>
+                    <ProviderMark provider={m.provider} size={16}/>
+                    <span>{m.name}</span>
+                  </span>)}
+                {pkg.models.length > 5 && <button
+                  className="models-more" type="button"
+                  onClick={() => setModelPopup({ models: pkg.models!, name: p.displayName })}>
+                  +{pkg.models.length - 5} more
+                </button>}
+              </div>
+            </div>}
+
             <div className="billing-plan-actions">
               {isCurrent
                 ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
@@ -705,7 +724,7 @@ export default function BillingPage() {
       </div>
       <div className="model-table-wrap">
         <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>AMOUNT</th></tr></thead>
+          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
           <tbody>
             {invoiceTopups.length > 0
               ? invoiceTopups.map(t => <tr key={t.orderId}>
@@ -722,8 +741,19 @@ export default function BillingPage() {
                     {formatRupiah(t.totalIdr)}
                     {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
                   </td>
+                  <td>
+                    {t.status === "pending"
+                      ? <button className="row-action" type="button" title="Show QR" aria-label={`Show QR for ${t.orderId}`} onClick={() => {
+                        setQrOrder({ orderId: t.orderId, qrString: t.qrString ?? null, totalIdr: t.totalIdr, amountIdr: t.amountIdr, feeIdr: t.feeIdr, expiresAt: t.expiresAt ?? null, isSandbox: t.isSandbox });
+                        setQrStatus("pending");
+                        setQrError("");
+                        setCopied(false);
+                        setQrOpen(true);
+                      }}><QrIcon size={14}/></button>
+                      : <span className="cell-muted">—</span>}
+                  </td>
                 </tr>)
-              : <tr><td colSpan={4}><div className="table-empty">
+              : <tr><td colSpan={5}><div className="table-empty">
                   {invoiceStatus === "loading"
                     ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
                     : invoiceStatus === "error"
@@ -746,10 +776,14 @@ export default function BillingPage() {
         : <button className="button button-outline" type="button" onClick={() => setQrOpen(false)}>Close</button>}
     >
       {qrError && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{qrError}</p>}
-      {qrStatus === "pending" && qrOrder && <div className="topup-pay">
+      {(qrStatus === "pending" || qrStatus === "canceled") && qrOrder && <div className="topup-pay">
         {qrDead
           ? <div className="topup-qr topup-qr-dead" aria-hidden>
               <span className="topup-qr-void"><QrIcon size={30}/><small>CODE EXPIRED</small></span>
+            </div>
+          : qrStatus === "canceled"
+          ? <div className="topup-qr topup-qr-dead" aria-hidden>
+              <span className="topup-qr-void"><QrIcon size={30}/><small>ORDER CANCELED</small></span>
             </div>
           : <div className="topup-qr">
               {qrOrder.qrString
@@ -765,7 +799,7 @@ export default function BillingPage() {
             <small>BREAKDOWN</small>
             <strong>{formatRupiah(qrOrder.amountIdr)} + {formatRupiah(qrOrder.feeIdr)} fee</strong>
           </div>}
-          {!qrDead && <Countdown left={qrTimeLeft}/>}
+          {!qrDead && qrStatus === "pending" && <Countdown left={qrTimeLeft}/>}
         </div>
         {qrDead ? <div className="topup-dead" role="status">
           <Clock size={15}/>
@@ -778,11 +812,21 @@ export default function BillingPage() {
               {" "}Try again to start a new one.
             </span>
           </div>
+        </div> : qrStatus === "canceled" ? <div className="topup-dead" role="status">
+          <AlertTriangle size={15}/>
+          <div>
+            <strong>This order was canceled</strong>
+            <span>A newer checkout was started or the order was abandoned. This QRIS can no longer be used — if you already paid, contact support. Please start a new purchase.</span>
+          </div>
         </div> : <div className="topup-status" role="status" aria-live="polite">
           <Loader2 size={14} className="row-spinner"/>
           <span>Waiting for payment… the page checks every few seconds.</span>
         </div>}
-        {!qrDead && qrOrder.qrString && <details className="topup-raw">
+        {qrStatus === "pending" && !qrDead && <div className="modal-info-note">
+          <strong>Important</strong>
+          <span>Only pay using this QRIS. If you started another checkout, the previous QR is canceled and cannot be used.</span>
+        </div>}
+        {qrStatus === "pending" && !qrDead && qrOrder.qrString && <details className="topup-raw">
           <summary>Can&apos;t scan it? Copy the code</summary>
           <div className="topup-raw-row">
             <code>{qrOrder.qrString}</code>
@@ -791,17 +835,10 @@ export default function BillingPage() {
             </button>
           </div>
         </details>}
-        {!qrDead && qrOrder.isSandbox && <div className="modal-danger-note">
+        {qrStatus === "pending" && !qrDead && qrOrder.isSandbox && <div className="modal-danger-note">
           <strong>Sandbox</strong>
           <span>This project is not live yet, so the QR cannot be paid from a real wallet. The plan is still activated so the flow can be tested.</span>
         </div>}
-      </div>}
-      {qrStatus === "canceled" && <div className="topup-dead" role="status">
-        <Clock size={15}/>
-        <div>
-          <strong>Payment canceled</strong>
-          <span>The order was canceled. Try again to start a new one.</span>
-        </div>
       </div>}
       {qrStatus === "completed" && <div className="topup-settled">
         <span className="topup-settled-mark"><Check size={26}/></span>
@@ -809,6 +846,22 @@ export default function BillingPage() {
           <strong>Plan activated</strong>
           <small>Your new package is now live.</small>
         </div>
+      </div>}
+    </Modal>
+
+    {/* Models popup — shows the full model list for a package. */}
+    <Modal
+      open={modelPopup !== null}
+      onClose={() => setModelPopup(null)}
+      title={modelPopup ? `Models in ${modelPopup.name}` : "Models"}
+      subtitle="Every model this package covers."
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setModelPopup(null)}><Check size={15}/> Done</button>}
+    >
+      {modelPopup && <div className="model-chips" style={{ gap: 7 }}>
+        {modelPopup.models.map(m => <span className="model-chip" key={`${m.provider}/${m.name}`}>
+          <ProviderMark provider={m.provider} size={16}/>
+          <span>{m.name}</span>
+        </span>)}
       </div>}
     </Modal>
   </div>;

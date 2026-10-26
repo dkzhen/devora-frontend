@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, QrCode, RefreshCw, Wallet, X } from "lucide-react";
 import { formatCredits, formatCharge, formatRupiah } from "@/lib/credits";
-import { TopupDialog } from "@/components/topup-dialog";
+import { TopupDialog, type Topup } from "@/components/topup-dialog";
 
 /**
  * Credits page.
@@ -170,6 +170,14 @@ export default function CreditsPage() {
   const [topupOpen, setTopupOpen] = useState(false);
   const [topups, setTopups] = useState<TopupRow[]>([]);
   const [topupStatus, setTopupStatus] = useState<Status>("loading");
+  /**
+   * A top-up resumed from the history table — when the payer taps "Show QR" on a pending row,
+   * the dialog opens straight on the existing order instead of asking for a new amount. The
+   * dialog's `resumeTopup` prop is what switches it into that mode, so the row's QR is shown
+   * rather than a fresh one being minted.
+   */
+  const [resumedTopup, setResumedTopup] = useState<Topup | null>(null);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -236,7 +244,64 @@ export default function CreditsPage() {
     } catch { setTopupStatus("error"); }
   }, [getToken]);
 
+  /**
+   * Resume a pending top-up: open the dialog straight on the existing order's QR.
+   *
+   * The history list row does not carry the `qrString` (the list endpoint omits it to keep the
+   * payload small), so the single-order poll endpoint is fetched first to get the full order,
+   * then the dialog is seeded with it. A failed fetch surfaces an error rather than opening a
+   * dialog with a QR-less order, because a QR-less resume is indistinguishable from a broken one.
+   */
+  const resumeTopup = useCallback(async (t: TopupRow) => {
+    setError("");
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(t.orderId)}`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) { setError("Could not load that order."); return; }
+      const data = await res.json() as { topup?: Topup };
+      if (!data.topup) { setError("Could not load that order."); return; }
+      setResumedTopup(data.topup);
+      setTopupOpen(true);
+    } catch {
+      setError("Could not reach the gateway.");
+    }
+  }, [getToken]);
+
   useEffect(() => { void loadTopups(); }, [loadTopups]);
+
+  /**
+   * Cancel a pending top-up from the history table.
+   *
+   * Calls the user-facing cancel endpoint, which closes the order at the gateway first and then
+   * locally. On success the list is reloaded so the row flips to CANCELED; on failure the error
+   * is surfaced inline rather than swallowed, because a half-cancelled order is exactly the
+   * state a payer needs to know about.
+   */
+  const cancelTopup = useCallback(async (orderId: string) => {
+    setCancelingId(orderId);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(orderId)}/cancel`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setError(body?.error?.message ?? "Could not cancel the top-up.");
+        return;
+      }
+      setError("");
+      await loadTopups();
+    } catch {
+      setError("Could not reach the gateway.");
+    } finally {
+      setCancelingId(null);
+    }
+  }, [getToken, loadTopups]);
 
   // Sized from the server's count, not from the fetched slice: if a page is ever short
   // (a lower limit, or a growing ledger), the last pages must still be reachable.
@@ -279,7 +344,7 @@ export default function CreditsPage() {
       </div>
       <div className="model-table-wrap">
         <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>CREDITS</th><th>PAID</th></tr></thead>
+          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
           <tbody>
             {topups.length > 0
               ? topups.map(t => <tr key={t.orderId}>
@@ -300,8 +365,28 @@ export default function CreditsPage() {
                     {formatRupiah(t.totalIdr)}
                     {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
                   </td>
+                  {/* ACTION: a pending order can be re-opened (Show QR) or closed (Cancel). Any
+                      other state is final, so a dash keeps the column aligned without offering an
+                      action that would only fail. */}
+                  <td className="cell-action">
+                    {t.status === "pending"
+                      ? <div className="row-action-group">
+                          <button className="action-card" type="button" title="Show QR"
+                            aria-label={`Show QR for ${t.orderId}`}
+                            onClick={() => void resumeTopup(t)}>
+                            <QrCode size={18}/>
+                          </button>
+                          <button className="action-card action-card-danger" type="button" title="Cancel order"
+                            aria-label={`Cancel order ${t.orderId}`}
+                            disabled={cancelingId === t.orderId}
+                            onClick={() => void cancelTopup(t.orderId)}>
+                            {cancelingId === t.orderId ? <Loader2 size={18} className="row-spinner"/> : <X size={18}/>}
+                          </button>
+                        </div>
+                      : <span className="cell-dash">—</span>}
+                  </td>
                 </tr>)
-              : <tr><td colSpan={5}><div className="table-empty">
+              : <tr><td colSpan={6}><div className="table-empty">
                   {topupStatus === "loading"
                     ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
                     : topupStatus === "error"
@@ -359,9 +444,11 @@ export default function CreditsPage() {
         settlement, so a completed payment lands in the balance without a page reload. */}
     <TopupDialog
       open={topupOpen}
-      onClose={() => setTopupOpen(false)}
+      onClose={() => { setTopupOpen(false); setResumedTopup(null); }}
       onSettled={() => { void load(); void loadTopups(); }}
+      onCanceled={() => { void loadTopups(); }}
       balance={balance}
+      resumeTopup={resumedTopup}
     />
   </div>;
 }

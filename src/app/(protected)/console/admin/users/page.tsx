@@ -43,6 +43,19 @@ const shortDate = (iso: string): string => {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 };
 
+const relativeAge = (iso: string): string => {
+  const time = new Date(iso).getTime();
+  if (!Number.isFinite(time)) return "—";
+  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+  if (seconds < 60) return `${seconds} sec ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+};
+
 export default function AdminUsersPage() {
   const { getToken } = useAuth();
   const [users, setUsers] = useState<AccountRow[]>([]);
@@ -349,7 +362,7 @@ function deltaPreview(raw: string, current: string): string {
           ? <div className="table-empty"><Users size={19}/><strong>No accounts found</strong><p>Try a different search or clear the plan filter.</p></div>
           : <table className="model-table users-table">
               <thead><tr>
-                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>FLAG</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th></th>
+                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>FLAG</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th>AGE</th><th></th>
               </tr></thead>
               <tbody>{users.map(u => <tr key={u.id}>
                 <td>
@@ -374,6 +387,7 @@ function deltaPreview(raw: string, current: string): string {
                 <td><span className="credit-cell"><Coins size={13}/>{formatCredits(u.credits)}</span></td>
                 <td>{u.keyCount}</td>
                 <td>{shortDate(u.createdAt)}</td>
+                <td className="cell-muted" title={shortDate(u.createdAt)}>{relativeAge(u.createdAt)}</td>
                 <td><span className="row-actions">
                   <button className="row-action" type="button" title="Adjust credits" aria-label={`Adjust credits for ${u.email}`} onClick={() => { setCreditDraft(""); setDialog({ kind: "credits", row: u }); }} disabled={busyId === u.id}><UserCog size={14}/></button>
                   <button className="row-action row-action-danger" type="button" title={isSelf(u) ? "You cannot delete yourself" : "Delete account"} aria-label={`Delete ${u.email}`} onClick={() => setDialog({ kind: "delete", row: u })} disabled={busyId === u.id || isSelf(u)}>
