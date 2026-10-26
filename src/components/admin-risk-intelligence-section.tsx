@@ -1,0 +1,864 @@
+"use client";
+
+/**
+ * Risk intelligence — the single operator view of abuse evidence.
+ *
+ * Three questions used to live in two separate sections (signup security and
+ * gateway usage reputation) plus a backend-only ledger. They are the same
+ * question asked at three moments — who registered, how the account is used,
+ * and what the shared evidence says — so they belong in ONE page section with
+ * tabs, not in three stacked cards.
+ *
+ * Shape rules this file follows (see `admin-console-section-hierarchy`):
+ *  - the page owns the section number; the tabs and subsections carry none;
+ *  - a subsection is a ruled band, never a nested card;
+ *  - evidence is global, every action is per account — the only mutations here
+ *    are flagging ONE account, flagging the eligible set, and clearing ONE
+ *    account's usage reputation.
+ *
+ * The old `AdminSignupRiskSection` / `AdminAccountReputationSection` components
+ * and their endpoints are kept intact; they are simply no longer rendered on
+ * the page, so the console does not show the same table twice.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import {
+  AlertTriangle, Fingerprint, Flag, Globe2, Layers, Loader2, RefreshCw,
+  Search, ShieldAlert, ShieldCheck, Undo2, Users,
+} from "lucide-react";
+import { Pager } from "@/components/pager";
+import { Modal } from "@/components/modal";
+import { Select } from "@/components/select";
+
+/* ------------------------------------------------------------------ types */
+
+type UnifiedDecision = {
+  signup: { category: string; score: number } | null;
+  usage: { tier: string; score: number | null };
+  eligible: boolean;
+  reason: string | null;
+};
+
+type SignupAssessment = {
+  id: string;
+  userId: string;
+  email: string;
+  riskScore: number;
+  riskCategory: string;
+  matchedRules: string[];
+  riskReasons: string[];
+  signupIp: string | null;
+  signupDomain: string | null;
+  abuseFlagged: boolean;
+  unifiedDecision: UnifiedDecision;
+};
+
+type SignupReport = {
+  assessments: SignupAssessment[];
+  page: number;
+  perPage: number;
+  total: number;
+  totalPages: number;
+};
+
+type ReputationAccount = {
+  userId: string;
+  email: string;
+  plan: string;
+  status: string;
+  reputationScore: number | null;
+  reputationTier: string;
+  distinctIpCount: number;
+  sharedIpCount: number;
+  apiKeyCount: number;
+  requestCount: number;
+  signupIp: string | null;
+  lastIp: string | null;
+  lastSeenAt: string | null;
+  reasons: string[];
+  unifiedDecision: UnifiedDecision;
+};
+
+type ReputationSummary = { total: number; good: number; warning: number; bad: number; unassessed?: number };
+
+type ReputationReport = {
+  accounts: ReputationAccount[];
+  summary: ReputationSummary;
+  page: number;
+  perPage: number;
+  total: number;
+  totalPages: number;
+};
+
+type EvidenceRow = {
+  id: string;
+  label: string;
+  valueKind: string;
+  valueHash: string;
+  valueDisplay: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  eventCount: number;
+  distinctAccountCount: number;
+  distinctIpCount: number;
+  distinctKeyCount: number;
+  flaggedAccountCount: number;
+  requestCount: number;
+  riskWeight: number;
+  metadata: Record<string, unknown> | null;
+};
+
+type EvidenceReport = {
+  rows: EvidenceRow[];
+  page: number;
+  limit: number;
+  total: number;
+};
+
+type Status = "loading" | "ready" | "error";
+type Tab = "signup" | "usage" | "evidence";
+
+/* ---------------------------------------------------------------- helpers */
+
+const SIGNUP_PAGE_SIZE = 15;
+const REPUTATION_PAGE_SIZE = 15;
+const EVIDENCE_PAGE_SIZE = 25;
+
+/** The only evidence sources the backend accepts. */
+const SOURCES = ["signup", "gateway", "backfill", "manual"] as const;
+
+/**
+ * Labels the writers actually emit. The endpoint filters by EXACT label, so a
+ * free-text box would mostly return nothing; a select of the real values is the
+ * honest control.
+ */
+const LABELS = [
+  "SAME_IP", "SAME_DOMAIN", "SAME_NAME", "SAME_LOCAL_STEM", "SAME_CLIENT",
+  "SAME_IP_NAME", "SAME_NAME_DOMAIN", "SAME_NAME_DOMAIN_IP", "IP_SEGMENT_DENSITY",
+  "IP_MULTI_ACCOUNT", "IP_SEGMENT_MULTI_ACCOUNT", "KEY_MULTI_IP", "KEY_MULTI_ACCOUNT",
+  "ACCOUNT_MULTI_KEY",
+  "HISTORICAL_BAD_IP", "HISTORICAL_BAD_DOMAIN", "HISTORICAL_BAD_NAME", "HISTORICAL_BAD_COMBINATION",
+  "MANUAL_CONFIRMED_ABUSE", "MANUAL_FALSE_POSITIVE", "MANUAL_REVIEW",
+] as const;
+
+const VALUE_KINDS = [
+  "ip", "ip_segment", "ip_name", "domain", "name_domain", "name", "localStem", "localShape",
+  "client", "api_key", "combination", "account_reputation", "manual_review",
+] as const;
+
+const formatCount = (n: number): string => n.toLocaleString("en-US");
+
+const stamp = (iso: string | null): string => {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+};
+
+/** Category → pill class. Anything above "suspicious" reads as trouble. */
+const categoryClass = (category: string): string =>
+  category === "normal" ? "outcome-ok"
+    : category === "suspicious" ? "outcome-interrupted"
+    : "outcome-error";
+
+const tierClass = (tier: string): string =>
+  tier === "bad" ? "outcome-error" : tier === "warning" ? "outcome-interrupted" : "outcome-ok";
+
+/** A hash prefix is all an operator needs to correlate two rows. */
+const shortHash = (hash: string): string => `${hash.slice(0, 10)}…`;
+
+const errorFor = (status: number, what: string): string =>
+  status === 401 || status === 403 || status === 404
+    ? "This account is not an administrator."
+    : `Could not load ${what}.`;
+
+/* ------------------------------------------------------------------ panel */
+
+export function AdminRiskIntelligenceSection() {
+  const [tab, setTab] = useState<Tab>("signup");
+  // A panel mounts the first time its tab is opened and stays mounted after
+  // that, so switching tabs never loses a filter, a page or a scroll position.
+  const [visited, setVisited] = useState<Record<Tab, boolean>>({ signup: true, usage: false, evidence: false });
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const open = (next: Tab) => {
+    setTab(next);
+    setVisited(current => (current[next] ? current : { ...current, [next]: true }));
+  };
+
+  const tabProps = (id: Tab) => ({
+    role: "tab" as const,
+    id: `risk-tab-${id}`,
+    "aria-selected": tab === id,
+    "aria-controls": `risk-panel-${id}`,
+    tabIndex: tab === id ? 0 : -1,
+    onClick: () => open(id),
+  });
+
+  return <section className="console-section risk-intel">
+    <div className="section-title-row">
+      <div>
+        <span className="section-index">03</span>
+        <div>
+          <h2>Risk intelligence</h2>
+          <p>Signup assessments, gateway usage reputation and the shared evidence ledger. Evidence is global; every action is per account.</p>
+        </div>
+      </div>
+      <div className="reputation-actions">
+        <button
+          className="button button-outline compact-button"
+          type="button"
+          onClick={() => setRefreshKey(key => key + 1)}
+          title="Reload the open tab"
+        >
+          <RefreshCw size={14} /> Refresh
+        </button>
+      </div>
+    </div>
+
+    <div className="risk-tabs" role="tablist" aria-label="Risk intelligence views">
+      <button type="button" {...tabProps("signup")}><ShieldAlert size={14} /> Signup assessments</button>
+      <button type="button" {...tabProps("usage")}><Fingerprint size={14} /> Gateway usage</button>
+      <button type="button" {...tabProps("evidence")}><Layers size={14} /> Evidence ledger</button>
+    </div>
+
+    <div
+      id="risk-panel-signup"
+      role="tabpanel"
+      aria-labelledby="risk-tab-signup"
+      hidden={tab !== "signup"}
+    >
+      {visited.signup && <SignupPanel refreshKey={refreshKey} />}
+    </div>
+
+    <div
+      id="risk-panel-usage"
+      role="tabpanel"
+      aria-labelledby="risk-tab-usage"
+      hidden={tab !== "usage"}
+    >
+      {visited.usage && <UsagePanel refreshKey={refreshKey} />}
+    </div>
+
+    <div
+      id="risk-panel-evidence"
+      role="tabpanel"
+      aria-labelledby="risk-tab-evidence"
+      hidden={tab !== "evidence"}
+    >
+      {visited.evidence && <EvidencePanel refreshKey={refreshKey} />}
+    </div>
+  </section>;
+}
+
+/* ------------------------------------------------------------ signup side */
+
+function SignupPanel({ refreshKey }: { refreshKey: number }) {
+  const { getToken } = useAuth();
+  const [report, setReport] = useState<SignupReport | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [reviewMenuFor, setReviewMenuFor] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [search, setSearch] = useState("");
+  const [flagFilter, setFlagFilter] = useState<"all" | "flagged" | "unflagged">("all");
+  const [categoryFilter, setCategoryFilter] = useState("");
+
+  // `load` takes the page it should fetch instead of reading page state, so it
+  // stays stable and cannot re-trigger itself.
+  const load = useCallback(async (pageNo: number) => {
+    setStatus("loading");
+    try {
+      const token = await getToken();
+      const query = new URLSearchParams({
+        page: String(pageNo),
+        limit: String(SIGNUP_PAGE_SIZE),
+        search,
+        flagged: flagFilter,
+        category: categoryFilter,
+      });
+      const res = await fetch(`/backend/api/v1/admin/users/risk?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setError(errorFor(res.status, "signup risk review")); setStatus("error"); return; }
+      const data = await res.json() as SignupReport;
+      setReport({
+        assessments: Array.isArray(data.assessments) ? data.assessments : [],
+        page: Number(data.page ?? pageNo),
+        perPage: Number(data.perPage ?? SIGNUP_PAGE_SIZE),
+        total: Number(data.total ?? 0),
+        totalPages: Number(data.totalPages ?? 1),
+      });
+      setStatus("ready");
+    } catch { setError("Could not reach the backend."); setStatus("error"); }
+  }, [getToken, search, flagFilter, categoryFilter]);
+
+  useEffect(() => { void load(1); }, [load, refreshKey]);
+
+  const page = report?.page ?? 1;
+
+  const toggleManualFlag = async (row: SignupAssessment) => {
+    setNotice(null); setBusyId(row.userId);
+    try {
+      const token = await getToken();
+      const next = !row.abuseFlagged;
+      const res = await fetch("/backend/api/v1/admin/users/flag", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: row.userId, flagged: next, reason: "manual review from signup risk assessment" }),
+      });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not change the flag." }); return; }
+      setNotice({ kind: "ok", text: next
+        ? `${row.email} flagged. It will be skipped by the free-token roll; allowance unchanged.`
+        : `${row.email} unflagged.` });
+      await load(page);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBusyId(null); }
+  };
+
+  const flagEligible = async () => {
+    setConfirmBulk(false);
+    setNotice(null); setBulkBusy(true);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/risk/flag-eligible", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+      });
+      const body = await res.json().catch(() => null) as { updated?: number; error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not flag eligible accounts." }); return; }
+      setNotice({ kind: "ok", text: `${body?.updated ?? 0} eligible account(s) flagged.` });
+      await load(page);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBulkBusy(false); }
+  };
+
+  const recordManualReview = async (row: SignupAssessment, label: "MANUAL_CONFIRMED_ABUSE" | "MANUAL_FALSE_POSITIVE" | "MANUAL_REVIEW") => {
+    setReviewMenuFor(null);
+    setNotice(null); setBusyId(row.userId);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/risk-evidence/manual", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: row.userId, label, reason: `manual review from risk intelligence` }),
+      });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not record the review." }); return; }
+      const text = label === "MANUAL_CONFIRMED_ABUSE"
+        ? `${row.email} recorded as confirmed abuse.`
+        : label === "MANUAL_FALSE_POSITIVE"
+          ? `${row.email} recorded as a false positive.`
+          : `${row.email} marked as under review.`;
+      setNotice({ kind: "ok", text });
+      await load(page);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBusyId(null); }
+  };
+
+  const rows = report?.assessments ?? [];
+  const flaggedOnPage = rows.filter(row => row.abuseFlagged).length;
+  const eligibleOnPage = rows.filter(row => row.unifiedDecision?.eligible).length;
+
+  return <>
+    {notice && <p className={`voucher-message ${notice.kind === "ok" ? "voucher-ok" : "voucher-error"}`} role="status">
+      <ShieldAlert size={14} />{notice.text}
+    </p>}
+
+    <div className="admin-risk-subsection">
+      <div className="section-title-row">
+        <div><div>
+          <h3>Signup assessments</h3>
+          <p>Risk at registration: IP, browser, domain, identity and signup history. A manual flag is an internal label — it adds no penalty.</p>
+        </div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => setConfirmBulk(true)} disabled={bulkBusy}>
+          <Flag size={14} />{bulkBusy ? "Flagging…" : "Flag eligible accounts"}
+        </button>
+      </div>
+
+      <div className="users-toolbar risk-filters">
+        <label className="search-field">
+          <Search size={14} />
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder="Search email or name"
+            aria-label="Search signup risk accounts"
+          />
+        </label>
+        <Select
+          label="Filter account flag"
+          value={flagFilter}
+          onChange={v => setFlagFilter(v as typeof flagFilter)}
+          width={130}
+          options={[
+            { value: "all", label: "All flags" },
+            { value: "flagged", label: "Flagged" },
+            { value: "unflagged", label: "Unflagged" },
+          ]}
+        />
+        <Select
+          label="Filter risk category"
+          value={categoryFilter}
+          onChange={v => setCategoryFilter(v)}
+          width={150}
+          options={[
+            { value: "", label: "All categories" },
+            { value: "normal", label: "Normal" },
+            { value: "suspicious", label: "Suspicious" },
+            { value: "elevated", label: "Elevated" },
+            { value: "high_risk", label: "High risk" },
+            { value: "review_required", label: "Review required" },
+          ]}
+        />
+      </div>
+
+      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading signup assessments…</div>}
+      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+
+      {status === "ready" && <>
+        <div className="risk-summary">
+          <span><b>{formatCount(report?.total ?? 0)}</b> assessments</span>
+          <span><b>{formatCount(flaggedOnPage)}</b> flagged on this page</span>
+          <span><b>{formatCount(eligibleOnPage)}</b> eligible for review</span>
+        </div>
+
+        <div className="model-table-wrap">
+          <table className="model-table usage-table accounts-table">
+            <thead><tr>
+              <th>Account</th><th>Score</th><th>Category</th><th>Usage</th><th>Rules</th><th>Signup context</th><th>Flag</th>
+            </tr></thead>
+            <tbody>
+              {rows.length === 0
+                ? <tr><td colSpan={7}>
+                    <div className="table-empty">
+                      <Users size={20} /><strong>No assessments found</strong>
+                      <p>Try changing the search or filters.</p>
+                    </div>
+                  </td></tr>
+                : rows.map(row => <tr key={row.id}>
+                    <td>
+                      <strong>{row.email}</strong>
+                      <span className="cell-sub">{row.riskReasons[0] ?? "No reason recorded"}</span>
+                    </td>
+                    <td className="cell-num">{row.riskScore}</td>
+                    <td>
+                      <span className={`outcome-pill ${categoryClass(row.riskCategory)}`}>{row.riskCategory}</span>
+                      {row.unifiedDecision?.eligible && <span className="cell-sub" title={row.unifiedDecision.reason ?? "eligible"}>review eligible</span>}
+                    </td>
+                    <td>
+                      {row.unifiedDecision?.usage?.tier === "not_assessed" || row.unifiedDecision?.usage?.tier == null
+                        ? <span className="outcome-pill outcome-muted" title="No gateway request recorded for this account">not assessed</span>
+                        : <span className={`outcome-pill ${tierClass(row.unifiedDecision.usage.tier)}`}>{row.unifiedDecision.usage.tier}</span>}
+                    </td>
+                    <td><code title={row.matchedRules.join(", ")}>{row.matchedRules.length ? row.matchedRules.slice(0, 2).join(", ") : "—"}</code></td>
+                    <td>
+                      <span className="cell-sub" style={{ whiteSpace: "nowrap" }}>{row.signupDomain ?? "—"}{"  ·  "}{row.signupIp ?? "IP unknown"}</span>
+                    </td>
+                    <td>
+                      <div className="row-actions" style={{ gap: 6 }}>
+                        {row.abuseFlagged
+                          ? <button
+                              className="row-action row-action-danger"
+                              type="button"
+                              title="Flagged — click to unflag"
+                              aria-label={`Unflag ${row.email}`}
+                              onClick={() => void toggleManualFlag(row)}
+                              disabled={busyId === row.userId}
+                            >
+                              {busyId === row.userId ? <Loader2 size={14} className="row-spinner" /> : <Flag size={14} />}
+                            </button>
+                          : <button
+                              className="row-action"
+                              type="button"
+                              title="Flag this account manually"
+                              aria-label={`Flag ${row.email}`}
+                              onClick={() => void toggleManualFlag(row)}
+                              disabled={busyId === row.userId}
+                            >
+                              {busyId === row.userId ? <Loader2 size={14} className="row-spinner" /> : <Flag size={14} />}
+                            </button>}
+                        <details className="risk-review-menu" open={reviewMenuFor === row.userId}>
+                          <summary
+                            className="row-action"
+                            title="Record a manual review outcome"
+                            aria-label={`Review ${row.email}`}
+                            onClick={event => {
+                              event.preventDefault();
+                              setReviewMenuFor(current => current === row.userId ? null : row.userId);
+                            }}
+                          >
+                            {busyId === row.userId ? <Loader2 size={14} className="row-spinner" /> : <Search size={14} />}
+                          </summary>
+                          <div className="risk-review-options">
+                            <button type="button" onClick={() => void recordManualReview(row, "MANUAL_REVIEW")}>Under review</button>
+                            <button type="button" onClick={() => void recordManualReview(row, "MANUAL_CONFIRMED_ABUSE")}>Confirmed abuse</button>
+                            <button type="button" onClick={() => void recordManualReview(row, "MANUAL_FALSE_POSITIVE")}>False positive</button>
+                          </div>
+                        </details>
+                      </div>
+                    </td>
+                  </tr>)}
+            </tbody>
+          </table>
+        </div>
+
+        <Pager
+          page={page}
+          perPage={report?.perPage ?? SIGNUP_PAGE_SIZE}
+          total={report?.total ?? 0}
+          totalPages={report?.totalPages ?? 1}
+          onPage={pageNo => void load(pageNo)}
+          busy={false}
+        />
+      </>}
+    </div>
+
+    <div className="table-note">
+      <AlertTriangle size={13} /> Signup enforcement is separate from the manual flag: the flag only excludes an account from the free-token roll.
+    </div>
+
+    <Modal
+      open={confirmBulk}
+      title="Flag eligible accounts"
+      subtitle="All currently unflagged accounts whose latest risk assessment is high_risk or review_required will be flagged. This is a label only — it does not change their allowance."
+      onClose={() => setConfirmBulk(false)}
+      footer={<>
+        <button className="button button-outline compact-button" type="button" onClick={() => setConfirmBulk(false)} disabled={bulkBusy}>Cancel</button>
+        <button className="button compact-button" type="button" onClick={() => void flagEligible()} disabled={bulkBusy}>
+          {bulkBusy ? <Loader2 size={14} className="spin" /> : <Flag size={14} />} Flag eligible
+        </button>
+      </>}
+    >
+      <p className="modal-note">Each account is flagged individually. No domain, IP, or cluster cascade is performed.</p>
+    </Modal>
+  </>;
+}
+
+/* ------------------------------------------------------------- usage side */
+
+function UsagePanel({ refreshKey }: { refreshKey: number }) {
+  const { getToken } = useAuth();
+  const [report, setReport] = useState<ReputationReport | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [recomputing, setRecomputing] = useState(false);
+
+  const load = useCallback(async (pageNo: number) => {
+    setStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/admin/users/reputation?page=${pageNo}&limit=${REPUTATION_PAGE_SIZE}`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setError(errorFor(res.status, "gateway usage reputation")); setStatus("error"); return; }
+      const data = await res.json() as ReputationReport;
+      setReport({
+        accounts: Array.isArray(data.accounts) ? data.accounts : [],
+        summary: data.summary ?? { total: 0, good: 0, warning: 0, bad: 0 },
+        page: Number(data.page ?? pageNo),
+        perPage: Number(data.perPage ?? REPUTATION_PAGE_SIZE),
+        total: Number(data.total ?? 0),
+        totalPages: Number(data.totalPages ?? 1),
+      });
+      setStatus("ready");
+    } catch { setError("Could not reach the backend."); setStatus("error"); }
+  }, [getToken]);
+
+  useEffect(() => { void load(1); }, [load, refreshKey]);
+
+  const page = report?.page ?? 1;
+
+  const recompute = async () => {
+    setNotice(null); setRecomputing(true);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/reputation/recompute", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      const body = await res.json().catch(() => null) as { recomputed?: number; error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not recompute." }); return; }
+      setNotice({ kind: "ok", text: `${body?.recomputed ?? 0} account(s) recomputed.` });
+      await load(page);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setRecomputing(false); }
+  };
+
+  const clear = async (row: ReputationAccount) => {
+    setNotice(null); setBusyId(row.userId);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/reputation/clear", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: row.userId }),
+      });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not clear the reputation." }); return; }
+      setNotice({ kind: "ok", text: `${row.email} cleared to good.` });
+      await load(page);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBusyId(null); }
+  };
+
+  const accounts = report?.accounts ?? [];
+  const summary = report?.summary ?? { total: 0, good: 0, warning: 0, bad: 0 };
+
+  return <>
+    {notice && <p className={`voucher-message ${notice.kind === "ok" ? "voucher-ok" : "voucher-error"}`} role="status">
+      <ShieldCheck size={14} />{notice.text}
+    </p>}
+
+    <div className="admin-risk-subsection">
+      <div className="section-title-row">
+        <div><div>
+          <h3>Reputation by account</h3>
+          <p>API-key usage only: request addresses, shared addresses and key spread. Worst first; a score is an observation, not a penalty.</p>
+        </div></div>
+        <button
+          className="button button-outline compact-button"
+          type="button"
+          onClick={() => void recompute()}
+          disabled={recomputing || status === "loading"}
+        >
+          {recomputing ? <Loader2 size={14} className="spin" /> : <ShieldCheck size={14} />} Recompute
+        </button>
+      </div>
+
+      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading gateway usage…</div>}
+      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+
+      {status === "ready" && <>
+        <div className="risk-summary">
+          <span><b>{formatCount(summary.total)}</b> assessed at the gateway</span>
+          <span><b>{formatCount(summary.good)}</b> good</span>
+          <span><b>{formatCount(summary.warning)}</b> warning</span>
+          <span><b>{formatCount(summary.bad)}</b> bad</span>
+          <span><b>{formatCount(summary.unassessed ?? 0)}</b> not assessed</span>
+        </div>
+
+        <div className="model-table-wrap">
+          <table className="model-table">
+            <thead><tr>
+              <th>Account</th><th>Score</th><th>Tier</th><th>Addresses</th><th>Shared</th><th>Keys</th><th>Requests</th><th>Last seen</th><th></th>
+            </tr></thead>
+            <tbody>
+              {accounts.length === 0
+                ? <tr><td colSpan={9}>
+                    <div className="table-empty">
+                      <Users size={20} /><strong>No gateway traffic yet</strong>
+                      <p>This score comes from API requests made with a Devora key — not from signup. Accounts without traffic are shown as not assessed.</p>
+                    </div>
+                  </td></tr>
+                : accounts.map(row => {
+                    const observed = row.requestCount > 0;
+                    return <tr key={row.userId}>
+                      <td>
+                        <strong>{row.email}</strong>
+                        <span className="cell-sub">{row.reasons[0] ?? "No observation recorded"}</span>
+                      </td>
+                      <td className="cell-num">{observed && row.reputationScore !== null ? row.reputationScore : "—"}</td>
+                      <td>
+                        {observed
+                          ? <span className={`outcome-pill ${tierClass(row.reputationTier)}`}>{row.reputationTier}</span>
+                          : <span className="outcome-pill outcome-muted" title="No gateway request has been recorded for this account yet">not assessed</span>}
+                        {row.unifiedDecision?.signup && <span className="cell-sub" title={`signup:${row.unifiedDecision.signup.category}`}>
+                          signup {row.unifiedDecision.signup.category}
+                        </span>}
+                      </td>
+                      <td className="cell-num">{formatCount(row.distinctIpCount)}</td>
+                      <td className="cell-num">{row.sharedIpCount > 0
+                        ? <span className="outcome-pill outcome-interrupted">{formatCount(row.sharedIpCount)}</span>
+                        : "0"}</td>
+                      <td className="cell-num">{formatCount(row.apiKeyCount)}</td>
+                      <td className="cell-num">{formatCount(row.requestCount)}</td>
+                      <td className="cell-muted">{stamp(row.lastSeenAt)}</td>
+                      <td>
+                        <button
+                          className="row-action"
+                          type="button"
+                          title="Clear this account's reputation"
+                          aria-label={`Clear the reputation for ${row.email}`}
+                          onClick={() => void clear(row)}
+                          disabled={busyId === row.userId || !observed || (row.reputationScore ?? 0) === 0}
+                        >
+                          {busyId === row.userId ? <Loader2 size={14} className="row-spinner" /> : <Undo2 size={14} />}
+                        </button>
+                      </td>
+                    </tr>;
+                  })}
+            </tbody>
+          </table>
+        </div>
+
+        <Pager
+          page={page}
+          perPage={report?.perPage ?? REPUTATION_PAGE_SIZE}
+          total={report?.total ?? 0}
+          totalPages={report?.totalPages ?? 1}
+          onPage={pageNo => void load(pageNo)}
+          busy={false}
+        />
+      </>}
+    </div>
+
+    <div className="table-note">
+      <AlertTriangle size={13} /> Clearing restores one account's allowance; it never touches another account, a domain or a cluster.
+    </div>
+  </>;
+}
+
+/* ---------------------------------------------------------- evidence side */
+
+function EvidencePanel({ refreshKey }: { refreshKey: number }) {
+  const { getToken } = useAuth();
+  const [report, setReport] = useState<EvidenceReport | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [error, setError] = useState("");
+  const [label, setLabel] = useState("");
+  const [valueKind, setValueKind] = useState("");
+  const [source, setSource] = useState("");
+
+  const load = useCallback(async (pageNo: number) => {
+    setStatus("loading");
+    try {
+      const token = await getToken();
+      const query = new URLSearchParams({ page: String(pageNo), limit: String(EVIDENCE_PAGE_SIZE) });
+      if (label) query.set("label", label);
+      if (valueKind) query.set("value_kind", valueKind);
+      if (source) query.set("source", source);
+      const res = await fetch(`/backend/api/v1/admin/users/risk-evidence?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setError(errorFor(res.status, "the evidence ledger")); setStatus("error"); return; }
+      const data = await res.json() as EvidenceReport;
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      const total = Number(data.total ?? 0);
+      const limit = Number(data.limit ?? EVIDENCE_PAGE_SIZE);
+      // A filter can empty the last page while the operator is standing on it.
+      if (rows.length === 0 && pageNo > 1 && total > 0) { await load(1); return; }
+      setReport({ rows, page: Number(data.page ?? pageNo), limit, total });
+      setStatus("ready");
+    } catch { setError("Could not reach the backend."); setStatus("error"); }
+  }, [getToken, label, valueKind, source]);
+
+  useEffect(() => { void load(1); }, [load, refreshKey]);
+
+  const rows = report?.rows ?? [];
+  const total = report?.total ?? 0;
+  const limit = report?.limit ?? EVIDENCE_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const filtered = Boolean(label || valueKind || source);
+
+  return <>
+    <div className="admin-risk-subsection">
+      <div className="section-title-row">
+        <div><div>
+          <h3>Evidence ledger</h3>
+          <p>One aggregate row per observed value, across signup, gateway, backfill and manual sources. Sensitive values are stored as SHA-256 hashes and never displayed.</p>
+        </div></div>
+        {filtered && <button
+          className="button button-outline compact-button"
+          type="button"
+          onClick={() => { setLabel(""); setValueKind(""); setSource(""); }}
+        >
+          <Undo2 size={14} /> Clear filters
+        </button>}
+      </div>
+
+      <div className="users-toolbar risk-filters">
+        <Select
+          label="Filter evidence label"
+          value={label}
+          onChange={v => setLabel(v)}
+          width={180}
+          options={[{ value: "", label: "All labels" }, ...LABELS.map(l => ({ value: l, label: l }))]}
+        />
+        <Select
+          label="Filter evidence value kind"
+          value={valueKind}
+          onChange={v => setValueKind(v)}
+          width={160}
+          options={[{ value: "", label: "All value kinds" }, ...VALUE_KINDS.map(k => ({ value: k, label: k }))]}
+        />
+        <Select
+          label="Filter evidence source"
+          value={source}
+          onChange={v => setSource(v)}
+          width={130}
+          options={[{ value: "", label: "All sources" }, ...SOURCES.map(s => ({ value: s, label: s }))]}
+        />
+        <span className="cell-muted risk-filter-note">Label and value kind match exactly.</span>
+      </div>
+
+      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading evidence ledger…</div>}
+      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+
+      {status === "ready" && <>
+        <div className="risk-summary">
+          <span><b>{formatCount(total)}</b> evidence rows</span>
+          <span><b>{formatCount(rows.reduce((sum, row) => sum + row.eventCount, 0))}</b> events on this page</span>
+          <span><b>{formatCount(rows.reduce((sum, row) => sum + row.requestCount, 0))}</b> requests on this page</span>
+          <span><b>{formatCount(rows.reduce((sum, row) => sum + row.flaggedAccountCount, 0))}</b> flagged accounts on this page</span>
+        </div>
+
+        <div className="model-table-wrap">
+          <table className="model-table">
+            <thead><tr>
+              <th>Evidence</th><th>Kind</th><th>Accounts</th><th>IPs</th><th>Keys</th><th>Requests</th><th>Flagged</th><th>Events</th><th>Weight</th><th>Last seen</th>
+            </tr></thead>
+            <tbody>
+              {rows.length === 0
+                ? <tr><td colSpan={9}>
+                    <div className="table-empty">
+                      <Layers size={20} /><strong>No evidence rows</strong>
+                      <p>{filtered ? "No ledger row matches these filters." : "Evidence appears as signup assessments and gateway requests are recorded."}</p>
+                    </div>
+                  </td></tr>
+                : rows.map(row => <tr key={row.id}>
+                    <td>
+                      <strong>{row.label}</strong>
+                      <span className="cell-sub">
+                        {row.valueDisplay ?? <span title="Stored as a hash; the raw value is never displayed">{shortHash(row.valueHash)}</span>}
+                      </span>
+                    </td>
+                    <td><code>{row.valueKind}</code></td>
+                    <td className="cell-num">{formatCount(row.distinctAccountCount)}</td>
+                    <td className="cell-num">{formatCount(row.distinctIpCount)}</td>
+                    <td className="cell-num">{formatCount(row.distinctKeyCount)}</td>
+                    <td className="cell-num">{row.flaggedAccountCount > 0
+                      ? <span className="outcome-pill outcome-error">{formatCount(row.flaggedAccountCount)}</span>
+                      : "0"}</td>
+                    <td className="cell-num">{formatCount(row.eventCount)}</td>
+                    <td className="cell-num">{row.riskWeight}</td>
+                    <td className="cell-muted">{stamp(row.lastSeenAt)}</td>
+                  </tr>)}
+            </tbody>
+          </table>
+        </div>
+
+        <Pager
+          page={report?.page ?? 1}
+          perPage={limit}
+          total={total}
+          totalPages={totalPages}
+          onPage={pageNo => void load(pageNo)}
+          busy={false}
+        />
+      </>}
+    </div>
+
+    <div className="table-note">
+      <Globe2 size={13} /> Evidence is global and read-only here; action is always per account, on the tabs above.
+    </div>
+  </>;
+}

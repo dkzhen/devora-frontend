@@ -8,8 +8,7 @@ import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
-import { AdminSignupRiskSection } from "@/components/admin-signup-risk-section";
-import { AdminAccountReputationSection } from "@/components/admin-account-reputation-section";
+import { AdminRiskIntelligenceSection } from "@/components/admin-risk-intelligence-section";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
 type Plan = (typeof ALL_PLANS)[number];
@@ -405,7 +404,7 @@ function deltaPreview(raw: string, current: string): string {
                 </td>
                 <td><span className={`status-pill status-${u.status.toLowerCase()}`}>{u.status}</span></td>
                 <td>{u.abuseFlagged
-                  ? <span className="outcome-pill outcome-error" title={u.abuseReason ?? "flagged"}>flagged</span>
+                  ? <span className="flag-badge" title={u.abuseReason ?? "flagged"}><Flag size={12}/></span>
                   : <span className="cell-muted">—</span>}</td>
                 <td><span className="credit-cell"><Coins size={13}/>{formatCredits(u.credits)}</span></td>
                 <td>{u.keyCount}</td>
@@ -457,14 +456,13 @@ function deltaPreview(raw: string, current: string): string {
       {freeStatsStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {freeStatsError}</p>}
       {freeStatsStatus === "ready" && freeStats && <>
         {freeStats.totalUsers > 0 && (
-          <div style={{ margin: "0 0 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-              <span style={{ font: "700 var(--fs-micro) var(--display)", letterSpacing: ".6px", textTransform: "uppercase", color: "#8b8579" }}>Exhausted users</span>
-              <span style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.exhaustedUsers} of {freeStats.totalUsers} ({Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%)</span>
-            </div>
-            <div style={{ height: 10, border: "2px solid var(--ink)", background: "#f4f0e8" }}>
-              <div style={{ height: "100%", width: `${(freeStats.exhaustedUsers / freeStats.totalUsers) * 100}%`, background: "var(--coral)" }} />
-            </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "10px", marginBottom: "16px" }}>
+            <p style={{ margin: 0, color: "var(--muted, #777267)", fontSize: "var(--fs-note)" }}>
+              <strong style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.exhaustedUsers}</strong>
+              {" of "}
+              <strong style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.totalUsers}</strong>
+              {" accounts exhausted ("}{Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%).
+            </p>
           </div>
         )}
 
@@ -472,20 +470,13 @@ function deltaPreview(raw: string, current: string): string {
         {freeUsersStatus === "ready" && freeUsers.length > 0 && (
           <div className="model-table-wrap">
             <table className="model-table">
-              <thead><tr><th>Email</th><th>Plan</th><th>Free tokens used</th><th>Progress</th><th>Credits</th><th>Last reset</th></tr></thead>
+              <thead><tr><th>Email</th><th>Plan</th><th>Free tokens used</th><th>Credits</th><th>Last reset</th></tr></thead>
               <tbody>
                 {freeUsers.map(u => {
-                  const pct = Math.min(100, Math.round((u.freeTokensUsed / 20_000_000) * 100));
-                  const exhausted = u.freeTokensUsed >= 20_000_000;
                   return <tr key={u.id}>
                     <td>{u.email}</td>
                     <td><span className={`plan-tag plan-${u.plan.toLowerCase()}`}>{u.plan}</span></td>
                     <td className="cell-num"><strong>{formatCounter(u.freeTokensUsed)}</strong> <span className="cell-sub">/ {formatCounter(20_000_000)}</span></td>
-                    <td className="cell-num" style={{ minWidth: 120 }}>
-                      <div style={{ height: 8, border: "1.5px solid var(--ink)", background: "#f4f0e8", position: "relative" }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: exhausted ? "var(--coral)" : "var(--mint)" }} />
-                      </div>
-                    </td>
                     <td className="cell-num">{formatCounter(Number(u.credits))}</td>
                     <td className="cell-muted">{u.freeTokensResetAt ? new Date(u.freeTokensResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
                   </tr>;
@@ -545,12 +536,14 @@ function deltaPreview(raw: string, current: string): string {
       </div>
     </section>
 
-    <AdminSignupRiskSection />
-
-    <AdminAccountReputationSection />
+    {/* Signup assessments, gateway usage reputation and the evidence ledger are one
+        question asked at three moments, so they share one numbered section with tabs
+        rather than three stacked cards. The old per-feature components and their
+        endpoints still exist; they are simply not rendered twice on this page. */}
+    <AdminRiskIntelligenceSection />
 
     <section className="console-section">
-      <div className="section-title-row"><div><span className="section-index">05</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
+      <div className="section-title-row"><div><span className="section-index">04</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
       <ul className="rules-list">
         <li>You cannot change your own plan — that would let the last operator lock itself out irrecoverably.</li>
         <li>You cannot delete your own account, for the same reason.</li>
