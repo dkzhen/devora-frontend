@@ -169,41 +169,6 @@ export default function AdminUsersPage() {
   };
 
   /** Perform the deletion. Confirmation is the dialog's job. */
-  /**
-   * Flag or unflag one account.
-   *
-   * The flag is an internal label: it excludes the account from the free-token
-   * roll so routine maintenance cannot hand it a fresh allowance. It does NOT
-   * touch the free-token counter — that penalty belongs to the signup path,
-   * where the account is being admitted. An account that has been working for
-   * months is not retroactively punished by a label an operator applied today.
-   */
-  const toggleFlag = async (row: AccountRow) => {
-    setNotice(null);
-    setBusyId(row.id);
-    try {
-      const next = !row.abuseFlagged;
-      const res = await fetch("/backend/api/v1/admin/users/flag", {
-        method: "POST",
-        headers: await authHeaders(),
-        body: JSON.stringify({ userId: row.id, flagged: next }),
-      });
-      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not change the flag." }); return; }
-      setNotice({
-        kind: "ok",
-        text: next
-          ? `${row.email} flagged. Excluded from the free-token roll; allowance unchanged.`
-          : `${row.email} unflagged.`,
-      });
-      await load(appliedSearch, planFilter, page);
-    } catch {
-      setNotice({ kind: "error", text: "Could not reach the gateway." });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const remove = async (row: AccountRow) => {
     setNotice(null);
     setBusyId(row.id);
@@ -411,16 +376,6 @@ function deltaPreview(raw: string, current: string): string {
                 <td>{shortDate(u.createdAt)}</td>
                 <td><span className="row-actions">
                   <button className="row-action" type="button" title="Adjust credits" aria-label={`Adjust credits for ${u.email}`} onClick={() => { setCreditDraft(""); setDialog({ kind: "credits", row: u }); }} disabled={busyId === u.id}><UserCog size={14}/></button>
-                  <button
-                    className={u.abuseFlagged ? "row-action row-action-danger" : "row-action"}
-                    type="button"
-                    title={u.abuseFlagged ? "Remove the flag" : "Flag this account (excluded from the free-token roll, allowance untouched)"}
-                    aria-label={`${u.abuseFlagged ? "Unflag" : "Flag"} ${u.email}`}
-                    onClick={() => void toggleFlag(u)}
-                    disabled={busyId === u.id || isSelf(u)}
-                  >
-                    {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : <Flag size={14}/>}
-                  </button>
                   <button className="row-action row-action-danger" type="button" title={isSelf(u) ? "You cannot delete yourself" : "Delete account"} aria-label={`Delete ${u.email}`} onClick={() => setDialog({ kind: "delete", row: u })} disabled={busyId === u.id || isSelf(u)}>
                     {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}
                   </button>

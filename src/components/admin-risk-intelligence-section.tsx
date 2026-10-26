@@ -91,6 +91,27 @@ type ReputationReport = {
   totalPages: number;
 };
 
+type FlaggedAccount = {
+  userId: string;
+  email: string;
+  flagSource: "signup" | "manual" | string;
+  reason: string | null;
+  freeTokensUsed: number;
+  penaltyStatus: "pending" | "penalized" | string;
+  plan: string;
+  status: string;
+  credits: string;
+};
+
+type FlaggedReport = {
+  accounts: FlaggedAccount[];
+  page: number;
+  perPage: number;
+  total: number;
+  totalPages: number;
+  penaltyLimit: number;
+};
+
 type EvidenceRow = {
   id: string;
   label: string;
@@ -117,7 +138,7 @@ type EvidenceReport = {
 };
 
 type Status = "loading" | "ready" | "error";
-type Tab = "signup" | "usage" | "evidence";
+type Tab = "signup" | "usage" | "evidence" | "flagged";
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -180,7 +201,7 @@ export function AdminRiskIntelligenceSection() {
   const [tab, setTab] = useState<Tab>("signup");
   // A panel mounts the first time its tab is opened and stays mounted after
   // that, so switching tabs never loses a filter, a page or a scroll position.
-  const [visited, setVisited] = useState<Record<Tab, boolean>>({ signup: true, usage: false, evidence: false });
+  const [visited, setVisited] = useState<Record<Tab, boolean>>({ signup: true, usage: false, evidence: false, flagged: false });
   const [refreshKey, setRefreshKey] = useState(0);
 
   const open = (next: Tab) => {
@@ -222,6 +243,7 @@ export function AdminRiskIntelligenceSection() {
       <button type="button" {...tabProps("signup")}><ShieldAlert size={14} /> Signup assessments</button>
       <button type="button" {...tabProps("usage")}><Fingerprint size={14} /> Gateway usage</button>
       <button type="button" {...tabProps("evidence")}><Layers size={14} /> Evidence ledger</button>
+      <button type="button" {...tabProps("flagged")}><Flag size={14} /> Flagged accounts</button>
     </div>
 
     <div
@@ -250,6 +272,15 @@ export function AdminRiskIntelligenceSection() {
     >
       {visited.evidence && <EvidencePanel refreshKey={refreshKey} />}
     </div>
+
+    <div
+      id="risk-panel-flagged"
+      role="tabpanel"
+      aria-labelledby="risk-tab-flagged"
+      hidden={tab !== "flagged"}
+    >
+      {visited.flagged && <FlaggedAccountsPanel refreshKey={refreshKey} />}
+    </div>
   </section>;
 }
 
@@ -266,7 +297,6 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
   const [reviewMenuFor, setReviewMenuFor] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [search, setSearch] = useState("");
-  const [flagFilter, setFlagFilter] = useState<"all" | "flagged" | "unflagged">("all");
   const [categoryFilter, setCategoryFilter] = useState("");
 
   // `load` takes the page it should fetch instead of reading page state, so it
@@ -279,7 +309,6 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
         page: String(pageNo),
         limit: String(SIGNUP_PAGE_SIZE),
         search,
-        flagged: flagFilter,
         category: categoryFilter,
       });
       const res = await fetch(`/backend/api/v1/admin/users/risk?${query.toString()}`, {
@@ -296,7 +325,7 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
       });
       setStatus("ready");
     } catch { setError("Could not reach the backend."); setStatus("error"); }
-  }, [getToken, search, flagFilter, categoryFilter]);
+  }, [getToken, search, categoryFilter]);
 
   useEffect(() => { void load(1); }, [load, refreshKey]);
 
@@ -363,7 +392,6 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
   };
 
   const rows = report?.assessments ?? [];
-  const flaggedOnPage = rows.filter(row => row.abuseFlagged).length;
   const eligibleOnPage = rows.filter(row => row.unifiedDecision?.eligible).length;
 
   return <>
@@ -393,17 +421,6 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
           />
         </label>
         <Select
-          label="Filter account flag"
-          value={flagFilter}
-          onChange={v => setFlagFilter(v as typeof flagFilter)}
-          width={130}
-          options={[
-            { value: "all", label: "All flags" },
-            { value: "flagged", label: "Flagged" },
-            { value: "unflagged", label: "Unflagged" },
-          ]}
-        />
-        <Select
           label="Filter risk category"
           value={categoryFilter}
           onChange={v => setCategoryFilter(v)}
@@ -425,7 +442,6 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
       {status === "ready" && <>
         <div className="risk-summary">
           <span><b>{formatCount(report?.total ?? 0)}</b> assessments</span>
-          <span><b>{formatCount(flaggedOnPage)}</b> flagged on this page</span>
           <span><b>{formatCount(eligibleOnPage)}</b> eligible for review</span>
         </div>
 
@@ -538,6 +554,78 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
     >
       <p className="modal-note">Each account is flagged individually. No domain, IP, or cluster cascade is performed.</p>
     </Modal>
+  </>;
+}
+
+/* ---------------------------------------------------------- flagged side */
+
+function FlaggedAccountsPanel({ refreshKey }: { refreshKey: number }) {
+  const { getToken } = useAuth();
+  const [report, setReport] = useState<FlaggedReport | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [confirmPenalty, setConfirmPenalty] = useState(false);
+  const [confirmClear, setConfirmClear] = useState<FlaggedAccount | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async (pageNo: number) => {
+    setStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/admin/users/risk/flagged?page=${pageNo}&limit=15`, { headers: { Authorization: `Bearer ${token ?? ""}` } });
+      if (!res.ok) { setError(errorFor(res.status, "flagged accounts")); setStatus("error"); return; }
+      const data = await res.json() as FlaggedReport;
+      setReport({ accounts: Array.isArray(data.accounts) ? data.accounts : [], page: Number(data.page ?? pageNo), perPage: Number(data.perPage ?? 15), total: Number(data.total ?? 0), totalPages: Number(data.totalPages ?? 1), penaltyLimit: Number(data.penaltyLimit ?? 19500000) });
+      setStatus("ready");
+    } catch { setError("Could not reach the backend."); setStatus("error"); }
+  }, [getToken]);
+
+  useEffect(() => { void load(1); }, [load, refreshKey]);
+
+  const applyPenalties = async () => {
+    setConfirmPenalty(false); setBusy(true); setNotice(null);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/risk/flagged/apply-penalties", { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" } });
+      const body = await res.json().catch(() => null) as { totalFlagged?: number; penalizedNow?: number; alreadyPenalized?: number; skipped?: number; errors?: number; error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not apply pending penalties." }); return; }
+      setNotice({ kind: "ok", text: `${body?.penalizedNow ?? 0} of ${body?.totalFlagged ?? 0} flagged accounts penalized. ${body?.alreadyPenalized ?? 0} already penalized. ${(body?.skipped ?? 0) + (body?.errors ?? 0)} skipped.` });
+      await load(report?.page ?? 1);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBusy(false); }
+  };
+
+  const clearFlag = async (row: FlaggedAccount) => {
+    setConfirmClear(null); setBusyId(row.userId); setNotice(null);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/risk/flagged/clear", { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ userId: row.userId }) });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not clear the flag." }); return; }
+      setNotice({ kind: "ok", text: `${row.email} unflagged and free-token usage reset.` });
+      await load(report?.page ?? 1);
+    } catch { setNotice({ kind: "error", text: "Could not reach the backend." }); }
+    finally { setBusyId(null); }
+  };
+
+  const accounts = report?.accounts ?? [];
+  return <>
+    {notice && <p className={`voucher-message ${notice.kind === "ok" ? "voucher-ok" : "voucher-error"}`} role="status"><ShieldAlert size={14} />{notice.text}</p>}
+    <div className="admin-risk-subsection">
+      <div className="section-title-row"><div><div><h3>Flagged accounts</h3><p>All signup and manual flags. Unflagging resets free-token usage to zero; status and paid lanes are unchanged.</p></div></div><button className="button compact-button" type="button" onClick={() => setConfirmPenalty(true)} disabled={busy || status !== "ready"}><Flag size={14} />{busy ? "Applying…" : "Apply pending penalties"}</button></div>
+      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading flagged accounts…</div>}
+      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+      {status === "ready" && <>
+        <div className="risk-summary"><span><b>{formatCount(report?.total ?? 0)}</b> flagged accounts</span><span><b>{formatCount(accounts.filter(a => a.penaltyStatus === "pending").length)}</b> pending on this page</span><span><b>{formatCount(accounts.filter(a => a.penaltyStatus === "penalized").length)}</b> penalized on this page</span></div>
+        <div className="model-table-wrap"><table className="model-table accounts-table"><thead><tr><th>Account</th><th>Flag</th><th>Reason</th><th>Free tokens</th><th>Penalty</th><th>Status</th><th>Plan</th><th>Action</th></tr></thead><tbody>{accounts.length === 0 ? <tr><td colSpan={8}><div className="table-empty"><Users size={20} /><strong>No flagged accounts</strong><p>Accounts flagged by signup or manual review appear here.</p></div></td></tr> : accounts.map(row => <tr key={row.userId}><td><strong>{row.email}</strong></td><td><span className={`outcome-pill ${row.flagSource === "signup" ? "outcome-error" : "outcome-interrupted"}`}>{row.flagSource}</span></td><td><span className="cell-sub">{row.reason ?? "—"}</span></td><td className="cell-num">{formatCount(row.freeTokensUsed)} / 20M</td><td><span className={`outcome-pill ${row.penaltyStatus === "pending" ? "outcome-interrupted" : "outcome-ok"}`}>{row.penaltyStatus}</span></td><td>{row.status}</td><td>{row.plan}</td><td><button className="row-action row-action-danger" type="button" aria-label={`Unflag ${row.email}`} title="Unflag and reset free-token usage" onClick={() => setConfirmClear(row)} disabled={busyId === row.userId}><Undo2 size={14}/></button></td></tr>)}</tbody></table></div>
+        <Pager page={report?.page ?? 1} perPage={report?.perPage ?? 15} total={report?.total ?? 0} totalPages={report?.totalPages ?? 1} onPage={page => void load(page)} busy={busy} />
+      </>}
+    </div>
+    <div className="table-note"><AlertTriangle size={13} /> Unflag clears the badge and resets free_tokens_used to zero for this account only. Credits, subscription, top-up, status and API access are preserved.</div>
+    <Modal open={confirmPenalty} title="Apply pending penalties" subtitle="Raise every flagged account below 19.5M free tokens to the penalty threshold. Already-penalized accounts remain unchanged." onClose={() => setConfirmPenalty(false)} footer={<><button className="button button-outline compact-button" type="button" onClick={() => setConfirmPenalty(false)} disabled={busy}>Cancel</button><button className="button compact-button" type="button" onClick={() => void applyPenalties()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Flag size={14} />} Apply penalties</button></>}><p className="modal-note">Each flagged account is handled independently.</p></Modal>
+    <Modal open={confirmClear !== null} title={confirmClear ? `Unflag ${confirmClear.email}?` : "Unflag account"} subtitle="This clears the flag and resets free-token usage to zero." onClose={() => setConfirmClear(null)} footer={<><button className="button button-outline compact-button" type="button" onClick={() => setConfirmClear(null)} disabled={busyId !== null}>Cancel</button><button className="button compact-button" type="button" onClick={() => confirmClear && void clearFlag(confirmClear)} disabled={busyId !== null}>{busyId ? <Loader2 size={14} className="spin" /> : <Undo2 size={14} />} Unflag and reset</button></>}><p className="modal-note">The account stays ACTIVE; credits, subscription, top-up and API access are preserved.</p></Modal>
   </>;
 }
 
