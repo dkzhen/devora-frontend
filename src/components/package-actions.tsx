@@ -34,7 +34,6 @@ type Preview = {
 export function PackageActions({ sub, onChanged }: { sub: Sub; onChanged: () => void }) {
   const { getToken } = useAuth();
   const [removing, setRemoving] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -72,14 +71,11 @@ export function PackageActions({ sub, onChanged }: { sub: Sub; onChanged: () => 
   const confirmReset = async () => {
     setBusy(true); setError("");
     try {
-      // `acknowledge=1` is not decoration: the endpoint refuses without it, so topping up an
-      // allowance cannot happen as a side effect of any other request.
       const res = await fetch(`/backend/api/v1/subscriptions/${sub.id}/reset?acknowledge=1`, { method: "POST", headers: await authHeaders() });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
         setError(body?.error?.message ?? "Could not top up the allowance."); return;
       }
-      setResetting(false);
       onChanged();
     } catch { setError("Could not reach the gateway."); }
     finally { setBusy(false); }
@@ -89,38 +85,10 @@ export function PackageActions({ sub, onChanged }: { sub: Sub; onChanged: () => 
 
   return <>
     <div className="sub-actions">
-      {isHardCap && sub.exhausted && <button className="button button-outline compact-button" type="button" onClick={() => { setError(""); setResetting(true); }}>
-        <ArrowUpRight size={14}/> Top up allowance
-      </button>}
       <button className="button button-outline compact-button sub-remove" type="button" onClick={() => void openRemove()}>
         <Trash2 size={14}/> Remove
       </button>
     </div>
-
-    {/* ---------- top up ---------- */}
-    <Modal
-      open={resetting}
-      title="Top up this allowance"
-      subtitle={<>{sub.name}</>}
-      onClose={() => setResetting(false)}
-      busy={busy}
-      footer={<>
-        <button className="button button-outline compact-button" type="button" onClick={() => setResetting(false)} disabled={busy}>Cancel</button>
-        <button className="button button-ink compact-button" type="button" onClick={() => void confirmReset()} disabled={busy}>
-          {busy ? <><Loader2 size={14} className="spin"/> Topping up…</> : "Add another allowance"}
-        </button>
-      </>}
-    >
-      <p className="confirm-lead">Your allowance restarts from its ceiling. Here is exactly what happens:</p>
-      <ul className="confirm-list">
-        <li><strong>The ceiling doubles.</strong> The current limit is added again on top, so the free allowance you already used comes back as headroom.</li>
-        <li><strong>Your usage record is kept.</strong> Tokens already served are <em>not</em> reset — the counter carries on from where it is, and the ceiling moves past it. Nothing in your history is rewritten.</li>
-        <li><strong>The window does not change.</strong> The expiry date stays the same. This buys tokens, not time.</li>
-        <li><strong>Only this package.</strong> Other packages on your account are untouched.</li>
-      </ul>
-      <p className="confirm-note">Package <code>{sub.packageId}</code> is still active. This is why it cannot simply be re-bought: a live package holds its slot on your account.</p>
-      {error && <p className="form-error" role="alert">{error}</p>}
-    </Modal>
 
     {/* ---------- remove ---------- */}
     <Modal

@@ -110,8 +110,11 @@ export function PricingPage() {
 
             <dl className="pkg-facts">
               <div>
-                <dt>{unlimited ? "Fair use" : "Token allowance"}</dt>
-                <dd>{granted ? formatTokens(Number(granted)) : "—"}<small>tokens</small></dd>
+                <dt>Token allowance</dt>
+                <dd>{unlimited
+                  ? <span>Unlimited</span>
+                  : <>{granted ? formatTokens(Number(granted)) : "—"}<small>tokens</small></>
+                }</dd>
               </div>
               <div>
                 <dt>Duration</dt>
@@ -119,7 +122,18 @@ export function PricingPage() {
               </div>
               <div>
                 <dt>Request rate</dt>
-                <dd>{pkg.baseRpm === null ? "Unlimited" : `${pkg.baseRpm}`}<small>rpm</small></dd>
+                <dd>
+                  {unlimited
+                    ? (pkg.throttledRpm !== null
+                      ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><InfinityIcon size={18} style={{position:"relative",top:"2px"}}/> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
+                      : <span>Unlimited</span>
+                    )
+                    : (pkg.baseRpm !== null
+                      ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                      : <span>Unlimited</span>
+                    )
+                  }
+                </dd>
               </div>
             </dl>
 
@@ -141,7 +155,9 @@ export function PricingPage() {
 
             <p className="pkg-outcome">
               {unlimited
-                ? <>Past fair use, requests continue at <strong>{pkg.throttledRpm ?? "a reduced"} rpm</strong> — never cut off.</>
+                ? (pkg.throttledRpm !== null
+                  ? <>Fair use: <strong>{formatTokens(Number(pkg.fairUseCap))} tokens</strong> at full speed, then <strong>{pkg.throttledRpm} rpm</strong> — never cut off.</>
+                  : <>Truly unlimited — <strong>no fair use cap, no throttle</strong>. Requests never slow down.</>)
                 : <>Once the allowance is spent, the plan ends and your account falls back to <strong>pay-as-you-go credits</strong>.</>}
             </p>
 

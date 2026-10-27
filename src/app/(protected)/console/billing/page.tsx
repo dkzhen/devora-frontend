@@ -5,9 +5,10 @@ import { useAuth } from "@clerk/nextjs";
 import QRCode from "qrcode";
 import {
   AlertTriangle, Check, Clock, Coins, Copy, CreditCard,
-  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, X,
+  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, ShieldCheck, X,
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
+import { formatTokens } from "@/lib/tokens";
 import { formatCredits, formatRupiah } from "@/lib/credits";
 import { CLERK_ENABLED } from "@/lib/clerk-config";
 import { PackageActions } from "@/components/package-actions";
@@ -208,7 +209,12 @@ function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: ()
           limits total. */}
       <div>
         <small>REQUESTS / MIN</small>
-        <strong>{sub.baseRpm === null ? "no limit" : sub.baseRpm}</strong>
+        <strong>{sub.baseRpm === null && sub.throttledRpm === null
+          ? <InfinityIcon size={20} style={{position:"relative",top:"3px"}}/>
+          : throttled && sub.throttledRpm !== null
+            ? sub.throttledRpm
+            : sub.baseRpm ?? <InfinityIcon size={20} style={{position:"relative",top:"3px"}}/>}
+        </strong>
       </div>
       <div>
         <small>{sub.expiresAt === null ? "VALID" : "EXPIRES"}</small>
@@ -249,16 +255,14 @@ function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: ()
     </div>
 
     <div className="billing-sub-foot">
-      <span className="billing-sub-state">
-        {unlimited
-          ? (throttled
-            ? <><span className="billing-badge billing-badge-warn">THROTTLED {sub.throttledRpm ?? ""} RPM</span> past fair use — still serving</>
-            : <><span className="billing-badge billing-badge-ok">UNLIMITED</span> tokens, {sub.baseRpm === null ? "no request ceiling" : `${sub.baseRpm} requests/min`}</>)
-          : (exhausted
-            ? <><span className="billing-badge billing-badge-warn">EXHAUSTED</span> allowance spent — top it up, or fall back to credits</>
-            : <><span className="billing-badge billing-badge-ok">HARD CAP</span> ends at the allowance</>)}
+      <span className="billing-sub-days" style={{alignSelf:"flex-end"}}>{daysLeft(sub.expiresAt)}</span>
+      <span className={`billing-sub-status ${exhausted || throttled ? "is-danger" : "is-ok"}`}>
+        {exhausted
+          ? <><AlertTriangle size={15}/> Token allowance exhausted. Remove this plan to buy again, or purchase a different plan.</>
+          : throttled
+            ? <><AlertTriangle size={15}/> Request rate is now {sub.throttledRpm ?? ""} RPM — your token allowance remains unlimited</>
+            : <><ShieldCheck size={15}/> {unlimited ? "Unlimited plan — full speed" : `Plan active — ${formatCounter(cap !== null ? cap - used : 0)} tokens remaining`}</>}
       </span>
-      <span className="billing-sub-days">{daysLeft(sub.expiresAt)}</span>
     </div>
 
     <PackageActions sub={sub} onChanged={onChanged}/>
@@ -536,6 +540,7 @@ export default function BillingPage() {
   const activeTier = plan ?? "STANDARD";
   const hasSubs = subs.length > 0;
   const freeCapLifted = activeTier !== "STANDARD" || hasSubs;
+  const ringPct = freeCapLifted ? 0 : Math.min(327, Math.round((freeUsed / freeLimit) * 327));
   // The soonest expiry across every live subscription is what the account should plan around.
   const nextExpiry = subs
     .map(s => s.expiresAt)
@@ -568,23 +573,32 @@ export default function BillingPage() {
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Free tokens</h2><p>Your lifetime allowance for free and event-covered models — used before credits.</p></div></div>
       </div>
-      <div className="free-tokens-card">
-        <div className="free-tokens-stats">
-          <div>
-            <small>USED</small>
-            <strong>{formatCounter(freeUsed)}</strong>
+      <div className={`free-tokens-card${freeUsed >= freeLimit ? " exhausted" : ""}`}>
+        <div className="free-tokens-ring-row">
+          <div className="free-tokens-ring">
+            <svg viewBox="0 0 120 120" className="ring-svg">
+              <circle cx="60" cy="60" r="52" className="ring-track"/>
+              <circle cx="60" cy="60" r="52" className="ring-fill" style={{strokeDasharray: `${ringPct} 327`}}/>
+            </svg>
+            <div className="ring-center">
+              <strong>{Math.round(ringPct / 327 * 100)}<small>%</small></strong>
+              <span>used</span>
+            </div>
           </div>
-          <div>
-            <small>LIMIT</small>
-            <strong>{formatCounter(freeLimit)}</strong>
+          <div className="free-tokens-stats">
+            <div>
+              <small>USED</small>
+              <strong>{formatCounter(freeUsed)}</strong>
+            </div>
+            <div>
+              <small>LIMIT</small>
+              <strong>{formatCounter(freeLimit)}</strong>
+            </div>
+            <div>
+              <small>REMAINING</small>
+              <strong>{formatCounter(Math.max(0, freeLimit - freeUsed))}</strong>
+            </div>
           </div>
-          <div>
-            <small>REMAINING</small>
-            <strong>{formatCounter(Math.max(0, freeLimit - freeUsed))}</strong>
-          </div>
-        </div>
-        <div className={`free-tokens-bar${freeUsed >= freeLimit ? " exhausted" : ""}`}>
-          <i style={{ width: `${Math.min(100, Math.round((freeUsed / freeLimit) * 100))}%` }}/>
         </div>
         <div className="free-tokens-foot">
           {freeCapLifted
@@ -605,7 +619,7 @@ export default function BillingPage() {
     {/* ---------- subscriptions ---------- */}
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">02</span><div><h2>Active packages</h2><p>The free allowances your account holds. A request uses these before your credits.</p></div></div>
+        <div><span className="section-index">02</span><div><h2>Active packages</h2><p>Your active subscription packages.</p></div></div>
       </div>
 
       {status === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading your plan…</strong></div>}
@@ -614,9 +628,12 @@ export default function BillingPage() {
         <Coins size={19}/><strong>No active package</strong>
         <p>You are on pay-as-you-go credits. Redeem a voucher to activate a package.</p>
       </div>}
-      {status === "ready" && hasSubs && <div className="billing-subs">
-        {subs.map(s => <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()}/>)}
-      </div>}
+      {status === "ready" && hasSubs && <>
+        <div className="billing-sub-notice"><AlertTriangle size={14} /> Each package can only be active once at a time. To buy the same package again, remove the active one first. You can hold multiple different packages simultaneously.</div>
+        <div className="billing-subs">
+          {subs.map(s => <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()}/>)}
+        </div>
+      </>}
     </section>
 
     {/* ---------- browse plans ---------- */}
@@ -665,8 +682,11 @@ export default function BillingPage() {
 
             <dl className="pkg-facts">
               <div>
-                <dt>{unlimited ? "Fair use" : "Token allowance"}</dt>
-                <dd>{granted ? formatCounter(Number(granted)) : "—"}<small>tokens</small></dd>
+                <dt>Token allowance</dt>
+                <dd>{unlimited
+                  ? <span>Unlimited</span>
+                  : <>{granted ? formatCounter(Number(granted)) : "—"}<small>tokens</small></>
+                }</dd>
               </div>
               <div>
                 <dt>Duration</dt>
@@ -674,7 +694,18 @@ export default function BillingPage() {
               </div>
               <div>
                 <dt>Request rate</dt>
-                <dd>{pkg.baseRpm === null ? "Unlimited" : `${pkg.baseRpm}`}<small>rpm</small></dd>
+                <dd>
+                  {unlimited
+                    ? (pkg.throttledRpm !== null
+                      ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><InfinityIcon size={18} style={{position:"relative",top:"2px"}}/> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
+                      : <span>Unlimited</span>
+                    )
+                    : (pkg.baseRpm !== null
+                      ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                      : <span>Unlimited</span>
+                    )
+                  }
+                </dd>
               </div>
             </dl>
 
@@ -693,6 +724,14 @@ export default function BillingPage() {
                 </button>}
               </div>
             </div>}
+
+            <p className="pkg-outcome">
+              {unlimited
+                ? (pkg.throttledRpm !== null
+                  ? <>Fair use: <strong>{formatTokens(Number(pkg.fairUseCap))} tokens</strong> at full speed, then <strong>{pkg.throttledRpm} rpm</strong> — never cut off.</>
+                  : <>Truly unlimited — <strong>no fair use cap, no throttle</strong>. Requests never slow down.</>)
+                : <>Once the allowance is spent, the plan ends and your account falls back to <strong>pay-as-you-go credits</strong>.</>}
+            </p>
 
             <div className="billing-plan-actions">
               {isCurrent

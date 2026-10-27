@@ -95,6 +95,25 @@ type Page = {
 
 type Status = "loading" | "ready" | "error";
 
+/** One active subscription, as returned by the admin subscriptions endpoint. */
+type ActiveSubscription = {
+  id: string;
+  name: string;
+  category: "hard_cap" | "unlimited";
+  tier: string;
+  tokensUsed: number;
+  tokenCap: number | null;
+  fairUseCap: number | null;
+  startedAt: string;
+  expiresAt: string | null;
+};
+
+/** The account whose plan tag was clicked, plus the subscriptions fetched for it. */
+type PlanPopup = {
+  userId: string;
+  email: string;
+};
+
 
 const formatCount = (n: number): string => n.toLocaleString("en-US");
 
@@ -152,6 +171,18 @@ export default function AdminUsagePage() {
   const [body, setBody] = useState<RequestBody | null>(null);
   const [bodyStatus, setBodyStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
+  // Accounts table search — separate from the request-history search, because the two lists
+  // filter different things. `accountSearch` is the input; `appliedAccountSearch` is what was
+  // submitted and is actually sent to the API.
+  const [accountSearch, setAccountSearch] = useState("");
+  const [appliedAccountSearch, setAppliedAccountSearch] = useState("");
+
+  // Plan-tag popup: clicking a SUBSCRIPTION or SUPERUSER plan tag opens a modal showing the
+  // user's active subscriptions. Fetched on click, not with the list.
+  const [planPopup, setPlanPopup] = useState<PlanPopup | null>(null);
+  const [subsData, setSubsData] = useState<ActiveSubscription[] | null>(null);
+  const [subsStatus, setSubsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
   const load = useCallback(async () => {
     setStatus("loading");
     try {
@@ -161,6 +192,7 @@ export default function AdminUsagePage() {
       if (applied.model) params.set("model", applied.model);
       if (applied.status) params.set("status", applied.status);
       if (applied.userId) params.set("user", applied.userId);
+      if (appliedAccountSearch) params.set("accountSearch", appliedAccountSearch);
       const res = await fetch(`/backend/api/v1/admin/usage?${params}`, {
         headers: { Authorization: `Bearer ${token ?? ""}` },
       });
@@ -175,7 +207,7 @@ export default function AdminUsagePage() {
       setError("Could not reach the backend.");
       setStatus("error");
     }
-  }, [getToken, page, accountsPage, applied]);
+  }, [getToken, page, accountsPage, applied, appliedAccountSearch]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -230,6 +262,38 @@ export default function AdminUsagePage() {
     setApplied({ search: search.trim(), model: modelFilter, status: statusFilter, userId: "" });
   };
 
+  /** Apply the accounts search — resets to page 1 and sends the search to the backend. */
+  const applyAccountSearch = () => {
+    setAccountsPage(1);
+    setAppliedAccountSearch(accountSearch.trim());
+  };
+
+  /** Clear the accounts search. */
+  const clearAccountSearch = () => {
+    setAccountSearch("");
+    setAccountsPage(1);
+    setAppliedAccountSearch("");
+  };
+
+  /** Open the plan-tag popup for a user, fetching their active subscriptions. */
+  const openPlanPopup = async (userId: string, email: string) => {
+    setPlanPopup({ userId, email });
+    setSubsData(null);
+    setSubsStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/admin/users/${userId}/subscriptions`, {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setSubsStatus("error"); return; }
+      const body = await res.json() as { subscriptions: ActiveSubscription[] };
+      setSubsData(body.subscriptions);
+      setSubsStatus("ready");
+    } catch {
+      setSubsStatus("error");
+    }
+  };
+
   /** Clear every filter, including an account picked from the table above. */
   const clear = () => {
     setSearch("");
@@ -237,6 +301,9 @@ export default function AdminUsagePage() {
     setStatusFilter("");
     setPage(1);
     setApplied({ search: "", model: "", status: "", userId: "" });
+    setAccountSearch("");
+    setAppliedAccountSearch("");
+    setAccountsPage(1);
   };
 
   const filtersActive = applied.search !== "" || applied.model !== "" || applied.status !== "";
@@ -261,8 +328,8 @@ export default function AdminUsagePage() {
             <div><h2>All-time totals</h2><p>Totals across every account. Read from a stored snapshot, so clearing request history does not change them.</p></div>
           </div>
         </div>
-        {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading totals…</div>}
-        {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {error}</p>}
+        {status === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading totals…</span></div>}
+        {status === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{error}</span></div>}
         {status === "ready" && data && <div className="usage-grid stats-grid">
           <article className="usage-stat">
             <div className="stat-top"><span>Requests</span><Activity size={16}/></div>
@@ -296,17 +363,36 @@ export default function AdminUsagePage() {
             <div><h2>Accounts</h2><p>All-time totals per account, newest activity first.</p></div>
           </div>
         </div>
-        {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading accounts…</div>}
-        {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {error}</p>}
-        {status === "ready" && data && (data.accounts.length === 0
-          ? <div className="table-empty"><Zap size={22}/><strong>No usage yet</strong><p>Nothing has gone through the gateway.</p></div>
+        {status === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/><span>Loading accounts…</span></div>}
+        {status === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/><span>{error}</span></div>}
+        {status === "ready" && data && <>
+        <div className="users-toolbar">
+          <label className="search-field">
+            <Search size={14}/>
+            <input
+              value={accountSearch}
+              onChange={e => setAccountSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") applyAccountSearch(); }}
+              placeholder="Search by email…"
+              aria-label="Search accounts by email"
+            />
+          </label>
+          <button className="button compact-button" onClick={applyAccountSearch}>Search</button>
+          {appliedAccountSearch && <button className="button button-outline compact-button" onClick={clearAccountSearch}><X size={13}/> Clear</button>}
+        </div>
+        {data.accounts.length === 0
+          ? <div className="table-empty"><Zap size={22}/><strong>No usage yet</strong><p>{appliedAccountSearch ? "No accounts match this search." : "Nothing has gone through the gateway."}</p></div>
           : <div className="model-table-wrap"><table className="model-table usage-table accounts-table">
-              <thead><tr><th>Account</th><th>Plan</th><th>Requests</th><th>Tokens</th><th>Free tokens</th><th>Credits</th><th>Last used</th></tr></thead>
+              <thead><tr><th style={{whiteSpace:"nowrap"}}>Account</th><th style={{whiteSpace:"nowrap"}}>Plan</th><th style={{whiteSpace:"nowrap"}}>Requests</th><th style={{whiteSpace:"nowrap"}}>Tokens</th><th style={{whiteSpace:"nowrap"}}>Free tokens</th><th style={{whiteSpace:"nowrap"}}>Credits</th><th style={{whiteSpace:"nowrap"}}>Last used</th></tr></thead>
               <tbody>
                 {data.accounts.map(a => (
                   <tr key={a.userId} className={applied.userId === a.userId ? "row-selected" : undefined}>
                     <td><button className="account-link" onClick={() => { const same = applied.userId === a.userId; setSearch(same ? "" : a.email); setPage(1); setApplied({ ...applied, userId: same ? "" : a.userId, search: same ? "" : a.email }); }}>{a.email}</button></td>
-                    <td><span className={`plan-tag plan-${a.plan.toLowerCase()}`}>{a.plan}</span></td>
+                    <td>
+                      {(a.plan === "SUBSCRIPTION" || a.plan === "SUPERUSER")
+                        ? <button className={`plan-tag plan-${a.plan.toLowerCase()} plan-tag-clickable`} type="button" title="View active subscriptions" onClick={() => void openPlanPopup(a.userId, a.email)}>{a.plan}</button>
+                        : <span className={`plan-tag plan-${a.plan.toLowerCase()}`}>{a.plan}</span>}
+                    </td>
                     <td className="cell-num">{formatCount(a.requests)}{a.errors > 0 && <span className="cell-sub">{a.errors} failed</span>}</td>
                     <td className="cell-num">{formatCounter(a.totalTokens)}</td>
                     <td className="cell-num">{formatCounter(a.freeTokensUsed)}/{formatCounter(20_000_000)}</td>
@@ -315,7 +401,8 @@ export default function AdminUsagePage() {
                   </tr>
                 ))}
               </tbody>
-            </table></div>)}
+            </table></div>}
+        </>}
 
         {/* The pager sits outside the ready/empty branches so it also shows on an empty
             page — otherwise landing past the last page would strand the operator with no
@@ -380,8 +467,8 @@ export default function AdminUsagePage() {
           {filtersActive && <button className="button button-outline compact-button" onClick={clear}><X size={13}/> Clear</button>}
         </div>
 
-        {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading usage…</div>}
-        {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {error}</p>}
+        {status === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/><span>Loading usage…</span></div>}
+        {status === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/><span>{error}</span></div>}
 
         {status === "ready" && data && <>
           {data.rows.length === 0
@@ -391,7 +478,7 @@ export default function AdminUsagePage() {
                 <table className="model-table usage-table">
                   <thead>
                     <tr>
-                      <th>When</th><th>Account</th><th>Model</th><th>Tokens</th><th>Credits</th><th>Status</th>
+                      <th style={{whiteSpace:"nowrap"}}>When</th><th style={{whiteSpace:"nowrap"}}>Account</th><th style={{whiteSpace:"nowrap"}}>Model</th><th style={{whiteSpace:"nowrap"}}>Tokens</th><th style={{whiteSpace:"nowrap"}}>Credits</th><th style={{whiteSpace:"nowrap"}}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -480,6 +567,45 @@ export default function AdminUsagePage() {
           <strong>These are not affected</strong>
           <small>All-time totals stay: <span className="modal-balance">{formatCount(data?.totals.requests ?? 0)} requests</span> across {formatCount(data?.totals.accounts ?? 0)} account(s). They are read from a snapshot, not from these logs.</small>
         </div>
+      </Modal>
+
+      <Modal
+        open={planPopup !== null}
+        title="Active subscriptions"
+        subtitle={planPopup ? planPopup.email : ""}
+        onClose={() => { setPlanPopup(null); setSubsData(null); setSubsStatus("idle"); }}
+        footer={<button className="button button-outline compact-button" type="button" onClick={() => { setPlanPopup(null); setSubsData(null); setSubsStatus("idle"); }}>Close</button>}
+      >
+        {subsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/><span>Loading subscriptions…</span></div>}
+        {subsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/><span>Could not load subscriptions.</span></div>}
+        {subsStatus === "ready" && subsData && (
+          subsData.length === 0
+            ? <div className="table-empty"><Zap size={22}/><strong>No active subscriptions</strong><p>This account has no live package subscriptions.</p></div>
+            : <div className="model-table-wrap"><table className="model-table">
+                <thead><tr>
+                  <th style={{whiteSpace:"nowrap",textAlign:"left"}}>Package</th>
+                  <th style={{whiteSpace:"nowrap",textAlign:"left"}}>Category</th>
+                  <th style={{whiteSpace:"nowrap",textAlign:"left"}}>Token used</th>
+                  <th style={{whiteSpace:"nowrap",textAlign:"left"}}>Token cap</th>
+                  <th style={{whiteSpace:"nowrap",textAlign:"left"}}>Expires at</th>
+                </tr></thead>
+                <tbody>
+                  {subsData.map(s => (
+                    <tr key={s.id}>
+                      <td><strong>{s.name}</strong></td>
+                      <td><span className={`outcome-pill outcome-${s.category === "hard_cap" ? "ok" : "interrupted"}`}>{s.category === "hard_cap" ? "hard cap" : "unlimited"}</span></td>
+                      <td>{formatCounter(s.tokensUsed)}</td>
+                      <td>
+                        {s.category === "hard_cap"
+                          ? (s.tokenCap !== null ? formatCounter(s.tokenCap) : "—")
+                          : (s.fairUseCap !== null ? `${formatCounter(s.fairUseCap)} (fair use)` : "Unlimited")}
+                      </td>
+                      <td className="cell-muted">{s.expiresAt ? stamp(s.expiresAt) : "Lifetime"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+        )}
       </Modal>
     </div>
   );

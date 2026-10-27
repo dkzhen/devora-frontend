@@ -40,18 +40,31 @@ type UnifiedDecision = {
   reason: string | null;
 };
 
+type GatewayStats = {
+  distinctIpCount: number;
+  sharedIpCount: number;
+  apiKeyCount: number;
+  reasons: string[];
+  ips: string[];
+  sharedIps: string[];
+};
+
 type SignupAssessment = {
-  id: string;
+  id: string | null;
   userId: string;
   email: string;
-  riskScore: number;
-  riskCategory: string;
-  matchedRules: string[];
-  riskReasons: string[];
+  riskScore: number | null;
+  riskCategory: string | null;
+  matchedRules: string[] | null;
+  riskReasons: string[] | null;
   signupIp: string | null;
   signupDomain: string | null;
   abuseFlagged: boolean;
+  freeTokensUsed: number;
+  plan: string | null;
+  evaluatedAt: string | null;
   unifiedDecision: UnifiedDecision;
+  gatewayStats: GatewayStats;
 };
 
 type SignupReport = {
@@ -113,8 +126,8 @@ type Tab = "signup" | "evidence" | "flagged";
 
 /* ---------------------------------------------------------------- helpers */
 
-const SIGNUP_PAGE_SIZE = 15;
-const EVIDENCE_PAGE_SIZE = 25;
+const SIGNUP_PAGE_SIZE = 50;
+const EVIDENCE_PAGE_SIZE = 50;
 
 /** The only evidence sources the backend accepts. */
 const SOURCES = ["signup", "gateway", "backfill", "manual"] as const;
@@ -259,6 +272,9 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [reassessing, setReassessing] = useState(false);
+  const [reasonPopup, setReasonPopup] = useState<{ email: string; tier?: string; items: { reason: string; rule?: string }[] } | null>(null);
+  const [ipPopup, setIpPopup] = useState<{ email: string; title: string; ips: string[]; shared?: boolean } | null>(null);
 
   // `load` takes the page it should fetch instead of reading page state, so it
   // stays stable and cannot re-trigger itself.
@@ -289,6 +305,26 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
   }, [getToken, search, categoryFilter]);
 
   useEffect(() => { void load(1); }, [load, refreshKey]);
+
+  const reassess = async () => {
+    setReassessing(true);
+    setNotice(null);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/admin/users/risk/reassess", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setNotice({ kind: "error", text: "Re-evaluation failed." }); return; }
+      const data = await res.json();
+      setNotice({ kind: "ok", text: `Re-evaluated ${data.evaluated ?? 0} account(s) — ${data.derived ?? 0} derived, ${data.failed ?? 0} failed.` });
+      await load(page);
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the backend." });
+    } finally {
+      setReassessing(false);
+    }
+  };
 
   const page = report?.page ?? 1;
 
@@ -366,8 +402,13 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
           <h3>Account assessments</h3>
           <p>Full assessment view for standard accounts: signup score, gateway usage score and unified eligibility. Flag management lives in Flagged accounts.</p>
         </div></div>
+      </div>
+      <div className="accounts-actions-row">
         <button className="button button-outline compact-button" type="button" onClick={() => setConfirmBulk(true)} disabled={bulkBusy}>
           <Flag size={14} />{bulkBusy ? "Flagging…" : "Flag eligible accounts"}
+        </button>
+        <button className="button button-ink compact-button" type="button" onClick={() => void reassess()} disabled={reassessing} title="Re-evaluate all signup risk scores">
+          {reassessing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} {reassessing ? "Updating…" : "Update scores"}
         </button>
       </div>
 
@@ -393,12 +434,13 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
             { value: "elevated", label: "Elevated" },
             { value: "high_risk", label: "High risk" },
             { value: "review_required", label: "Review required" },
+            { value: "not_assessed", label: "Not assessed" },
           ]}
         />
       </div>
 
-      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading account assessments…</div>}
-      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+      {status === "loading" && <div className="risk-loading-centered"><Loader2 size={24} className="spin" /> <span>Loading account assessments…</span></div>}
+      {status === "error" && <div className="risk-loading-centered"><AlertTriangle size={24} /> <span>{error}</span></div>}
 
       {status === "ready" && <>
         <div className="risk-summary">
@@ -409,37 +451,70 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
         <div className="model-table-wrap">
           <table className="model-table usage-table accounts-table">
             <thead><tr>
-              <th>Account</th><th>Signup score</th><th>Category</th><th>Gateway usage</th><th>Usage score</th><th>Requests</th><th>Rules</th><th>Signup context</th><th>Flag</th>
+              <th style={{whiteSpace:"nowrap",minWidth:"100px"}}>Account</th><th style={{whiteSpace:"nowrap"}}>Plan</th><th style={{whiteSpace:"nowrap"}}>Score</th><th style={{whiteSpace:"nowrap"}}>Category</th><th style={{whiteSpace:"nowrap"}}>Reasons</th><th style={{whiteSpace:"nowrap",minWidth:"110px"}}>Gateway</th><th style={{whiteSpace:"nowrap"}}>IPs</th><th style={{whiteSpace:"nowrap"}}>Shared IPs</th><th style={{whiteSpace:"nowrap"}}>Keys</th><th style={{whiteSpace:"nowrap"}}>Usage score</th><th style={{whiteSpace:"nowrap"}}>Requests</th><th style={{whiteSpace:"nowrap"}}>Eligible</th><th style={{whiteSpace:"nowrap"}}>Free tokens</th><th style={{whiteSpace:"nowrap"}}>Evaluated</th><th style={{whiteSpace:"nowrap"}}>Action</th>
             </tr></thead>
             <tbody>
               {rows.length === 0
-                ? <tr><td colSpan={9}>
+                ? <tr><td colSpan={15}>
                     <div className="table-empty">
                       <Users size={20} /><strong>No assessments found</strong>
                       <p>Try changing the search or filters.</p>
                     </div>
                   </td></tr>
-                : rows.map(row => <tr key={row.id}>
+                : rows.map(row => {
+                  const reasons = row.riskReasons ?? [];
+                  const rules = row.matchedRules ?? [];
+                  const ud = row.unifiedDecision;
+                  const gs = row.gatewayStats;
+                  return <tr key={row.id ?? row.userId}>
                     <td>
                       <strong>{row.email}</strong>
-                      <span className="cell-sub">{row.riskReasons[0] ?? "No reason recorded"}</span>
+                      <span className="cell-sub">{row.signupDomain ?? "—"}{row.signupIp ? ` · ${row.signupIp}` : ""}</span>
                     </td>
-                    <td className="cell-num">{row.riskScore}</td>
+                    <td><span className="plan-tag">{row.plan ?? "—"}</span></td>
+                    <td className="cell-num">{row.riskScore ?? "—"}</td>
                     <td>
-                      <span className={`outcome-pill ${categoryClass(row.riskCategory)}`}>{row.riskCategory}</span>
-                      {row.unifiedDecision?.eligible && <span className="cell-sub" title={row.unifiedDecision.reason ?? "eligible"}>review eligible</span>}
+                      <span className={`outcome-pill ${categoryClass(row.riskCategory ?? "not_assessed")}`}>{row.riskCategory ?? "not assessed"}</span>
                     </td>
                     <td>
-                      {row.unifiedDecision?.usage?.tier === "not_assessed" || row.unifiedDecision?.usage?.tier == null
-                        ? <span className="outcome-pill outcome-muted" title="No gateway request recorded for this account">not assessed</span>
-                        : <span className={`outcome-pill ${tierClass(row.unifiedDecision.usage.tier)}`}>{row.unifiedDecision.usage.tier}</span>}
+                      {reasons.length > 0
+                        ? <button className="risk-icon-btn" type="button" title={`${reasons.length} reason(s)`} onClick={() => setReasonPopup({ email: row.email, items: reasons.map((r, i) => ({ reason: r, rule: rules[i] })) })}>
+                            <AlertTriangle size={15} /> {reasons.length}
+                          </button>
+                        : <span className="cell-muted">—</span>}
                     </td>
-                    <td className="cell-num">{row.unifiedDecision?.usage?.score == null ? "—" : row.unifiedDecision.usage.score}</td>
-                    <td className="cell-num">{row.unifiedDecision?.usage?.requestCount ?? "—"}</td>
-                    <td><code title={row.matchedRules.join(", ")}>{row.matchedRules.length ? row.matchedRules.slice(0, 2).join(", ") : "—"}</code></td>
                     <td>
-                      <span className="cell-sub" style={{ whiteSpace: "nowrap" }}>{row.signupDomain ?? "—"}{"  ·  "}{row.signupIp ?? "IP unknown"}</span>
+                      {(ud?.usage?.tier == null || ud?.usage?.tier === "not_assessed") && (!gs?.reasons || gs.reasons.length === 0)
+                        ? <span className="cell-muted">—</span>
+                        : <button 
+                            className={`risk-icon-btn risk-tier-${ud?.usage?.tier ?? "neutral"}`} 
+                            type="button" 
+                            title={`Gateway tier: ${ud?.usage?.tier ?? "not assessed"}${gs?.reasons?.length ? ` — ${gs.reasons.length} reason(s)` : ""}`}
+                            onClick={() => setReasonPopup({ 
+                              email: row.email, 
+                              tier: ud?.usage?.tier, 
+                              items: (gs?.reasons ?? []).map((r) => ({ reason: r })) 
+                            })}
+                          >
+                            <AlertTriangle size={13} /> {gs?.reasons?.length ?? 0}
+                          </button>}
                     </td>
+                    <td className="cell-num">
+                      {gs?.distinctIpCount
+                        ? <button className="risk-ip-count" type="button" onClick={() => setIpPopup({ email: row.email, title: "Distinct IPs", ips: gs.ips })}>{gs.distinctIpCount}</button>
+                        : "—"}
+                    </td>
+                    <td className="cell-num">
+                      {gs?.sharedIpCount
+                        ? <button className="risk-ip-count risk-ip-shared" type="button" onClick={() => setIpPopup({ email: row.email, title: "Shared IPs", ips: gs.sharedIps, shared: true })}>{gs.sharedIpCount}</button>
+                        : "—"}
+                    </td>
+                    <td className="cell-num">{gs?.apiKeyCount ?? "—"}</td>
+                    <td className="cell-num">{ud?.usage?.score == null ? "—" : ud.usage.score}</td>
+                    <td className="cell-num">{ud?.usage?.requestCount ?? "—"}</td>
+                    <td>{ud?.eligible ? <span className="outcome-pill outcome-warn">yes</span> : <span className="cell-muted">—</span>}</td>
+                    <td className="cell-num">{row.freeTokensUsed != null ? row.freeTokensUsed.toLocaleString("en-US") : "—"}</td>
+                    <td className="cell-num">{row.evaluatedAt ? new Date(row.evaluatedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "—"}</td>
                     <td>
                       <div className="row-actions" style={{ gap: 6 }}>
                         {row.abuseFlagged
@@ -483,7 +558,7 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
                         </details>
                       </div>
                     </td>
-                  </tr>)}
+                  </tr>})}
             </tbody>
           </table>
         </div>
@@ -517,6 +592,40 @@ function SignupPanel({ refreshKey }: { refreshKey: number }) {
     >
       <p className="modal-note">Each account is flagged individually. No domain, IP, or cluster cascade is performed.</p>
     </Modal>
+
+    <Modal
+      open={reasonPopup !== null}
+      title={reasonPopup ? `Risk reasons — ${reasonPopup.email}` : "Risk reasons"}
+      onClose={() => setReasonPopup(null)}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setReasonPopup(null)}>Close</button>}
+    >
+      {reasonPopup && <div className="risk-reason-popup">
+        {reasonPopup.tier && <div className="risk-reason-popup-tier">
+          <span className={`outcome-pill ${tierClass(reasonPopup.tier)}`}>{reasonPopup.tier}</span>
+        </div>}
+        {reasonPopup.items.length === 0
+          ? <p className="modal-note">No specific reasons recorded — tier based on aggregate score.</p>
+          : reasonPopup.items.map((item, i) => <div key={i} className="risk-reason-popup-item">
+            <div className="risk-reason-popup-reason">{item.reason}</div>
+            {item.rule && <code className="risk-reason-rule">{item.rule}</code>}
+          </div>)}
+      </div>}
+    </Modal>
+
+    <Modal
+      open={ipPopup !== null}
+      title={ipPopup ? `${ipPopup.title} — ${ipPopup.email}` : "IPs"}
+      onClose={() => setIpPopup(null)}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setIpPopup(null)}>Close</button>}
+    >
+      {ipPopup && <div className="risk-ip-popup">
+        {ipPopup.ips.length === 0
+          ? <p className="modal-note">No IPs recorded.</p>
+          : ipPopup.ips.map((ip, i) => <div key={i} className={`risk-ip-row${ipPopup.shared ? " risk-ip-row-shared" : ""}`}>
+              <code>{ip}</code>
+            </div>)}
+      </div>}
+    </Modal>
   </>;
 }
 
@@ -538,7 +647,7 @@ function FlaggedAccountsPanel({ refreshKey }: { refreshKey: number }) {
     setStatus("loading");
     try {
       const token = await getToken();
-      const params = new URLSearchParams({ page: String(pageNo), limit: "15" });
+      const params = new URLSearchParams({ page: String(pageNo), limit: "50" });
       if (search.trim()) params.set("search", search.trim());
       const res = await fetch(`/backend/api/v1/admin/users/risk/flagged?${params.toString()}`, { headers: { Authorization: `Bearer ${token ?? ""}` } });
       if (!res.ok) { setError(errorFor(res.status, "flagged accounts")); setStatus("error"); return; }
@@ -580,19 +689,22 @@ function FlaggedAccountsPanel({ refreshKey }: { refreshKey: number }) {
   return <>
     {notice && <p className={`voucher-message ${notice.kind === "ok" ? "voucher-ok" : "voucher-error"}`} role="status"><ShieldAlert size={14} />{notice.text}</p>}
     <div className="admin-risk-subsection">
-      <div className="section-title-row"><div><div><h3>Flagged accounts</h3><p>All signup and manual flags. Unflagging resets free-token usage to zero; status and paid lanes are unchanged.</p></div></div><button className="button compact-button" type="button" onClick={() => setConfirmPenalty(true)} disabled={busy || status !== "ready"}><Flag size={14} />{busy ? "Applying…" : "Apply pending penalties"}</button></div>
+      <div className="section-title-row"><div><div><h3>Flagged accounts</h3><p>All signup and manual flags. Unflagging resets free-token usage to zero; status and paid lanes are unchanged.</p></div></div></div>
+      <div className="accounts-actions-row">
+        <button className="button compact-button" type="button" onClick={() => setConfirmPenalty(true)} disabled={busy || status !== "ready"}><Flag size={14} />{busy ? "Applying…" : "Apply pending penalties"}</button>
+      </div>
       <div className="users-toolbar risk-filters">
         <label className="search-field">
           <Search size={14} />
           <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search flagged email or name" aria-label="Search flagged accounts" />
         </label>
       </div>
-      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading flagged accounts…</div>}
-      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+      {status === "loading" && <div className="risk-loading-centered"><Loader2 size={24} className="spin" /> <span>Loading flagged accounts…</span></div>}
+      {status === "error" && <div className="risk-loading-centered"><AlertTriangle size={24} /> <span>{error}</span></div>}
       {status === "ready" && <>
         <div className="risk-summary"><span><b>{formatCount(report?.total ?? 0)}</b> flagged accounts</span><span><b>{formatCount(accounts.filter(a => a.penaltyStatus === "pending").length)}</b> pending on this page</span><span><b>{formatCount(accounts.filter(a => a.penaltyStatus === "penalized").length)}</b> penalized on this page</span></div>
         <div className="model-table-wrap"><table className="model-table accounts-table"><thead><tr><th>Account</th><th>Flag</th><th>Reason</th><th>Free tokens</th><th>Penalty</th><th>Status</th><th>Plan</th><th>Action</th></tr></thead><tbody>{accounts.length === 0 ? <tr><td colSpan={8}><div className="table-empty"><Users size={20} /><strong>No flagged accounts</strong><p>Accounts flagged by signup or manual review appear here.</p></div></td></tr> : accounts.map(row => <tr key={row.userId}><td><strong>{row.email}</strong></td><td><span className={`outcome-pill ${row.flagSource === "signup" ? "outcome-error" : "outcome-interrupted"}`}>{row.flagSource}</span></td><td><span className="cell-sub">{row.reason ?? "—"}</span></td><td className="cell-num">{formatCount(row.freeTokensUsed)} / 20M</td><td><span className={`outcome-pill ${row.penaltyStatus === "pending" ? "outcome-interrupted" : "outcome-ok"}`}>{row.penaltyStatus}</span></td><td>{row.status}</td><td>{row.plan}</td><td><button className="row-action row-action-danger" type="button" aria-label={`Unflag ${row.email}`} title="Unflag and reset free-token usage" onClick={() => setConfirmClear(row)} disabled={busyId === row.userId}><Undo2 size={14}/></button></td></tr>)}</tbody></table></div>
-        <Pager page={report?.page ?? 1} perPage={report?.perPage ?? 15} total={report?.total ?? 0} totalPages={report?.totalPages ?? 1} onPage={page => void load(page)} busy={busy} />
+        <Pager page={report?.page ?? 1} perPage={report?.perPage ?? 50} total={report?.total ?? 0} totalPages={report?.totalPages ?? 1} onPage={page => void load(page)} busy={busy} />
       </>}
     </div>
     <div className="table-note"><AlertTriangle size={13} /> Unflag clears the badge and resets free_tokens_used to zero for this account only. Credits, subscription, top-up, status and API access are preserved.</div>
@@ -684,8 +796,8 @@ function EvidencePanel({ refreshKey }: { refreshKey: number }) {
         <span className="cell-muted risk-filter-note">Label and value kind match exactly.</span>
       </div>
 
-      {status === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin" /> Loading evidence ledger…</div>}
-      {status === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14} /> {error}</p>}
+      {status === "loading" && <div className="risk-loading-centered"><Loader2 size={24} className="spin" /> <span>Loading evidence ledger…</span></div>}
+      {status === "error" && <div className="risk-loading-centered"><AlertTriangle size={24} /> <span>{error}</span></div>}
 
       {status === "ready" && <>
         <div className="risk-summary">
@@ -698,11 +810,11 @@ function EvidencePanel({ refreshKey }: { refreshKey: number }) {
         <div className="model-table-wrap">
           <table className="model-table">
             <thead><tr>
-              <th>Evidence</th><th>Kind</th><th>Accounts</th><th>IPs</th><th>Keys</th><th>Requests</th><th>Flagged</th><th>Events</th><th>Weight</th><th>Last seen</th>
+              <th style={{whiteSpace:"nowrap"}}>Evidence</th><th style={{whiteSpace:"nowrap"}}>Kind</th><th style={{whiteSpace:"nowrap"}}>Accounts</th><th style={{whiteSpace:"nowrap"}}>IPs</th><th style={{whiteSpace:"nowrap"}}>Keys</th><th style={{whiteSpace:"nowrap"}}>Requests</th><th style={{whiteSpace:"nowrap"}}>Flagged</th><th style={{whiteSpace:"nowrap"}}>Events</th><th style={{whiteSpace:"nowrap"}}>Weight</th><th style={{whiteSpace:"nowrap"}}>Last seen</th>
             </tr></thead>
             <tbody>
               {rows.length === 0
-                ? <tr><td colSpan={9}>
+                ? <tr><td colSpan={10}>
                     <div className="table-empty">
                       <Layers size={20} /><strong>No evidence rows</strong>
                       <p>{filtered ? "No ledger row matches these filters." : "Evidence appears as signup assessments and gateway requests are recorded."}</p>
@@ -719,6 +831,7 @@ function EvidencePanel({ refreshKey }: { refreshKey: number }) {
                     <td className="cell-num">{formatCount(row.distinctAccountCount)}</td>
                     <td className="cell-num">{formatCount(row.distinctIpCount)}</td>
                     <td className="cell-num">{formatCount(row.distinctKeyCount)}</td>
+                    <td className="cell-num">{formatCount(row.requestCount)}</td>
                     <td className="cell-num">{row.flaggedAccountCount > 0
                       ? <span className="outcome-pill outcome-error">{formatCount(row.flaggedAccountCount)}</span>
                       : "0"}</td>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, Layers, Loader2, Package, Plus, RefreshCw, Save, Search, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Infinity as InfinityIcon, Layers, Loader2, Package, Plus, RefreshCw, Save, Search, Trash2, Users, X } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { formatTokens } from "@/lib/tokens";
@@ -26,6 +26,7 @@ type AdminPackage = {
   throttledRpm: number | null;
   isPublic: boolean;
   activeSubscriptions: number;
+  expiredSubscriptions: number;
   /** The models this package's free allowance covers. */
   modelIds: string[];
 };
@@ -555,7 +556,7 @@ export function AdminPackagesPage() {
         </div>}
         {status === "ready" && packages.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th></th>
+            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th style={{minWidth:"90px"}}>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th>EXPIRED</th><th></th>
           </tr></thead>
           <tbody>{packages.map(p => <tr key={p.id}>
             <td>
@@ -570,8 +571,12 @@ export function AdminPackagesPage() {
                 : <>fair {formatTokens(Number(p.fairUseCap ?? 0))}</>}
             </td>
             <td className="cell-num">
-              {p.baseRpm === null ? "unlim" : p.baseRpm}
-              {p.category === "unlimited" && p.throttledRpm !== null && <> → {p.throttledRpm}</>}
+              <span style={{display:"inline-flex",alignItems:"center",gap:"2px",whiteSpace:"nowrap"}}>
+                {p.baseRpm === null && p.throttledRpm === null ? <InfinityIcon size={16}/>
+                  : p.baseRpm === null && p.throttledRpm !== null ? <><InfinityIcon size={16}/> → {p.throttledRpm}</>
+                  : p.baseRpm !== null && p.throttledRpm !== null ? <>{p.baseRpm} → {p.throttledRpm}</>
+                  : p.baseRpm ?? <InfinityIcon size={16}/>}
+              </span>
             </td>
             <td className="cell-num">
               <span title={p.modelIds.join(", ")}>{p.modelIds.length}</span>
@@ -579,6 +584,7 @@ export function AdminPackagesPage() {
             </td>
             <td className="cell-num">{p.durationDays === null ? "lifetime" : `${p.durationDays}d`}</td>
             <td className="cell-num">{p.activeSubscriptions}</td>
+            <td className="cell-num cell-muted">{p.expiredSubscriptions}</td>
             <td>
               <span className="row-actions">
                 <button className="row-action" type="button" title="Edit" aria-label={`Edit ${p.name}`} onClick={() => startEdit(p)} disabled={busyId === p.id}><Save size={14}/></button>
@@ -593,74 +599,16 @@ export function AdminPackagesPage() {
       <div className="table-note"><AlertTriangle size={14}/> Deleting a package a voucher references is refused — retarget the voucher first.</div>
     </section>
 
-    {/* Who is actually paying, and until when. The LIVE column above is a count; this is the
-        names behind it, which is what an operator answers a support ticket with. */}
-    <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">03</span><div>
-          <h2>Active subscribers</h2>
-          <p>Every account holding a package right now, with the day it lapses.</p>
-        </div></div>
-        <span className="period-badge">{subscribers.length} live</span>
-      </div>
-
-      <div className="model-table-wrap">
-        {subsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading subscribers…</strong></div>}
-        {subsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load subscribers</strong></div>}
-        {subsStatus === "ready" && subscribers.length === 0 && <div className="table-empty">
-          <Users size={19}/><strong>Nobody is subscribed</strong><p>Active packages will appear here the moment someone holds one.</p>
-        </div>}
-        {subsStatus === "ready" && subscribers.length > 0 && <table className="model-table table-events">
-          <thead><tr>
-            <th>ACCOUNT</th><th>PACKAGE</th><th>ALLOWANCE LEFT</th><th>STARTED</th><th>ENDS</th>
-          </tr></thead>
-          <tbody>{subscribers.map(s => {
-            const cap = s.tokenCap === null ? null : Number(s.tokenCap);
-            const used = Number(s.tokensUsed);
-            const left = cap === null ? null : Math.max(0, cap - used);
-            // Days left is the question a support ticket actually asks. Rounded up so "today"
-            // does not read as zero while the window is still open.
-            const daysLeft = s.expiresAt
-              ? Math.ceil((new Date(s.expiresAt).getTime() - Date.now()) / 86_400_000)
-              : null;
-            return <tr key={`${s.userId}-${s.packageId}`}>
-              <td>
-                <strong>{s.name}</strong>
-                <small className="cell-sub"><code>{s.email}</code></small>
-              </td>
-              <td>
-                <strong>{s.packageName}</strong>
-                <small className="cell-sub"><span className="plan-tag">{s.tier}</span></small>
-              </td>
-              <td className="cell-num">
-                {left === null
-                  ? <span className="cell-muted">fair use</span>
-                  : <>{formatTokens(left)}<small className="cell-sub">of {formatTokens(cap ?? 0)}</small></>}
-              </td>
-              <td className="cell-num">{new Date(s.startedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td>
-              <td className="cell-num">
-                {s.expiresAt
-                  ? <>{new Date(s.expiresAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                      <small className={daysLeft !== null && daysLeft <= 3 ? "cell-sub subs-soon" : "cell-sub"}>
-                        {daysLeft === null ? "" : daysLeft <= 0 ? "today" : `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`}
-                      </small></>
-                  : <span className="cell-muted">no expiry</span>}
-              </td>
-            </tr>;
-          })}</tbody>
-        </table>}
-      </div>
-      <div className="table-note"><Users size={14}/> Live means the window is still open and allowance remains — a lapsed package is not listed here.</div>
-    </section>
-
     {/* ---- Pricing cards: marketing layer over packages ---- */}
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">04</span><div><h2>Pricing cards</h2><p>Marketing cards linked to packages — what the public pricing page shows.</p></div></div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div><span className="section-index">03</span><div><h2>Pricing cards</h2><p>Marketing cards linked to packages — what the public pricing page shows.</p></div></div>
+      </div>
+      <div className="accounts-actions-row">
+        <span style={{display:"flex",gap:8,alignItems:"center"}}>
           <button className="button button-outline compact-button" type="button" onClick={() => void loadPlans()}><RefreshCw size={15}/> Refresh</button>
           <button className="button button-ink compact-button" type="button" onClick={() => { setPlanForm(EMPTY_PLAN); setEditingPlanId(null); setPlanModalOpen(true); setPlanNotice(null); setPlanFeatureInput(""); }}><Plus size={15}/> Create pricing card</button>
-        </div>
+        </span>
       </div>
 
       {planNotice && <p className={planNotice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
@@ -675,7 +623,7 @@ export function AdminPackagesPage() {
         </div>}
         {plansStatus === "ready" && pricingPlans.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th>DISPLAY NAME</th><th>PACKAGE</th><th>PRICE IDR</th><th>PRICE CREDITS</th><th>SORT</th><th>PUBLIC</th><th></th>
+            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th>PRICE IDR</th><th style={{whiteSpace:"nowrap"}}>PRICE CREDITS</th><th>SORT</th><th>PUBLIC</th><th></th>
           </tr></thead>
           <tbody>{pricingPlans.map(p => <tr key={p.id}>
             <td>

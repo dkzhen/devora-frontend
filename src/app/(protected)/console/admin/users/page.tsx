@@ -29,6 +29,7 @@ type AccountRow = {
   abuseFlagged: boolean;
   abuseReason: string | null;
   freeTokensUsed: number;
+  signupIp?: string | null;
 };
 
 type Status = "loading" | "ready" | "error";
@@ -71,6 +72,8 @@ export default function AdminUsersPage() {
   const [planFilter, setPlanFilter] = useState<Plan | "">("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [sortBy, setSortBy] = useState<"created" | "credits">("created");
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   // Its own pager state. Filters reset it because a narrowed list has fewer pages, and
   // staying on page 7 of a 1-page result would render an empty table.
   const [page, setPage] = useState(1);
@@ -81,13 +84,14 @@ export default function AdminUsersPage() {
     return { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" };
   }, [getToken]);
 
-  const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1, sort: "created" | "credits" = "created") => {
+  const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1, sort: "created" | "credits" = "created", flagged = false) => {
     setStatus("loading");
     try {
-      const params = new URLSearchParams({ page: String(pageNo), limit: "25" });
+      const params = new URLSearchParams({ page: String(pageNo), limit: "50" });
       if (term.trim()) params.set("search", term.trim());
       if (plan) params.set("plan", plan);
       if (sort === "credits") params.set("sort", "credits");
+      if (flagged) params.set("flagged", "true");
       const qs = params.toString();
       const res = await fetch(`/backend/api/v1/admin/users?${qs}`, { headers: await authHeaders() });
       if (!res.ok) { setError("Could not load accounts."); setStatus("error"); return; }
@@ -108,7 +112,7 @@ export default function AdminUsersPage() {
       })));
       setActorUserId(data.actorUserId ?? null);
       const total = Number(data.total ?? 0);
-      const perPage = Number(data.perPage ?? 25);
+      const perPage = Number(data.perPage ?? 50);
       const totalPages = Number(data.totalPages ?? 1);
       setPager({ total, perPage, totalPages });
 
@@ -117,7 +121,7 @@ export default function AdminUsersPage() {
       // empty table, which would read as "there are no accounts" — the opposite of true.
       if (rows.length === 0 && total > 0 && pageNo > totalPages) {
         setPage(totalPages);
-        void load(term, plan, totalPages);
+        void load(term, plan, totalPages, sortBy, flaggedOnly);
         return;
       }
       // Say when the Clerk sync actually brought something in, so a sudden jump in the
@@ -132,9 +136,26 @@ export default function AdminUsersPage() {
     }
   }, [authHeaders]);
 
-  useEffect(() => { void load("", "", 1); }, [load]);
+  useEffect(() => { void load("", "", 1, "created", false); }, [load]);
 
-  const applySearch = () => { setAppliedSearch(search); setPage(1); void load(search, planFilter, 1, sortBy); };
+  const applySearch = () => { setAppliedSearch(search); setPage(1); void load(search, planFilter, 1, sortBy, flaggedOnly); };
+
+  const syncClerk = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/backend/api/v1/admin/users/sync", { method: "POST", headers: await authHeaders() });
+      const body = await res.json().catch(() => null) as { imported?: number; total?: number; error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Sync failed." }); return; }
+      const imported = body?.imported ?? 0;
+      const total = body?.total ?? 0;
+      setNotice({ kind: "ok", text: imported > 0 ? `Imported ${imported} account(s) from Clerk — ${total} registered in total.` : `All ${total} accounts already synced.` });
+      await load(appliedSearch, planFilter, 1, sortBy, flaggedOnly);
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the backend." });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   /** Confirm a plan change. The dialog sets `dialog`, this performs it. */
   const changePlan = async (row: AccountRow, plan: Plan) => {
@@ -251,6 +272,7 @@ function deltaPreview(raw: string, current: string): string {
   const [freeUsersStatus, setFreeUsersStatus] = useState<"loading" | "ready" | "error">("loading");
   const [freeUsersPage, setFreeUsersPage] = useState(1);
   const [freeUsersPager, setFreeUsersPager] = useState({ total: 0, perPage: 25, totalPages: 1 });
+  const [freeUserSearch, setFreeUserSearch] = useState("");
   const [resetPercent, setResetPercent] = useState(5);
   const [resetting, setResetting] = useState(false);
   const [resetResult, setResetResult] = useState<{ count: number; emails: string[]; message: string } | null>(null);
@@ -322,10 +344,17 @@ function deltaPreview(raw: string, current: string): string {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Accounts</h2><p>Search by email or name, filter by plan. Every registered account is listed.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void load(appliedSearch, planFilter, page, sortBy)}><RefreshCw size={15}/> Refresh</button>
+      </div>
+      <div className="accounts-actions-row">
+        <div className="row-action-group">
+          <button className="button button-outline compact-button" type="button" onClick={() => void load(appliedSearch, planFilter, page, sortBy, flaggedOnly)}><RefreshCw size={15}/> Refresh</button>
+          <button className="button button-outline compact-button" type="button" onClick={() => void syncClerk()} disabled={syncing}>
+            {syncing ? <><Loader2 size={15} className="row-spinner"/> Syncing…</> : <><Users size={15}/> Sync</>}
+          </button>
+        </div>
       </div>
 
-      <div className="users-toolbar">
+      <div className="users-toolbar users-toolbar-stacked">
         <label className="search-field">
           <Search size={14}/>
           <input
@@ -336,18 +365,18 @@ function deltaPreview(raw: string, current: string): string {
             aria-label="Search accounts"
           />
         </label>
-        <button className="button button-ink compact-button" type="button" onClick={applySearch}>Search</button>
         <div className="plan-pills">
-          <button type="button" className={planFilter === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); setPage(1); void load(appliedSearch, "", 1, sortBy); }}>ALL</button>
+          <button type="button" className={planFilter === "" && !flaggedOnly ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setPlanFilter(""); setFlaggedOnly(false); setPage(1); void load(appliedSearch, "", 1, sortBy, false); }}>ALL</button>
           {ALL_PLANS.map(p => <button
             key={p} type="button"
-            className={planFilter === p ? "plan-pill plan-pill-on" : "plan-pill"}
-            onClick={() => { setPlanFilter(p); setPage(1); void load(appliedSearch, p, 1, sortBy); }}
+            className={planFilter === p && !flaggedOnly ? "plan-pill plan-pill-on" : "plan-pill"}
+            onClick={() => { setPlanFilter(p); setFlaggedOnly(false); setPage(1); void load(appliedSearch, p, 1, sortBy, false); }}
           >{p}</button>)}
+          <button type="button" className={flaggedOnly ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { const v = !flaggedOnly; setFlaggedOnly(v); setPage(1); void load(appliedSearch, planFilter, 1, sortBy, v); }}>Flagged only</button>
         </div>
         <div className="plan-pills">
-          <button type="button" className={sortBy === "created" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("created"); setPage(1); void load(appliedSearch, planFilter, 1, "created"); }}>Newest</button>
-          <button type="button" className={sortBy === "credits" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("credits"); setPage(1); void load(appliedSearch, planFilter, 1, "credits"); }}>Most credits</button>
+          <button type="button" className={sortBy === "created" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("created"); setPage(1); void load(appliedSearch, planFilter, 1, "created", flaggedOnly); }}>Newest</button>
+          <button type="button" className={sortBy === "credits" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setSortBy("credits"); setPage(1); void load(appliedSearch, planFilter, 1, "credits", flaggedOnly); }}>Most credits</button>
         </div>
       </div>
 
@@ -357,12 +386,12 @@ function deltaPreview(raw: string, current: string): string {
 
       <div className="model-table-wrap">
         {status === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading accounts…</strong><p>Reading the user table.</p></div>}
-        {status === "error" && <div className="table-empty"><X size={19}/><strong>Could not load accounts</strong><p>{error}</p><button type="button" className="button button-outline compact-button" onClick={() => void load(appliedSearch, planFilter)}>Retry</button></div>}
+        {status === "error" && <div className="table-empty"><X size={19}/><strong>Could not load accounts</strong><p>{error}</p><button type="button" className="button button-outline compact-button" onClick={() => void load(appliedSearch, planFilter, 1, sortBy, flaggedOnly)}>Retry</button></div>}
         {status === "ready" && (users.length === 0
           ? <div className="table-empty"><Users size={19}/><strong>No accounts found</strong><p>Try a different search or clear the plan filter.</p></div>
           : <table className="model-table users-table">
               <thead><tr>
-                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>FLAG</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th>AGE</th><th></th>
+                <th>ACCOUNT</th><th>PLAN</th><th>STATUS</th><th>FLAG</th><th>CREDITS</th><th>KEYS</th><th>JOINED</th><th>AGE</th><th>SIGNUP IP</th><th></th>
               </tr></thead>
               <tbody>{users.map(u => <tr key={u.id}>
                 <td>
@@ -388,6 +417,7 @@ function deltaPreview(raw: string, current: string): string {
                 <td>{u.keyCount}</td>
                 <td>{shortDate(u.createdAt)}</td>
                 <td className="cell-muted" title={shortDate(u.createdAt)}>{relativeAge(u.createdAt)}</td>
+                <td className="cell-muted">{u.signupIp ?? "—"}</td>
                 <td><span className="row-actions">
                   <button className="row-action" type="button" title="Adjust credits" aria-label={`Adjust credits for ${u.email}`} onClick={() => { setCreditDraft(""); setDialog({ kind: "credits", row: u }); }} disabled={busyId === u.id}><UserCog size={14}/></button>
                   <button className="row-action row-action-danger" type="button" title={isSelf(u) ? "You cannot delete yourself" : "Delete account"} aria-label={`Delete ${u.email}`} onClick={() => setDialog({ kind: "delete", row: u })} disabled={busyId === u.id || isSelf(u)}>
@@ -405,9 +435,9 @@ function deltaPreview(raw: string, current: string): string {
               {formatCount((page - 1) * pager.perPage + 1)}–{formatCount(Math.min(page * pager.perPage, pager.total))} of {formatCount(pager.total)}
             </span>
             <div className="pagination-controls">
-              <button className="icon-button" type="button" onClick={() => { setPage(page - 1); void load(appliedSearch, planFilter, page - 1, sortBy); }} disabled={page <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
+              <button className="icon-button" type="button" onClick={() => { setPage(page - 1); void load(appliedSearch, planFilter, page - 1, sortBy, flaggedOnly); }} disabled={page <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
               <span className="page-number page-current">{page}</span>
-              <button className="icon-button" type="button" onClick={() => { setPage(page + 1); void load(appliedSearch, planFilter, page + 1, sortBy); }} disabled={page >= pager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
+              <button className="icon-button" type="button" onClick={() => { setPage(page + 1); void load(appliedSearch, planFilter, page + 1, sortBy, flaggedOnly); }} disabled={page >= pager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
             </div>
           </div>
         )}
@@ -418,67 +448,76 @@ function deltaPreview(raw: string, current: string): string {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">02</span><div><h2>Free token allocation</h2><p>Every user gets 20M tokens. Reset a random sample each cycle.</p></div></div>
+      </div>
+      <div className="accounts-actions-row">
         <button className="button button-outline compact-button" type="button" onClick={() => void loadFreeStats()} disabled={freeStatsStatus === "loading"}><RefreshCw size={15}/> Refresh</button>
       </div>
 
-      {freeStatsStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading free token stats…</div>}
+      {freeStatsStatus === "loading" && <div className="usage-loading" style={{ justifyContent: "center", padding: "40px 0" }}><Loader2 size={20} className="spin"/> Loading free token stats…</div>}
       {freeStatsStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> {freeStatsError}</p>}
       {freeStatsStatus === "ready" && freeStats && <>
         {freeStats.totalUsers > 0 && (
-          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "10px", marginBottom: "16px" }}>
-            <p style={{ margin: 0, color: "var(--muted, #777267)", fontSize: "var(--fs-note)" }}>
-              <strong style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.exhaustedUsers}</strong>
-              {" of "}
-              <strong style={{ font: "700 var(--fs-small) var(--display)", color: "var(--ink)" }}>{freeStats.totalUsers}</strong>
-              {" accounts exhausted ("}{Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%).
-            </p>
-          </div>
+          <p className="free-stats-line">
+            <strong>{freeStats.exhaustedUsers}</strong>
+            {" of "}
+            <strong>{freeStats.totalUsers}</strong>
+            {" accounts exhausted ("}{Math.round((freeStats.exhaustedUsers / freeStats.totalUsers) * 100)}%).
+          </p>
         )}
 
-        {freeUsersStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading free token usage…</div>}
-        {freeUsersStatus === "ready" && freeUsers.length > 0 && (
-          <div className="model-table-wrap">
-            <table className="model-table">
-              <thead><tr><th>Email</th><th>Plan</th><th>Free tokens used</th><th>Credits</th><th>Last reset</th></tr></thead>
-              <tbody>
-                {freeUsers.map(u => {
-                  return <tr key={u.id}>
-                    <td>{u.email}</td>
-                    <td><span className={`plan-tag plan-${u.plan.toLowerCase()}`}>{u.plan}</span></td>
-                    <td className="cell-num"><strong>{formatCounter(u.freeTokensUsed)}</strong> <span className="cell-sub">/ {formatCounter(20_000_000)}</span></td>
-                    <td className="cell-num">{formatCounter(Number(u.credits))}</td>
-                    <td className="cell-muted">{u.freeTokensResetAt ? new Date(u.freeTokensResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
-                  </tr>;
-                })}
-              </tbody>
-            </table>
+        <div className="users-toolbar users-toolbar-stacked" style={{ marginTop: 14 }}>
+          <label className="search-field">
+            <Search size={14}/>
+            <input
+              value={freeUserSearch}
+              onChange={e => setFreeUserSearch(e.target.value)}
+              placeholder="Search email to find eligible accounts…"
+              aria-label="Search free token accounts"
+            />
+          </label>
+        </div>
+
+        {freeUserSearch.trim() && freeUsersStatus === "ready" && freeUsers.length > 0 && (
+          <div className="free-user-cards">
+            {freeUsers.filter(u => u.email.toLowerCase().includes(freeUserSearch.trim().toLowerCase())).map(u => (
+              <div key={u.id} className="free-user-card">
+                <div className="free-user-card-head">
+                  <strong>{u.email}</strong>
+                  <span className={`plan-tag plan-${u.plan.toLowerCase()}`}>{u.plan}</span>
+                </div>
+                <div className="free-user-card-stats">
+                  <div>
+                    <small>FREE TOKENS</small>
+                    <strong>{formatCounter(u.freeTokensUsed)}</strong>
+                    <span className="cell-sub">/ {formatCounter(20_000_000)}</span>
+                  </div>
+                  <div>
+                    <small>CREDITS</small>
+                    <strong>{formatCounter(Number(u.credits))}</strong>
+                  </div>
+                  <div>
+                    <small>LAST RESET</small>
+                    <strong>{u.freeTokensResetAt ? new Date(u.freeTokensResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}</strong>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-        {freeUsersStatus === "ready" && freeUsers.length === 0 && <div className="table-empty"><Users size={18}/><strong>No active users</strong></div>}
-
-        {freeUsersStatus === "ready" && freeUsersPager.total > freeUsersPager.perPage && (
-          <div className="pagination" style={{ marginTop: 12 }}>
-            <span className="pagination-info">
-              {(freeUsersPage - 1) * freeUsersPager.perPage + 1}–{Math.min(freeUsersPage * freeUsersPager.perPage, freeUsersPager.total)} of {freeUsersPager.total}
-            </span>
-            <div className="pagination-controls">
-              <button className="icon-button" type="button" onClick={() => { setFreeUsersPage(freeUsersPage - 1); void loadFreeStats(freeUsersPage - 1); }} disabled={freeUsersPage <= 1} aria-label="Previous page"><ChevronLeft size={15}/></button>
-              <span className="page-number page-current">{freeUsersPage}</span>
-              <button className="icon-button" type="button" onClick={() => { setFreeUsersPage(freeUsersPage + 1); void loadFreeStats(freeUsersPage + 1); }} disabled={freeUsersPage >= freeUsersPager.totalPages} aria-label="Next page"><ChevronRight size={15}/></button>
-            </div>
-          </div>
+        {freeUserSearch.trim() && freeUsersStatus === "ready" && freeUsers.length === 0 && (
+          <div className="table-empty" style={{ marginTop: 14 }}><Users size={18}/><strong>No matching accounts</strong></div>
         )}
       </>}
 
-      <div className="reset-panel" style={{ marginTop: 20, padding: 16, border: "1px solid var(--border, #e5e7eb)", borderRadius: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div className="reset-panel">
+        <div className="reset-panel-head">
           <RefreshCw size={16}/>
           <strong>Rolling reset</strong>
         </div>
-        <p style={{ color: "var(--muted, #6b7280)", fontSize: 14, marginBottom: 12 }}>
+        <p className="reset-panel-desc">
           Reset free tokens for {resetPercent}% of exhausted users (20M/20M). Users who haven&apos;t hit the cap are not affected.
         </p>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div className="reset-panel-controls">
           <Select
             label="Reset percentage"
             value={String(resetPercent)}
@@ -497,8 +536,8 @@ function deltaPreview(raw: string, current: string): string {
         </div>
         {resetError && <p className="success-line row-fail" role="status" style={{ marginTop: 12 }}><AlertTriangle size={14}/> {resetError}</p>}
         {resetResult && <div style={{ marginTop: 12 }}>
-          <p className="success-line" role="status" style={{ color: "var(--green, #16a34a)" }}><Check size={14}/> {resetResult.message}</p>
-          {resetResult.emails.length > 0 && <small style={{ display: "block", marginTop: 6, color: "var(--muted, #6b7280)" }}>
+          <p className="success-line" role="status" style={{ color: "#168b6e" }}><Check size={14}/> {resetResult.message}</p>
+          {resetResult.emails.length > 0 && <small style={{ display: "block", marginTop: 6, color: "#8b8579" }}>
             Reset: {resetResult.emails.slice(0, 5).join(", ")}{resetResult.emails.length > 5 ? ` +${resetResult.emails.length - 5} more` : ""}
           </small>}
         </div>}
