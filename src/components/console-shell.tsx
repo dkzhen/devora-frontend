@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Coins, Flame, Layers, Menu, Package, ReceiptText, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
+import { BarChart3, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
@@ -18,6 +18,7 @@ const nav = [
 /** Operator-only group. Mounted only for a SUPERUSER plan — the real gate is server-side. */
 const adminNav = { group: "ADMIN", items: [
   { href: "/console/admin/transactions", label: "Transactions", icon: Wallet },
+  { href: "/console/admin/payment", label: "Payment", icon: CreditCard },
   { href: "/console/admin/events", label: "Events", icon: Flame },
   { href: "/console/admin/packages", label: "Packages", icon: Package },
   { href: "/console/admin/models", label: "Models", icon: Layers },
@@ -93,12 +94,14 @@ function daysLeft(iso: string | null): string {
  */
 function SubscriptionBadge({ subs }: { subs: SubscriptionInfo[] }) {
   if (subs.length === 0) return null;
+  const MAX_SHOW = 2;
+  const shown = subs.slice(0, MAX_SHOW);
+  const overflow = subs.length - MAX_SHOW;
   return <div className="account-subs">
-    {subs.map(s => {
+    {shown.map(s => {
       const granted = s.category === "unlimited" ? s.fairUseCap : s.tokenCap;
       const used = Number(s.tokensUsed);
       const cap = granted ? Number(granted) : null;
-      // Unlimited never fills; it shows consumption against the fair-use mark instead.
       const pct = cap && cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : null;
       const throttled = s.category === "unlimited" && cap !== null && used >= cap;
       return <div key={s.id} className="account-sub">
@@ -118,6 +121,7 @@ function SubscriptionBadge({ subs }: { subs: SubscriptionInfo[] }) {
         {pct !== null && <div className="account-sub-bar"><i style={{ width: `${pct}%` }} /></div>}
       </div>;
     })}
+    {overflow > 0 && <Link href="/console/billing" className="account-sub-more">+{overflow} more →</Link>}
   </div>;
 }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, QrCode, RefreshCw, Wallet, X } from "lucide-react";
+import { Modal } from "@/components/modal";
 import { formatCredits, formatCharge, formatRupiah } from "@/lib/credits";
 import { TopupDialog, type Topup } from "@/components/topup-dialog";
 
@@ -47,6 +48,7 @@ type TopupRow = {
   paymentMethod: string;
   expiresAt: string | null;
   isSandbox: boolean;
+  gateway: string | null;
   /** The server's verdict on the deadline, so the row does not rely on the reader's clock. */
   expired: boolean;
   createdAt: string;
@@ -178,6 +180,7 @@ export default function CreditsPage() {
    */
   const [resumedTopup, setResumedTopup] = useState<Topup | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -295,6 +298,7 @@ export default function CreditsPage() {
         return;
       }
       setError("");
+      setCancelTarget(null);
       await loadTopups();
     } catch {
       setError("Could not reach the gateway.");
@@ -344,7 +348,7 @@ export default function CreditsPage() {
       </div>
       <div className="model-table-wrap">
         <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
+          <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
           <tbody>
             {topups.length > 0
               ? topups.map(t => <tr key={t.orderId}>
@@ -352,6 +356,9 @@ export default function CreditsPage() {
                   <td>
                     <RefChip value={t.orderId}/>
                     {t.isSandbox && <small className="cell-sub">test payment</small>}
+                  </td>
+                  <td>
+                    <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
                   </td>
                   <td className="cell-status">
                     <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
@@ -378,15 +385,14 @@ export default function CreditsPage() {
                           </button>
                           <button className="action-card action-card-danger" type="button" title="Cancel order"
                             aria-label={`Cancel order ${t.orderId}`}
-                            disabled={cancelingId === t.orderId}
-                            onClick={() => void cancelTopup(t.orderId)}>
-                            {cancelingId === t.orderId ? <Loader2 size={18} className="row-spinner"/> : <X size={18}/>}
+                            onClick={() => setCancelTarget(t.orderId)}>
+                            <X size={18}/>
                           </button>
                         </div>
                       : <span className="cell-dash">—</span>}
                   </td>
                 </tr>)
-              : <tr><td colSpan={6}><div className="table-empty">
+              : <tr><td colSpan={7}><div className="table-empty">
                   {topupStatus === "loading"
                     ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
                     : topupStatus === "error"
@@ -450,5 +456,24 @@ export default function CreditsPage() {
       balance={balance}
       resumeTopup={resumedTopup}
     />
+
+    {/* Cancel warning — shown when user clicks X (cancel) on a pending order in the history table. */}
+    <Modal
+      open={cancelTarget !== null}
+      onClose={() => setCancelTarget(null)}
+      title="Cancel this payment?"
+      subtitle="If you have already paid, your credits will not be added."
+      footer={<>
+        <button className="button button-outline compact-button" type="button" onClick={() => setCancelTarget(null)}>Keep order</button>
+        <button className="button button-ink compact-button" type="button" disabled={cancelingId !== null} onClick={() => { if (cancelTarget) void cancelTopup(cancelTarget); }}>
+          {cancelingId !== null ? <><Loader2 size={14} className="row-spinner"/> Canceling…</> : "Cancel payment"}
+        </button>
+      </>}
+    >
+      <div className="table-note topup-note" style={{ borderColor: "var(--coral)", background: "#fff5f5" }}>
+        <AlertTriangle size={14}/>
+        <span>Canceling this order while a payment is in progress may result in a race condition where your credits are not credited. Only cancel if you are sure you have not paid.</span>
+      </div>
+    </Modal>
   </div>;
 }

@@ -10,7 +10,7 @@ import { Modal } from "@/components/modal";
 import { formatCredits, formatRupiah } from "@/lib/credits";
 
 /**
- * Top up credits over QRIS.
+ * Top up credits via a chosen payment method.
  *
  * The price is never sent from here — the client asks for CREDITS and the backend prices them
  * from the stored rate. The response carries the QR string, the amount and the fee.
@@ -26,28 +26,29 @@ type Topup = {
   amountIdr: number;
   feeIdr: number;
   totalIdr: number;
-  paymentMethod: string;
   qrString: string | null;
-  vaNumber: string | null;
   expiresAt: string | null;
   isSandbox: boolean;
-  /**
-   * The SERVER's verdict on whether this order is past its deadline — the same deadline the
-   * backend reconciles against, with the same grace period.
-   *
-   * The client cannot decide this alone: `expiresAt` is rendered on the reader's clock, which may
-   * be minutes off, and a page left open overnight would otherwise keep showing an order as
-   * payable long after the backend closed it. The local countdown is still used, because a payer
-   * staring at a live code should not have to wait for the next poll to be told it died.
-   */
-  expired: boolean;
 };
 
 export type { Topup };
 
+type PaymentMethod = {
+  id: string;
+  name: string;
+  gateway: string;
+  category: string;
+  currency: string;
+  description: string | null;
+  icon: string | null;
+  isActive: boolean;
+  visibility?: "active" | "inactive" | "private";
+};
+
 /** A handful of sensible sizes. The field takes any whole number of credits. */
 const MIN_TOPUP = 1_000;
-const PRESETS = [1_000, 5_000, 10_000, 25_000];
+const PRESETS = [5_000, 10_000, 25_000, 50_000, 100_000];
+const SUPERUSER_PRESETS = [1_000, ...PRESETS];
 
 /** The gateway rate-limits status reads to one per 4 seconds, so polling faster only 429s. */
 const POLL_MS = 4_000;
@@ -136,8 +137,11 @@ export function TopupDialog({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
-  const [paymentMessage, setPaymentMessage] = useState("");
+  const [showCancelWarning, setShowCancelWarning] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [selectedMethodId, setSelectedMethodId] = useState("");
+  const [methodsLoading, setMethodsLoading] = useState(false);
+  const [isSuperuser, setIsSuperuser] = useState(false);
 
   /**
    * Derived from the order's own status, not from a flag set inside the poll.
@@ -161,7 +165,49 @@ export function TopupDialog({
     setTopup(resumeTopup ?? null);
     setError("");
     setCopied(false);
-  }, [open, resumeTopup]);
+    // Fetch user plan to determine if 1K preset should be shown.
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch("/backend/api/v1/users/me", {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { user?: { plan?: string } };
+        setIsSuperuser(data.user?.plan === "SUPERUSER");
+      } catch { /* ignore — non-superuser by default */ }
+    })();
+  }, [open, resumeTopup, getToken]);
+
+  // Fetch available payment methods when the dialog opens (not on resume — a resumed order is
+  // already past method selection). Only IDR methods are shown, because credits top-up means
+  // BUYING credits, and paying for credits WITH credits makes no sense.
+  useEffect(() => {
+    if (!open || resumeTopup) return;
+    let cancelled = false;
+    setMethodsLoading(true);
+    setSelectedMethodId("");
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch("/backend/api/v1/payment/methods", {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+        });
+        if (cancelled) return;
+        if (!res.ok) { setMethodsLoading(false); return; }
+        const data = await res.json() as { methods?: PaymentMethod[] };
+        const idrMethods = (data.methods ?? []).filter(m => m.category === "idr");
+        setPaymentMethods(idrMethods);
+        const firstActive = idrMethods.find(m => m.visibility === "active" || m.visibility === "private" || m.isActive);
+        setSelectedMethodId(firstActive ? firstActive.id : "");
+      } catch {
+        if (!cancelled) setError("Could not load payment methods.");
+      } finally {
+        if (!cancelled) setMethodsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, resumeTopup, getToken]);
 
   /**
    * Cancel the current (resumed) order from inside the dialog.
@@ -171,6 +217,16 @@ export function TopupDialog({
    * The dialog's own copy is updated from the response so the canceled state shows immediately,
    * and `onCanceled` lets the history table reload without a manual refresh.
    */
+
+  const handleClose = () => {
+    onClose();
+  };
+
+  const confirmClose = () => {
+    setShowCancelWarning(false);
+    onClose();
+  };
+
   const cancelOrder = useCallback(async () => {
     const orderId = topup?.orderId;
     if (!orderId) return;
@@ -197,59 +253,66 @@ export function TopupDialog({
     }
   }, [topup, getToken, onCanceled]);
 
-  // Pre-flight: check that Pakasir is ready before allowing a QRIS payment.
-  // Fetched when the dialog opens — not polled, because it is a one-time gate, not a live status.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setPaymentReady(null);
-    setPaymentMessage("");
-    fetch("/backend/api/v1/health/pakasir")
-      .then(res => {
-        if (cancelled) return;
-        if (res.ok) {
-          setPaymentReady(true);
-        } else {
-          setPaymentReady(false);
-          res.json()
-            .then((body: { message?: string }) => {
-              if (!cancelled) setPaymentMessage(body?.message ?? "The payment gateway is not available.");
-            })
-            .catch(() => {
-              if (!cancelled) setPaymentMessage("The payment gateway is not available.");
-            });
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setPaymentReady(false);
-        setPaymentMessage("Could not reach the payment gateway.");
-      });
-    return () => { cancelled = true; };
-  }, [open]);
-
   const create = async () => {
     setError("");
     const n = Number(credits);
     if (!Number.isFinite(n) || n < MIN_TOPUP) { setError(`Minimum top-up is ${MIN_TOPUP.toLocaleString()} credits.`); return; }
+    if (!selectedMethodId) { setError("Please select a payment method."); return; }
     setCreating(true);
     try {
-      const res = await fetch("/backend/api/v1/topups", {
+      const res = await fetch("/backend/api/v1/payment/orders", {
         method: "POST",
         headers: await authHeaders(),
-        body: JSON.stringify({ credits: Math.round(n) }),
+        body: JSON.stringify({ paymentMethodId: selectedMethodId, credits: Math.round(n) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        setError(body?.error?.message ?? "Could not create the top-up.");
+        setError(body?.error?.message ?? "Could not create the order.");
         return;
       }
-      const data = await res.json() as { topup?: Topup };
-      if (!data.topup) { setError("The gateway returned an unusable response."); return; }
-      setTopup(data.topup);
-      // An order that comes back already completed (a fast settlement) never enters the poll,
-      // so the balance refresh has to be triggered here too.
-      if (data.topup.status === "completed") onSettled();
+      const data = await res.json() as {
+        status: string;
+        qrString?: string | null;
+        orderId?: string;
+        topupOrderId?: string;
+        amountIdr?: number;
+        feeIdr?: number;
+        totalIdr?: number;
+        expiresAt?: string | null;
+      };
+      // Instant payment (e.g. credits method that settles immediately).
+      if (data.status === "completed") {
+        setTopup({
+          orderId: data.topupOrderId ?? data.orderId ?? "",
+          status: "completed",
+          credits: String(Math.round(n)),
+          amountIdr: data.amountIdr ?? data.totalIdr ?? 0,
+          feeIdr: data.feeIdr ?? 0,
+          totalIdr: data.totalIdr ?? 0,
+          qrString: null,
+          expiresAt: null,
+          isSandbox: false,
+        });
+        onSettled();
+        return;
+      }
+      // QR-based payment: seed the topup with QR data and let the poll take over.
+      if (data.qrString) {
+        const topupOrderId = data.topupOrderId ?? data.orderId ?? "";
+        setTopup({
+          orderId: topupOrderId,
+          status: "pending",
+          credits: String(Math.round(n)),
+          amountIdr: data.amountIdr ?? data.totalIdr ?? 0,
+          feeIdr: data.feeIdr ?? 0,
+          totalIdr: data.totalIdr ?? 0,
+          qrString: data.qrString,
+          expiresAt: data.expiresAt ?? null,
+          isSandbox: false,
+        });
+        return;
+      }
+      setError("The gateway returned an unusable response.");
     } catch {
       setError("Could not reach the gateway.");
     } finally { setCreating(false); }
@@ -333,14 +396,24 @@ export function TopupDialog({
 
   const copyString = async () => {
     if (!topup?.qrString) return;
+    const text = topup.qrString;
     try {
-      await navigator.clipboard.writeText(topup.qrString);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-secure contexts (plain HTTP on LAN).
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard is unavailable over plain HTTP on a LAN address — the same restriction the
-      // console hit before. Selecting the text by hand is the fallback, so say so rather than
-      // pretending it copied.
       setError("Clipboard is blocked on this connection — select the text and copy it manually.");
     }
   };
@@ -368,51 +441,48 @@ export function TopupDialog({
   const sandboxRefused = error.includes("sandbox mode");
   const canceled = topup !== null && topup.status === "canceled";
   const terminalButUnsettled = topup !== null && topup.status !== "pending" && !settled;
-  // `topup.expired` is the server's verdict; `pastDeadline` is the local clock. Either closes the
-  // dialog — the server's is authoritative, the local one is what stops a payer waiting.
-  const dead = pastDeadline || terminalButUnsettled || sandboxRefused || topup?.expired === true;
+  // `pastDeadline` is the local clock — the server's deadline is reflected in the status the
+  // poll returns. Either closes the dialog; the local one is what stops a payer waiting.
+  const dead = pastDeadline || terminalButUnsettled || sandboxRefused;
   // "Live" means the QR is still payable right now: pending, not past the deadline, not canceled.
-  // This is the gate for the "Important" info card and the copy-code box — a dead or canceled
-  // order has nothing left to pay, so neither applies.
-  const live = topup !== null && topup.status === "pending" && !pastDeadline && !topup.expired && !sandboxRefused;
+  const live = topup !== null && topup.status === "pending" && !pastDeadline && !sandboxRefused;
 
-  return <Modal
-    open={open}
-    onClose={onClose}
-    title={settled ? "Credits added" : "Add credits"}
-    subtitle={settled
-      ? "The payment settled and your balance is updated."
-      : "Pay with any QRIS app — GoPay, OVO, DANA, ShopeePay, or your bank."}
-    busy={creating}
-    footer={settled
-      ? <button className="button button-ink compact-button" type="button" onClick={onClose}>
-          <Check size={15}/> Done
-        </button>
-      : topup === null
-        ? <>
-            <button className="button button-outline" type="button" onClick={onClose} disabled={creating}>Cancel</button>
-            <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || paymentReady === false}>
-              {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Show QR code <QrCode size={15}/></>}
+  return (
+    <>
+      <Modal
+        open={open}
+        onClose={handleClose}
+        title={settled ? "Credits added" : "Add credits"}
+        subtitle={settled
+          ? "The payment settled and your balance is updated."
+          : "Pay with any QRIS app — GoPay, OVO, DANA, ShopeePay, or your bank."}
+        busy={creating}
+        footer={settled
+          ? <button className="button button-ink compact-button" type="button" onClick={handleClose}>
+              <Check size={15}/> Done
             </button>
-          </>
-        : canceled
-          ? <button className="button button-ink compact-button" type="button" onClick={onClose}>Close</button>
-          : live
-            ? <button className="button button-ink compact-button" type="button" onClick={onClose}>Close</button>
-            : <>
-
-                <button className="button button-outline" type="button" onClick={onClose}>Close</button>
-                <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP}>
-                  {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
+          : topup === null
+            ? <>
+                <button className="button button-outline compact-button" type="button" onClick={handleClose} disabled={creating}>Cancel</button>
+                <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || !selectedMethodId}>
+                  {creating ? <><Loader2 size={15} className="row-spinner"/> Processing…</> : <>Buy <Coins size={15}/></>}
                 </button>
-              </>}
+              </>
+            : canceled
+              ? <button className="button button-ink compact-button" type="button" onClick={handleClose}>Close</button>
+              : live
+                ? <button className="button button-ink compact-button" type="button" onClick={handleClose}>Close</button>
+                : <>
+                    <button className="button button-outline" type="button" onClick={handleClose}>Close</button>
+                    <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || !selectedMethodId}>
+                      {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
+                    </button>
+                  </>
+        }
     >
     {error && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
     {!settled && topup === null && Number(credits) < MIN_TOPUP && (
       <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {MIN_TOPUP.toLocaleString()} credits.</p>
-    )}
-    {!settled && topup === null && paymentReady === false && (
-      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is temporarily unavailable. Please try again later.</p>
     )}
 
     {settled && topup && <div className="topup-settled">
@@ -430,7 +500,7 @@ export function TopupDialog({
           One credit is one rupiah at the current rate. Your balance is {formatCredits(balance)}.
         </p>
         <div className="topup-presets">
-          {PRESETS.map(p => <button key={p} type="button"
+          {(isSuperuser ? SUPERUSER_PRESETS : PRESETS).map(p => <button key={p} type="button"
             className={Number(credits) === p ? "plan-pill plan-pill-on" : "plan-pill"}
             aria-pressed={Number(credits) === p}
             onClick={() => setCredits(String(p))}>
@@ -448,6 +518,41 @@ export function TopupDialog({
             ? <><strong>{formatRupiah(Math.round(Number(credits)))}</strong> plus the QRIS fee, paid by you</>
             : <><strong>—</strong> Minimum is {MIN_TOPUP.toLocaleString()} credits.</>}
         </p>
+      </div>
+
+      {/* Payment method selection — radio cards like billing page. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Payment method</span>
+        {methodsLoading
+          ? <div className="table-empty"><Loader2 size={15} className="row-spinner"/><strong>Loading payment methods…</strong></div>
+          : paymentMethods.length === 0
+            ? null
+            : <div className="payment-method-list">
+                {(["credits", "idr", "usd"] as const).map(cat => {
+                  const catMethods = paymentMethods.filter(m => m.category === cat);
+                  if (catMethods.length === 0) return null;
+                  const catLabel = cat === "credits" ? "Credits" : cat === "idr" ? "IDR (Indonesia Rupiah)" : "USD (Global)";
+                  return (
+                    <div key={cat} className="payment-method-group">
+                      <small className="payment-method-cat">{catLabel}</small>
+                      {catMethods.map(m => {
+                        const selected = selectedMethodId === m.id;
+                        const isDisabled = !(m.visibility === "active" || m.visibility === "private" || m.isActive);
+                        const disabledReason = isDisabled ? " · Unavailable" : "";
+                        return (
+                          <label key={m.id} className={`payment-method-option${selected ? " selected" : ""}${isDisabled ? " disabled" : ""}`}>
+                            <input type="radio" name="topupPaymentMethod" value={m.id} checked={selected} onChange={() => !isDisabled && setSelectedMethodId(m.id)} disabled={isDisabled} />
+                            <div className="payment-method-info">
+                              <strong>{m.name}{isDisabled && <span className="payment-insufficient">{disabledReason}</span>}</strong>
+                              {m.description && <small>{m.description}</small>}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>}
       </div>
     </>}
 
@@ -500,7 +605,7 @@ export function TopupDialog({
       </div> : dead ? <div className="topup-dead" role="status">
         <Clock size={15}/>
         <div>
-          <strong>{sandboxRefused ? "Sandbox payment not credited" : "This code has expired"}</strong>
+          <strong>"This code has expired"</strong>
           <span>
             {sandboxRefused
               ? "The payment went through, but this project is in sandbox mode so no credits were added."
@@ -530,7 +635,7 @@ export function TopupDialog({
         </div>
       </details>}
 
-      {live && topup.isSandbox && <div className="modal-danger-note">
+      {false && topup?.isSandbox && <div className="modal-danger-note">
         <strong>Sandbox</strong>
         <span>This project is not live yet, so the QR cannot be paid from a real wallet. The balance is still credited so the flow can be tested.</span>
       </div>}
@@ -539,5 +644,24 @@ export function TopupDialog({
     {!settled && topup === null && <div className="table-note topup-note">
       <AlertTriangle size={14}/> The QRIS fee is charged on top and is yours to pay, so you receive every credit you asked for.
     </div>}
-  </Modal>;
+  </Modal>
+
+  {/* Cancel warning — shown when user tries to close while a payment is pending. */}
+  <Modal
+    open={showCancelWarning}
+    onClose={() => setShowCancelWarning(false)}
+    title="Cancel payment?"
+    subtitle="If you cancel now, your credits will not be added — even if the payment has already gone through."
+    footer={<>
+      <button className="button button-outline compact-button" type="button" onClick={() => setShowCancelWarning(false)}>Keep paying</button>
+      <button className="button button-ink compact-button" type="button" onClick={confirmClose}>Cancel payment</button>
+    </>}
+  >
+    <div className="table-note topup-note" style={{ borderColor: "var(--coral)", background: "#fff5f5" }}>
+      <AlertTriangle size={14}/>
+      <span>If you have already paid or are in the process of paying, canceling now may result in a race condition where your credits are not credited. Only cancel if you are sure you have not paid.</span>
+    </div>
+  </Modal>
+  </>
+  );
 }

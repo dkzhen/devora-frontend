@@ -713,11 +713,11 @@ export function AdminPackagesPage() {
           <Select label="Payment method" value={planForm.paymentType}
             onChange={v => setPlanForm(f => ({ ...f, paymentType: v as PlanForm["paymentType"] }))}
             options={[
-              { value: "idr", label: "IDR (Kasir)" },
+              { value: "idr", label: "IDR (Rupiah)" },
               { value: "credits", label: "Credits" },
               { value: "both", label: "IDR + Credits" },
             ]} />
-          <small>{planForm.paymentType === "idr" ? "Bayar lewat kasir (Rupiah)." : planForm.paymentType === "credits" ? "Charge dari balance credits user." : "Pembeli pilih bayar Rupiah atau credits."}</small>
+          <small>Which currencies this plan accepts at checkout. IDR = QRIS, Credits = instant deduct.</small>
         </label>
       </div>
       <div className="admin-form">

@@ -2,34 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Save, Search, Settings, X } from "lucide-react";
-import { formatRupiah, moneyToCredits } from "@/lib/credits";
+import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, Settings, X } from "lucide-react";
+import { formatRupiah } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
-
-/**
- * The credit-to-rupiah rate: the one number that prices every top-up and values every balance.
- *
- * Rupiah only. A dollar figure was tried twice — first as its own column, then derived from an
- * exchange rate — and removed both times: it was a second number to keep in step with this one,
- * and QRIS settles in rupiah, so it had no consumer.
- */
-type BillingSettings = {
-  idrPerCredit: string;
-  feeBearer: "buyer" | "merchant";
-  updatedAt: string;
-  updatedBy: string;
-};
-
-/** A quick-jump rupiah figure. The field itself takes any amount; these are the common ones. */
-const QUICK_AMOUNTS = [10_000, 25_000, 50_000, 100_000];
-
-/** Trim a stored 8-decimal rate to the shortest exact-looking form for the input box. */
-function trimRate(value: string): string {
-  if (!value.includes(".")) return value;
-  const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
-  return trimmed === "" ? "0" : trimmed;
-}
 
 const TX_PAGE_SIZE = 20;
 
@@ -56,17 +32,8 @@ function pageWindow(current: number, total: number, span = 1): (number | "gap")[
 
 export function AdminBillingSettingsPage() {
   const { getToken } = useAuth();
-  const [settings, setSettings] = useState<BillingSettings | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
-  // The form is a draft. Kept separate from `settings` so a save can be verified against what the
-  // server returned rather than against what was typed.
-  const [idr, setIdr] = useState("");
-  const [feeBearer, setFeeBearer] = useState<"buyer" | "merchant">("buyer");
-
-  // Section 04 + 05: admin-wide transaction and subscription lists.
   type TopupRow = {
     orderId: string; userId: string; email: string; credits: string;
     amountIdr: number; totalIdr: number; status: string; paymentMethod: string;
@@ -84,7 +51,7 @@ export function AdminBillingSettingsPage() {
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
 
-  // Search + pagination state for the topups table (section 04) and subscriptions table (section 05).
+  // Search + pagination state for the topups table (section 00) and subscriptions table (section 01).
   const [topupSearch, setTopupSearch] = useState("");
   const [topupPage, setTopupPage] = useState(1);
   const [topupFilter, setTopupFilter] = useState<"all" | "completed" | "pending" | "canceled">("all");
@@ -93,7 +60,7 @@ export function AdminBillingSettingsPage() {
   const [subFilter, setSubFilter] = useState<"all" | "active" | "expired" | "cancelled">("all");
   const [sweeping, setSweeping] = useState(false);
 
-  // Order override modal (section 04): force-complete or cancel a pending order.
+  // Order override modal (section 00): force-complete or cancel a pending order.
   const [overrideTarget, setOverrideTarget] = useState<TopupRow | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<"completed" | "canceled">("completed");
   const [overriding, setOverriding] = useState(false);
@@ -107,20 +74,6 @@ export function AdminBillingSettingsPage() {
     const token = await getToken();
     return { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" };
   }, [getToken]);
-
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      const res = await fetch("/backend/api/v1/admin/billing-settings", { headers: await authHeaders(), cache: "no-store" });
-      if (!res.ok) { setStatus("error"); return; }
-      const data = await res.json() as { settings?: BillingSettings };
-      if (!data.settings) { setStatus("error"); return; }
-      setSettings(data.settings);
-      setIdr(trimRate(data.settings.idrPerCredit));
-      setFeeBearer(data.settings.feeBearer);
-      setStatus("ready");
-    } catch { setStatus("error"); }
-  }, [authHeaders]);
 
   const loadTopups = useCallback(async () => {
     setTopupsStatus("loading");
@@ -162,42 +115,7 @@ export function AdminBillingSettingsPage() {
     } finally { setSweeping(false); }
   };
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (status === "ready") { void loadTopups(); void loadSubscriptions(); } }, [status, loadTopups, loadSubscriptions]);
-
-  const submit = async () => {
-    setNotice(null);
-    const idrText = idr.trim();
-    const idrNumber = Number(idrText);
-    if (idrText === "" || !Number.isFinite(idrNumber) || idrNumber <= 0) {
-      setNotice({ kind: "error", text: "Enter how many rupiah one credit is worth." });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const res = await fetch("/backend/api/v1/admin/billing-settings", {
-        method: "PUT",
-        headers: await authHeaders(),
-        body: JSON.stringify({ idrPerCredit: idrText, feeBearer }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        setNotice({ kind: "error", text: body?.error?.message ?? "Could not save the rate." });
-        return;
-      }
-      const data = await res.json() as { settings?: BillingSettings };
-      if (data.settings) {
-        // Re-seed the form from what the database actually stored, not from the input.
-        setSettings(data.settings);
-        setIdr(trimRate(data.settings.idrPerCredit));
-        setFeeBearer(data.settings.feeBearer);
-      }
-      setNotice({ kind: "ok", text: "Rate saved. New top-ups use it; existing orders keep the rate they were placed at." });
-    } catch {
-      setNotice({ kind: "error", text: "Could not reach the gateway." });
-    } finally { setSaving(false); }
-  };
+  useEffect(() => { void loadTopups(); void loadSubscriptions(); }, [loadTopups, loadSubscriptions]);
 
   const doOverride = async () => {
     if (!overrideTarget) return;
@@ -221,235 +139,33 @@ export function AdminBillingSettingsPage() {
     } finally { setOverriding(false); }
   };
 
-  // A live reading of the draft, so the operator sees the rate as money before saving it. This
-  // is the same "state the reading under the raw number" rule the token ceiling follows.
-  const draftIdr = Number(idr.trim());
-  const draftValid = idr.trim() !== "" && Number.isFinite(draftIdr) && draftIdr > 0;
-
-  const dirty = settings !== null && (
-    trimRate(settings.idrPerCredit) !== trimRate(idr) ||
-    settings.feeBearer !== feeBearer
-  );
-
-  // Pakasir payment gateway status.
-  const [pakasirHealth, setPakasirHealth] = useState<{
-    status?: string; slug?: string; gatewayReachable?: boolean;
-    webhookSecretSet?: boolean; qrisFee?: number | null;
-    telegramConfigured?: boolean; sandbox?: boolean; message?: string;
-  } | null>(null);
-  const [pakasirToggling, setPakasirToggling] = useState(false);
-  const [pakasirEnabled, setPakasirEnabled] = useState<boolean | null>(null);
-
-  const loadPakasirHealth = useCallback(async () => {
-    try {
-      const res = await fetch("/backend/api/v1/health/pakasir", { cache: "no-store" });
-      const data = await res.json() as { status?: string; message?: string; slug?: string; gatewayReachable?: boolean; webhookSecretSet?: boolean; qrisFee?: number | null; telegramConfigured?: boolean; sandbox?: boolean };
-      setPakasirHealth(data);
-      // 200 = enabled & ready; 503 with "disabled" = deliberately off; 503 with other = error but still "enabled" in config
-      if (res.ok) { setPakasirEnabled(true); }
-      else if (data.status === "disabled") { setPakasirEnabled(false); }
-      else { setPakasirEnabled(true); } // configured but unreachable — still "enabled" at config level
-    } catch {
-      setPakasirHealth({ status: "unreachable", message: "Could not reach the backend." });
-    }
-  }, []);
-
-  const togglePakasir = async () => {
-    if (pakasirEnabled === null) return;
-    setPakasirToggling(true);
-    try {
-      const res = await fetch("/backend/api/v1/admin/pakasir/toggle", {
-        method: "POST", headers: await authHeaders(),
-        body: JSON.stringify({ enabled: !pakasirEnabled }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { enabled?: boolean };
-        setPakasirEnabled(data.enabled ?? !pakasirEnabled);
-        void loadPakasirHealth();
-      }
-    } catch { /* ignore — health check will show real state */ }
-    finally { setPakasirToggling(false); }
-  };
-
-  useEffect(() => { void loadPakasirHealth(); }, [loadPakasirHealth]);
-
   return <div className="page-stack">
     <div className="page-heading">
       <div>
         <div className="eyebrow small-eyebrow"><Coins size={14}/> ADMIN / TRANSACTIONS</div>
-        <h1>Transaction rate</h1>
-        <p>What a credit is worth in rupiah. This prices every top-up and values every balance in the console.</p>
+        <h1>Transactions</h1>
+        <p>All credit top-ups, plan purchases, and payment history.</p>
       </div>
-      <button className="button button-outline compact-button" type="button" onClick={() => void load()} disabled={status === "loading"}>
+      <button className="button button-outline compact-button" type="button" onClick={() => { void loadTopups(); void loadSubscriptions(); }} disabled={topupsStatus === "loading" || subsStatus === "loading"}>
         <RefreshCw size={15}/> Refresh
       </button>
     </div>
 
-    {status === "loading" && <section className="console-section">
-      <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading the rate…</strong></div>
-    </section>}
+    {notice && <p className={notice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
+      {notice.kind === "ok" ? "✓" : "✕"}{notice.text}
+    </p>}
 
-    {status === "error" && <section className="console-section">
-      <div className="table-empty"><X size={19}/><strong>Could not load the rate</strong><p>Check that the backend is reachable.</p></div>
-    </section>}
-
-    {/* Section 00: Payment gateway status. */}
+    {/* Section 00: Credit transactions across all users. */}
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">00</span><div><h2>Payment gateway</h2><p>Pakasir (QRIS) status and controls.</p></div></div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className={`status-pill status-${pakasirEnabled ? (pakasirHealth?.status === "ready" ? "completed" : "pending") : "canceled"}`}>
-            {pakasirHealth?.status === "ready" ? "Ready" : pakasirHealth?.status ?? "Checking…"}
-          </span>
-          {pakasirEnabled !== null && (
-            <button
-              className={`button ${pakasirEnabled ? "button-outline" : "button-ink"} compact-button`}
-              type="button"
-              onClick={() => void togglePakasir()}
-              disabled={pakasirToggling}
-            >
-              {pakasirToggling
-                ? <><Loader2 size={14} className="row-spinner"/> …</>
-                : pakasirEnabled ? "Disable" : "Enable"}
-            </button>
-          )}
-          <button className="button button-outline compact-button" type="button" onClick={() => void loadPakasirHealth()} disabled={!pakasirHealth}>
-            <RefreshCw size={15}/>
-          </button>
-        </div>
-      </div>
-
-      {pakasirHealth && pakasirHealth.status !== "ready" && pakasirHealth.message && (
-        <p className="voucher-message voucher-error" style={{ marginTop: 14 }}>
-          <AlertTriangle size={14}/>{pakasirHealth.message}
-        </p>
-      )}
-
-      {pakasirHealth && pakasirHealth.status === "ready" && (
-        <div className="model-table-wrap" style={{ marginTop: 14 }}>
-          <table className="model-table">
-            <tbody>
-              <tr><td><strong>Slug</strong></td><td className="cell-num"><code>{pakasirHealth.slug ?? "—"}</code></td></tr>
-              <tr><td><strong>Gateway reachable</strong></td><td className="cell-num">{pakasirHealth.gatewayReachable ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Yes</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#c44" }}><X size={14}/> No</span>}</td></tr>
-              <tr><td><strong>Webhook secret</strong></td><td className="cell-num">{pakasirHealth.webhookSecretSet ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Set</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#c44" }}><X size={14}/> Missing</span>}</td></tr>
-              <tr><td><strong>QRIS fee (Rp 1000)</strong></td><td className="cell-num">{pakasirHealth.qrisFee != null ? `Rp ${pakasirHealth.qrisFee}` : "—"}</td></tr>
-              <tr><td><strong>Mode</strong></td><td className="cell-num">{pakasirHealth.sandbox ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><AlertTriangle size={14}/> Sandbox</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Production</span>}</td></tr>
-              <tr><td><strong>Telegram notifications</strong></td><td className="cell-num">{pakasirHealth.telegramConfigured ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={14}/> Configured</span> : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#8b8579" }}><X size={14}/> Not set</span>}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">01</span><div><h2>The rate</h2><p>One credit is worth this much.</p></div></div>
-        {settings && <span className="admin-editing-note">
-          {settings.updatedAt === ""
-            ? "Never set — showing the default."
-            : <>Last set {new Date(settings.updatedAt).toLocaleString("id-ID")}{settings.updatedBy ? ` by ${settings.updatedBy}` : ""}.</>}
-        </span>}
-      </div>
-
-      <div className="admin-form">
-        <label className="admin-field">
-          <span>Rupiah per credit</span>
-          <input value={idr} inputMode="decimal" placeholder="1"
-            onChange={e => setIdr(e.target.value)} />
-          <small>The rate everything else follows. 1 means 1 credit = Rp 1.</small>
-        </label>
-      </div>
-
-      {/* Raw digits above, the reading below — the operator should not have to count zeroes. */}
-      <p className="admin-scale-note" aria-live="polite">
-        {draftValid
-          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit</>
-          : <><strong>—</strong> Enter a positive number of rupiah per credit.</>}
-      </p>
-
-      <div className="admin-subfield">
-        <span className="admin-subfield-label">QRIS gateway fee</span>
-        <p className="admin-subfield-hint">Who pays the payment gateway&apos;s cut when someone tops up.</p>
-        <div className="kind-tiles">
-          <button type="button"
-            className={feeBearer === "buyer" ? "kind-tile kind-tile-on" : "kind-tile"}
-            aria-pressed={feeBearer === "buyer"}
-            onClick={() => setFeeBearer("buyer")}>
-            <span className="kind-tile-flag">{feeBearer === "buyer" ? "SELECTED" : ""}</span>
-            <strong>Buyer pays</strong>
-            <small>Charged on top of the credit price. The account receives the full credits it asked for.</small>
-          </button>
-          <button type="button"
-            className={feeBearer === "merchant" ? "kind-tile kind-tile-on" : "kind-tile"}
-            aria-pressed={feeBearer === "merchant"}
-            onClick={() => setFeeBearer("merchant")}>
-            <span className="kind-tile-flag">{feeBearer === "merchant" ? "SELECTED" : ""}</span>
-            <strong>You absorb it</strong>
-            <small>Deducted from what the account pays, so fewer credits land than the amount transferred.</small>
-          </button>
-        </div>
-      </div>
-
-      <div className="admin-actions">
-        <button className="button button-ink" type="button" onClick={() => void submit()} disabled={saving || !dirty}>
-          {saving ? <><Loader2 size={15} className="row-spinner"/> Saving…</> : <>Save rate <Save size={16}/></>}
-        </button>
-        {!dirty && settings !== null && !notice && <span className="admin-editing-note">No changes to save.</span>}
-        {notice && <p className={notice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
-          {notice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{notice.text}
-        </p>}
-      </div>
-    </section>}
-
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">02</span><div><h2>What this buys</h2><p>The rate as a customer sees it, before the gateway fee.</p></div></div>
-      </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <thead><tr><th>PAY</th><th>CREDITS</th></tr></thead>
-          <tbody>
-            {QUICK_AMOUNTS.map(amount => {
-              const credits = draftValid ? moneyToCredits(amount, String(draftIdr)) : 0;
-              return <tr key={amount}>
-                <td className="cell-num">{formatRupiah(amount)}</td>
-                <td className="cell-num"><strong>{credits.toLocaleString("id-ID", { maximumFractionDigits: 6 })}</strong></td>
-              </tr>;
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="table-note"><AlertTriangle size={14}/> A rate change reprices future top-ups and how balances read. Orders already placed keep the rate they were created with.</div>
-    </section>}
-
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">03</span><div><h2>Current state</h2><p>What the database holds right now.</p></div></div>
-      </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <tbody>
-            <tr><td><strong>Rupiah per credit</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerCredit)) : "—"}</td></tr>
-            <tr><td><strong>QRIS fee paid by</strong></td><td className="cell-num">{settings?.feeBearer === "merchant" ? "you (absorbed)" : "the buyer"}</td></tr>
-            <tr><td><strong>Last changed</strong></td><td className="cell-num">{settings && settings.updatedAt !== ""
-              ? new Date(settings.updatedAt).toLocaleString("id-ID")
-              : "never"}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>}
-
-    {/* Section 04: Credit transactions across all users. */}
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">04</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
+        <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
         <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupsStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
       </div>
 
-      {topupsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading transactions…</strong></div>}
-      {topupsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load transactions</strong></div>}
+      {topupsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading transactions…</span></div>}
+      {topupsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load transactions.</span></div>}
 
       {topupsStatus === "ready" && topups && <>
         {(() => {
@@ -492,7 +208,7 @@ export function AdminBillingSettingsPage() {
             </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th>EMAIL</th><th>ORDER ID</th><th>CREDITS</th><th>AMOUNT</th><th>STATUS</th><th>KIND</th><th>CREATED</th><th>ACTIONS</th></tr></thead>
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
                 <tbody>
                   {filtered.length === 0 && <tr><td colSpan={8} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
                   {rows.map(t => <tr key={t.orderId}>
@@ -530,12 +246,12 @@ export function AdminBillingSettingsPage() {
           </>;
         })()}
       </>}
-    </section>}
+    </section>
 
-    {/* Section 05: Package subscriptions across all users. */}
-    {status === "ready" && <section className="console-section">
+    {/* Section 01: Package subscriptions across all users. */}
+    <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">05</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
+        <div><span className="section-index">01</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
             {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
@@ -546,8 +262,8 @@ export function AdminBillingSettingsPage() {
         </div>
       </div>
 
-      {subsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading subscriptions…</strong></div>}
-      {subsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load subscriptions</strong></div>}
+      {subsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading subscriptions…</span></div>}
+      {subsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load subscriptions.</span></div>}
 
       {subsStatus === "ready" && subscriptions && <>
         {(() => {
@@ -588,7 +304,7 @@ export function AdminBillingSettingsPage() {
             </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th>EMAIL</th><th>PACKAGE</th><th>TIER</th><th>STATUS</th><th>STARTED</th><th>EXPIRES</th><th>TOKENS USED</th></tr></thead>
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>PACKAGE</th><th style={{ whiteSpace: "nowrap" }}>TIER</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>STARTED</th><th style={{ whiteSpace: "nowrap" }}>EXPIRES</th><th style={{ whiteSpace: "nowrap" }}>TOKENS USED</th></tr></thead>
                 <tbody>
                   {filtered.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No subscriptions yet."}</td></tr>}
                   {rows.map(s => <tr key={s.id}>
@@ -616,7 +332,7 @@ export function AdminBillingSettingsPage() {
           </>;
         })()}
       </>}
-    </section>}
+    </section>
 
     {/* Override modal: force-complete or cancel a pending order. */}
     <Modal

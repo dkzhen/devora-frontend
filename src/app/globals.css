@@ -35,7 +35,7 @@
  --font-code: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--body);font-size:var(--fs-base);-webkit-font-smoothing:antialiased}button,input{font:inherit}button,a{-webkit-tap-highlight-color:transparent}a{color:inherit;text-decoration:none}button{color:inherit}::selection{background:var(--mint);color:var(--ink)}
-.brand{display:inline-flex;align-items:center;gap:9px;font-family:var(--display);font-size:var(--fs-h4);font-weight:800;letter-spacing:-1.4px}.brand-mark{width:30px;height:30px;border:2px solid var(--ink);background:var(--mint);display:grid;place-items:center;box-shadow:2px 2px 0 var(--ink);transform:rotate(-4deg)}.brand-light{color:var(--paper)}.brand-light .brand-mark{border-color:var(--paper)}.button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:45px;padding:0 17px;border:2px solid var(--ink);font-size:var(--fs-small);font-weight:700;transition:transform .16s,box-shadow .16s,background-color .16s;cursor:pointer}
+.brand{display:inline-flex;align-items:center;gap:9px;font-family:var(--display);font-size:var(--fs-h4);font-weight:800;letter-spacing:-1.4px}.brand-mark{width:30px;height:30px;border:2px solid var(--ink);background:var(--mint);display:grid;place-items:center;box-shadow:2px 2px 0 var(--ink);transform:rotate(-4deg)}.brand-light{color:var(--paper)}.brand-light .brand-mark{border-color:var(--paper)}.button{border-radius:4px;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:45px;padding:0 17px;border:2px solid var(--ink);font-size:var(--fs-small);font-weight:700;transition:transform .16s,box-shadow .16s,background-color .16s;cursor:pointer}
 /* No auto margins on children: inside a centred flex row they push the label off-centre. */
 .button>svg{margin:0}.button:hover{transform:translate(-2px,-2px);box-shadow:3px 3px 0 var(--ink)}.button-ink{background:var(--ink);color:white}.button-ink:hover{background:#302b20}.button-outline{background:var(--paper)}.button-outline:hover{background:#f0eadf}.compact-button{min-height:36px;padding:0 11px;font-size:var(--fs-small);gap:7px;white-space:nowrap}.button:disabled{opacity:.65;cursor:wait;transform:none;box-shadow:none}.demo-note{display:inline-flex;align-items:center;gap:7px;color:#746e62;font-size:var(--fs-note);font-weight:700;letter-spacing:1px}.demo-dot{width:7px;height:7px;background:var(--coral);border-radius:50%;display:inline-block}.route-loading{min-height:100vh;display:grid;place-items:center;color:var(--muted);font-size:var(--fs-small)}
 
@@ -888,7 +888,7 @@
    the three views read as one block. Subsections stay ruled bands (border-top),
    never nested panels, and every new rule is scoped to .risk-intel. */
 .risk-intel .risk-tabs{display:flex;flex-wrap:wrap;gap:2px;margin:2px 0 0 26px;border-bottom:1px solid #e5e0d6}
-.risk-intel .risk-tabs button{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:10px 12px 9px;color:#797367;font:700 var(--fs-small) var(--body);border-bottom:2px solid transparent;cursor:pointer}
+.risk-intel .risk-tabs.button{border-radius:4px;display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:10px 12px 9px;color:#797367;font:700 var(--fs-small) var(--body);border-bottom:2px solid transparent;cursor:pointer}
 .risk-intel .risk-tabs button:hover{color:var(--ink)}
 .risk-intel .risk-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--mint)}
 .risk-intel .risk-tabs button:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
@@ -1371,7 +1371,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Admin: pricing plan feature chips (tag editor). */
 .plan-features-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
 .plan-feature-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1.5px solid var(--ink);background:var(--mint);font:600 var(--fs-note) var(--display);color:var(--ink);box-shadow:2px 2px 0 var(--ink)}
-.plan-feature-chip button{display:inline-flex;align-items:center;justify-content:center;border:none;background:var(--ink);color:var(--paper);width:15px;height:15px;cursor:pointer;padding:0;margin-left:3px}
+.plan-feature-chip.button{border-radius:4px;display:inline-flex;align-items:center;justify-content:center;border:none;background:var(--ink);color:var(--paper);width:15px;height:15px;cursor:pointer;padding:0;margin-left:3px}
 .plan-feature-chip button:hover{background:var(--coral)}
 
 /* Package model picker: a scrollable checkbox list with the console's card shape. Each row is
@@ -1399,6 +1399,8 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Subscription block under the credits figure in the sidebar account card. Sits inside the
  cream card, so it uses the same border language, one step quieter than Credits. */
 .account-subs{margin-top:12px;padding-top:12px;border-top:1px solid #e5dfd3;display:flex;flex-direction:column;gap:10px}
+.account-sub-more{font:700 var(--fs-micro) var(--body);letter-spacing:.3px;color:var(--mint);text-decoration:none;cursor:pointer;padding-top:4px}
+.account-sub-more:hover{color:var(--ink)}
 .account-sub{display:flex;flex-direction:column;gap:6px}
 .account-sub-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .account-sub-name{display:inline-flex;align-items:center;gap:5px;font:700 var(--fs-note) var(--display);color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1427,6 +1429,8 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .billing-sub{border:1.5px solid #ded8cc;background:#fff;padding:15px 16px;display:flex;flex-direction:column;gap:12px}
 .billing-sub-capped{border-color:var(--ink)}
 .billing-sub-head{display:flex;align-items:center;gap:11px}
+.billing-sub-share{margin-left:auto;border:1px solid var(--line);background:var(--paper);color:var(--muted);width:32px;height:32px;display:grid;place-items:center;cursor:pointer;border-radius:4px;transition:border-color .15s,color .15s}
+.billing-sub-share:hover{border-color:var(--ink);color:var(--ink)}
 .billing-sub-icon{width:36px;height:36px;display:grid;place-items:center;border:1.5px solid var(--ink);background:var(--cream);color:var(--ink);flex:none}
 .billing-sub-title{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
 .billing-sub-title strong{font:700 var(--fs-base) var(--display);letter-spacing:-.3px;color:var(--ink)}
@@ -1444,7 +1448,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ring-track{fill:none;stroke:#eae4d8;stroke-width:8}
 .ring-fill{fill:none;stroke:var(--mint);stroke-width:8;stroke-linecap:round;transition:stroke-dasharray .4s ease}
 .free-tokens-card.exhausted .ring-fill{stroke:var(--coral)}
-.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center}
 .ring-center strong{font:700 20px var(--display);color:var(--ink);line-height:1}
 .ring-center strong small{font-size:11px;font-weight:700}
 .ring-center span{font-size:var(--fs-micro);color:#827c71;font-weight:600;letter-spacing:.4px}
@@ -1455,12 +1459,335 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .free-tokens-foot{font-size:13px;color:#7d766a;display:flex;align-items:center;gap:8px;line-height:1.5;flex-wrap:wrap}
 .free-tokens-reset{font-size:var(--fs-note);color:#8b8579;padding-top:8px;border-top:1px solid #eae4d8}
 @media(max-width:700px){.free-tokens-ring{width:80px;height:80px;flex:0 0 80px}.free-tokens-stats{gap:16px}}
+
+/* Billing overview — 2-column grid for Current Plan + Free Tokens */
+.billing-overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.billing-overview-card {
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  padding: 20px;
+  box-shadow: 0 4px 20px -2px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.billing-overview-card .overview-label {
+  font-size: var(--fs-micro);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.billing-overview-card .overview-title {
+  font: 700 var(--fs-h3) var(--display);
+  letter-spacing: -0.7px;
+  margin: 0;
+}
+
+.billing-overview-card .overview-desc {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.billing-overview-card .overview-divider,
+.console-section .overview-divider {
+  border-top: 1px solid #eee9df;
+  margin: 4px 0;
+}
+
+.billing-overview-card .overview-credits-row,
+.console-section .overview-credits-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.billing-overview-card .overview-credits-row small,
+.billing-overview-card .overview-split-row small,
+.billing-overview-card .overview-stats small,
+.console-section .overview-credits-row small,
+.console-section .overview-split-row small,
+.console-section .overview-stats small {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.billing-overview-card .overview-credits-row strong,
+.console-section .overview-credits-row strong {
+  font: 700 var(--fs-h4) var(--display);
+}
+
+.billing-overview-card .overview-split-row strong,
+.billing-overview-card .overview-stats strong,
+.console-section .overview-split-row strong,
+.console-section .overview-stats strong {
+  font: 700 var(--fs-subhead) var(--display);
+}
+
+.billing-overview-card .overview-credits-row strong span,
+.billing-overview-card .overview-split-row strong span,
+.billing-overview-card .overview-stats strong span,
+.console-section .overview-credits-row strong span,
+.console-section .overview-split-row strong span,
+.console-section .overview-stats strong span {
+  font: 400 var(--fs-small) var(--body);
+  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+}
+
+.billing-overview-card .overview-split-row,
+.console-section .overview-split-row {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 32px;
+}
+
+.billing-overview-card .overview-split-row > div,
+.console-section .overview-split-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.billing-overview-card .overview-stats,
+.console-section .overview-stats {
+  display: flex;
+  gap: 0;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.billing-overview-card .overview-stats > div,
+.console-section .overview-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px 32px;
+  border-right: 1px solid #eee9df;
+  flex: 1;
+  text-align: center;
+}
+
+.billing-overview-card .overview-stats > div:last-child,
+.console-section .overview-stats > div:last-child {
+  border-right: none;
+}
+
+.billing-overview-card .overview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.billing-overview-card .overview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.console-section .allowance-percent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.console-section .allowance-percent strong {
+  font: 700 var(--fs-display) var(--display);
+  line-height: 1;
+  color: var(--ink);
+}
+
+.console-section .allowance-percent strong small {
+  font-size: var(--fs-h4);
+  font-weight: 700;
+}
+
+.console-section .allowance-percent span {
+  font-size: var(--fs-note);
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.allowance-status-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--line);
+}
+
+.allowance-status-card.status-ok {
+  border-color: var(--mint);
+  background: #f0fdfa;
+}
+
+.allowance-status-card.status-warn {
+  border-color: var(--coral);
+  background: #fff5f5;
+}
+
+.allowance-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.allowance-status-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-ok .allowance-status-title svg {
+  color: var(--mint);
+}
+
+.status-warn .allowance-status-title svg {
+  color: var(--coral);
+}
+
+.allowance-status-body strong {
+  font: 700 var(--fs-note) var(--display);
+  letter-spacing: 0.3px;
+  color: var(--ink);
+}
+
+.allowance-status-body span {
+  font-size: var(--fs-note);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.billing-overview-card .overview-credits-row, .console-section .overview-credits-row strong span,
+.billing-overview-card .overview-split-row, .console-section .overview-split-row strong span {
+  font: 400 var(--fs-small) var(--body);
+  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+}
+
+.billing-overview-card .overview-split-row, .console-section .overview-split-row {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 32px;
+}
+
+.billing-overview-card .overview-split-row, .console-section .overview-split-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.billing-overview-card .overview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+.billing-overview-card .overview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Keep the free tokens ring + stats inside the new card */
+.console-section .free-tokens-ring-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.console-section .free-tokens-stats {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.console-section .free-tokens-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.console-section .free-tokens-stats small {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.7px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.console-section .free-tokens-stats strong {
+  font: 700 var(--fs-subhead) var(--display);
+}
+
+.console-section .free-tokens-foot {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+
+.console-section .free-tokens-reset {
+  font-size: var(--fs-note);
+  color: var(--muted);
+  padding-top: 10px;
+  border-top: 1px solid #eae4d8;
+}
+
+/* Responsive — stack on narrow screens */
+@media (max-width: 768px) {
+  .billing-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .billing-sub-foot{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#6f695d}
-.billing-sub-status{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:4px;font-size:var(--fs-note);font-weight:600}
+.billing-sub-status{display:flex;align-items:flex-start;gap:6px;padding:6px 10px;border-radius:4px;font-size:var(--fs-note);font-weight:600;line-height:1.5}
+.billing-sub-status svg{flex-shrink:0;margin-top:2px}
 .billing-sub-status.is-ok{background:#e3f6f3;color:#17756b;border:1px solid #9dd5ca}
 .billing-sub-status.is-danger{background:#ffebeb;color:#721c1c;border:1px solid #f5a3a3}
 .billing-sub-notice{display:flex;align-items:center;gap:8px;font-size:var(--fs-note);color:#856404;background:#fff3cd;border:1px solid #e0c36a;border-radius:4px;padding:8px 12px;margin:12px 0 12px 0}
 .billing-sub-notice svg{color:#856404;flex-shrink:0}
+.payment-method-list{display:flex;flex-direction:column;gap:16px}
+.payment-method-group{display:flex;flex-direction:column;gap:6px}
+.payment-method-cat{font:700 var(--fs-micro) var(--display);letter-spacing:.7px;color:#827c70;text-transform:uppercase}
+.payment-method-option{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #e0d9cc;border-radius:6px;cursor:pointer;transition:border-color .15s,background .15s}
+.payment-method-option:hover{border-color:#c9c2b5;background:#faf8f2}
+.payment-method-option.selected{border-color:var(--ink);background:#f5f0e6}
+.payment-method-option input{accent-color:var(--ink)}
+.payment-method-info{flex:1;min-width:0}
+.payment-method-info strong{display:block;font-size:var(--fs-small);color:var(--ink)}
+.payment-method-info small{display:block;font-size:var(--fs-micro);color:#8b8579;margin-top:2px}
+.payment-method-price{font:700 var(--fs-small) var(--display);color:var(--ink);white-space:nowrap}
+.payment-method-option.disabled{opacity:.5;cursor:not-allowed}
+.payment-method-option.disabled:hover{border-color:#e0d9cc;background:transparent}
+.payment-insufficient{color:#c44;font-weight:600;font-size:var(--fs-micro)}
 .billing-sub-state{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
 .billing-badge{font:700 var(--fs-micro) var(--display);letter-spacing:.5px;padding:2px 6px;border:1px solid var(--ink)}
 .billing-badge-ok{background:var(--mint);color:var(--ink)}
@@ -2103,3 +2430,12 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:640px){.billing-plans-grid{grid-template-columns:1fr}}
 .model-card-event{border-color:var(--coral)}
 .model-card-event-badge{position:absolute;top:0;right:0;padding:2px 7px;font:700 var(--fs-micro)/1.5 var(--body);letter-spacing:.4px;background:var(--coral);color:var(--paper);border-left:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+
+.payment-success-toast{position:fixed;top:20px;right:20px;z-index:9999;display:flex;align-items:center;gap:12px;padding:14px 18px;background:var(--paper);border:2px solid var(--ink);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.15);animation:slideInRight .3s ease-out}
+.payment-success-toast svg{color:#16a34a;flex-shrink:0}
+.payment-success-toast div{display:flex;flex-direction:column;gap:2px}
+.payment-success-toast strong{font:700 var(--fs-small) var(--display);letter-spacing:.5px}
+.payment-success-toast span{font:400 var(--fs-micro) var(--body);color:var(--graphite)}
+.payment-success-close{border:none;background:none;font-size:20px;cursor:pointer;padding:0 4px;color:var(--graphite);line-height:1}
+.payment-success-close:hover{color:var(--ink)}
+@keyframes slideInRight{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}

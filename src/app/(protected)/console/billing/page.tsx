@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
+import { toPng } from "html-to-image";
 import QRCode from "qrcode";
 import {
-  AlertTriangle, Check, Clock, Coins, Copy, CreditCard,
-  Infinity as InfinityIcon, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, ShieldCheck, X,
+  AlertTriangle, ArrowUpRight, Check, Clock, Coins, Copy, CreditCard, Download, ExternalLink,
+  Infinity as InfinityIcon, Info, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, Share2, ShieldCheck, X,
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
 import { formatTokens } from "@/lib/tokens";
@@ -125,6 +127,28 @@ function daysLeft(iso: string | null): string {
   return d === 1 ? "1 day left" : `${d} days left`;
 }
 
+/** Payment method as returned by /api/v1/payment/methods */
+type PaymentMethodItem = {
+  id: string;
+  name: string;
+  gateway: string;
+  category: "credits" | "idr" | "usd";
+  currency: string;
+  description: string | null;
+  icon: string | null;
+  isActive: boolean;
+  visibility?: "active" | "inactive" | "private";
+};
+
+/** Public pricing plan — same as PlanPackage but used in the popup */
+type PubPlan = {
+  id: string;
+  displayName: string;
+  priceIdr: number;
+  priceCredits: string;
+  package: PlanPackage;
+};
+
 /** Plan-purchase order, same shape as the credits page TopupRow. */
 type TopupRow = {
   orderId: string;
@@ -137,6 +161,7 @@ type TopupRow = {
   qrString: string | null;
   expiresAt: string | null;
   isSandbox: boolean;
+  gateway: string | null;
   expired: boolean;
   createdAt: string;
   completedAt: string | null;
@@ -159,16 +184,179 @@ function RefChip({ value }: { value: string }) {
 }
 
 /**
+ * Share card — Devora themed (cream/paper/mint), exportable as PNG.
+ * Promo: shows package value (tokens/credits) vs what pay-as-you-go would cost.
+ */
+function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted, models, priceIdr }: {
+  sub: Subscription; unlimited: boolean; used: number; cap: number | null; pct: number | null; throttled: boolean; exhausted: boolean; models: { provider: string; name: string }[]; priceIdr: number;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+  const remaining = cap !== null ? cap - used : 0;
+  const totalGranted = cap ?? 0;
+  const paygoCreditsEquivalent = totalGranted; // 1 token = 1 credit in pay-as-you-go
+  const expiryText = sub.expiresAt ? stamp(sub.expiresAt) : "no expiry";
+  const daysLeftText = sub.expiresAt ? daysLeft(sub.expiresAt) : "";
+  const modelsShown = models.slice(0, 6);
+  const modelsOverflow = models.length - modelsShown.length;
+
+  const download = async () => {
+    if (!cardRef.current) return;
+    setDownloading(true);
+    try {
+      const dataUrl = await toPng(cardRef.current, { quality: 0.95, pixelRatio: 2 });
+      const link = document.createElement("a");
+      link.download = `devora-${sub.packageId}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch { /* ignore */ }
+    finally { setDownloading(false); }
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* The card */}
+      <div ref={cardRef} style={{
+        background: "var(--paper)",
+        border: "2px solid var(--ink)",
+        boxShadow: "4px 4px 0 var(--ink)",
+        padding: 0,
+        overflow: "hidden",
+        maxWidth: 560,
+        width: "100%",
+        fontFamily: "var(--body)",
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "14px 20px",
+          borderBottom: "1.5px solid var(--line)",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{
+              width: 34, height: 34, display: "grid", placeItems: "center",
+              border: "2px solid var(--ink)", background: "var(--mint)",
+              boxShadow: "2px 2px 0 var(--ink)", transform: "rotate(-4deg)",
+            }}>
+              <Package size={18}/>
+            </div>
+            <div>
+              <strong style={{fontFamily:"var(--display)",fontSize:"var(--fs-subhead)",letterSpacing:"-0.3px",display:"block"}}>Devora AI</strong>
+              <small style={{fontSize:"var(--fs-micro)",color:"var(--muted)",letterSpacing:"0.5px"}}>{sub.name}</small>
+            </div>
+          </div>
+          <span style={{
+            fontSize: "var(--fs-micro)", fontWeight: 700, letterSpacing: "1px",
+            color: exhausted || throttled ? "#fff" : "var(--ink)",
+            background: exhausted || throttled ? "var(--coral)" : "var(--mint)",
+            border: `1.5px solid var(--ink)`,
+            padding: "4px 10px",
+          }}>
+            {exhausted ? "EXHAUSTED" : throttled ? "THROTTLED" : "ACTIVE"}
+          </span>
+        </div>
+
+        {/* Big numbers row — tokens used + price */}
+        <div style={{display:"flex",padding:"20px 20px 16px",gap:0}}>
+          <div style={{flex:"0 0 55%",borderRight:"1.5px solid var(--line)"}}>
+            <small style={{fontSize:"var(--fs-micro)",letterSpacing:"1px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:6}}>
+              {unlimited ? "FAIR USE USED" : "TOKENS USED"}
+            </small>
+            <strong style={{fontFamily:"var(--display)",fontSize:36,lineHeight:1,letterSpacing:"-1.5px",color:"var(--ink)"}}>
+              {formatCounter(used)}
+            </strong>
+            <div style={{fontSize:"var(--fs-small)",color:"var(--muted)",marginTop:4}}>
+              / {unlimited && !throttled ? "∞" : formatCounter(totalGranted)} {unlimited ? "fair use cap" : "token cap"}
+            </div>
+            {pct !== null && pct > 0 && (
+              <div style={{marginTop:8,height:4,background:"#eae4d8",overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${pct}%`,background: exhausted || throttled ? "var(--coral)" : "var(--mint)"}} />
+              </div>
+            )}
+          </div>
+          <div style={{flex:"0 0 45%",paddingLeft:20,display:"flex",flexDirection:"column",justifyContent:"center",gap:10}}>
+            <div>
+              <small style={{fontSize:"var(--fs-micro)",letterSpacing:"0.7px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:3}}>PACKAGE PRICE</small>
+              <strong style={{fontFamily:"var(--display)",fontSize:"var(--fs-h4)",color:"var(--ink)"}}>
+                {priceIdr > 0 ? formatIdr(priceIdr) : "Free"}
+              </strong>
+            </div>
+            <div>
+              <small style={{fontSize:"var(--fs-micro)",letterSpacing:"0.7px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:3}}>PAY-AS-YOU-GO EQ.</small>
+              <strong style={{fontFamily:"var(--display)",fontSize:"var(--fs-small)",color:"var(--coral)",textDecoration:"line-through"}}>
+                {priceIdr > 0 ? formatIdr(totalGranted) : `${formatCounter(paygoCreditsEquivalent)} credits`}
+              </strong>
+              <div style={{fontSize:"var(--fs-micro)",color:"var(--mint)",fontWeight:600,marginTop:2}}>
+                {priceIdr > 0 && totalGranted > 0
+                  ? `Save ${Math.round((1 - priceIdr / totalGranted) * 100)}% vs pay-as-you-go`
+                  : "Package saves credits on every request"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Models covered */}
+        {modelsShown.length > 0 && (
+          <div style={{padding:"0 20px 16px"}}>
+            <small style={{fontSize:"var(--fs-micro)",letterSpacing:"0.7px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:8}}>MODELS COVERED ({sub.modelCount})</small>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+              {modelsShown.map(m => (
+                <span key={`${m.provider}/${m.name}`} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,
+                  fontSize:"var(--fs-micro)", fontWeight:600,
+                  padding:"3px 8px", border:"1px solid var(--line)",
+                  background:"var(--cream)", color:"var(--ink)",
+                }}>
+                  <ProviderMark provider={m.provider} size={14}/>
+                  {m.name}
+                </span>
+              ))}
+              {modelsOverflow > 0 && (
+                <span style={{fontSize:"var(--fs-micro)",fontWeight:600,padding:"3px 8px",color:"var(--muted)"}}>
+                  +{modelsOverflow} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 20px",
+          borderTop: "1px solid var(--line)",
+          background: "var(--cream)",
+        }}>
+          <code style={{fontSize:"var(--fs-micro)",color:"var(--muted)",fontFamily:"var(--font-code)"}}>
+            {sub.packageId}
+          </code>
+          <span style={{fontSize:"var(--fs-micro)",color: daysLeftText.includes("HOUR") || daysLeftText.includes("DAY LEFT") ? "var(--coral)" : "var(--muted)",fontWeight:600}}>
+            {daysLeftText || expiryText}
+          </span>
+        </div>
+      </div>
+
+      {/* Download button */}
+      <div style={{display:"flex",justifyContent:"center"}}>
+        <button className="button button-ink" type="button" onClick={() => void download()} disabled={downloading} style={{minHeight:48,padding:"0 32px"}}>
+          {downloading
+            ? <><Loader2 size={16} className="row-spinner"/> Exporting…</>
+            : <><Download size={18}/> Download PNG</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * One live package. Two of these can be held at once (a hard cap and an unlimited plan, or two
  * different packages), so this is a list item, not a single hero — the page shows every
  * subscription the account holds rather than assuming one.
  */
-function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: () => void }) {
-  // How many model names show before the rest collapse. The card already carries four facts and
-  // a bar; a fourteen-name list would swallow it.
+function SubscriptionCard({ sub, onChanged, priceIdr }: { sub: Subscription; onChanged: () => void; priceIdr: number }) {
   const MODELS_SHOWN = 4;
   const [allModels, setAllModels] = useState(false);
-  // One place that guarantees an array, so no branch below has to think about it.
+  const [shareOpen, setShareOpen] = useState(false);
   const models = sub.models ?? [];
   const unlimited = sub.category === "unlimited";
   const granted = unlimited ? sub.fairUseCap : sub.tokenCap;
@@ -191,7 +379,9 @@ function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: ()
           <code>{sub.packageId}</code> · {sub.modelCount} {sub.modelCount === 1 ? "model" : "models"} covered
         </small>
       </div>
-      <span className="plan-tag">{sub.tier}</span>
+      <button className="billing-sub-share" type="button" title="Package details" onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}>
+        <ExternalLink size={16}/>
+      </button>
     </div>
 
     <div className="billing-sub-facts">
@@ -258,12 +448,24 @@ function SubscriptionCard({ sub, onChanged }: { sub: Subscription; onChanged: ()
       <span className="billing-sub-days" style={{alignSelf:"flex-end"}}>{daysLeft(sub.expiresAt)}</span>
       <span className={`billing-sub-status ${exhausted || throttled ? "is-danger" : "is-ok"}`}>
         {exhausted
-          ? <><AlertTriangle size={15}/> Token allowance exhausted. Remove this plan to buy again, or purchase a different plan.</>
+          ? <><AlertTriangle size={14}/> Token allowance exhausted. Remove this package to buy again, or purchase a different package.</>
           : throttled
-            ? <><AlertTriangle size={15}/> Request rate is now {sub.throttledRpm ?? ""} RPM — your token allowance remains unlimited</>
-            : <><ShieldCheck size={15}/> {unlimited ? "Unlimited plan — full speed" : `Plan active — ${formatCounter(cap !== null ? cap - used : 0)} tokens remaining`}</>}
+            ? <><AlertTriangle size={14}/> Unlimited tokens — rate limit now {sub.throttledRpm ?? ""} RPM</>
+            : <><ShieldCheck size={14}/> {unlimited ? "Package active — unlimited tokens, full speed" : `Package active — ${formatCounter(cap !== null ? cap - used : 0)} tokens remaining`}</>}
       </span>
     </div>
+
+    {shareOpen && (
+      <Modal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title="Share package"
+        subtitle={sub.name}
+        footer={<button className="button button-outline compact-button" type="button" onClick={() => setShareOpen(false)}>Close</button>}
+      >
+        <PackageShareCard sub={sub} unlimited={unlimited} used={used} cap={cap} pct={pct} throttled={throttled} exhausted={exhausted} models={models} priceIdr={priceIdr} />
+      </Modal>
+    )}
 
     <PackageActions sub={sub} onChanged={onChanged}/>
   </article>;
@@ -301,6 +503,13 @@ export default function BillingPage() {
   const [planError, setPlanError] = useState("");
   const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
+
+  // Payment method popup state
+  const [paymentPopup, setPaymentPopup] = useState<{ plan: PubPlan; methods: PaymentMethodItem[]; rates: { idrToCredits: number } | null } | null>(null);
+  const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
+  const [paymentPopupBusy, setPaymentPopupBusy] = useState(false);
+  const [paymentPopupError, setPaymentPopupError] = useState("");
+  const [selectedMethodId, setSelectedMethodId] = useState("");
 
   const [invoiceTopups, setInvoiceTopups] = useState<TopupRow[]>([]);
   const [invoiceStatus, setInvoiceStatus] = useState<Status>("loading");
@@ -415,7 +624,6 @@ export default function BillingPage() {
         if (t.status === "completed") {
           if (handle !== undefined) window.clearInterval(handle);
           stopped = true;
-          setQrOpen(false);
           void load();
         }
         if (t.status !== "pending" && handle !== undefined) {
@@ -441,6 +649,94 @@ export default function BillingPage() {
       if (handle !== undefined) window.clearInterval(handle);
     };
   }, [qrOpen, qrOrderId, qrOrderStatus, qrExpiresAt, getToken, load]);
+
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+  const openPaymentPopup = async (plan: PubPlan) => {
+    setPaymentPopupError("");
+    setPaymentMethodsLoading(true);
+    setSelectedMethodId("");
+    setPaymentPopup({ plan, methods: [], rates: null });
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/payment/methods", {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) { setPaymentPopupError("Could not load payment methods."); return; }
+      const data = await res.json() as { methods?: PaymentMethodItem[]; rates?: { idrToCredits: number } };
+      const all = data.methods ?? [];
+      // Filter methods based on what the plan accepts
+      const hasIdr = plan.priceIdr > 0;
+      const hasCredits = plan.priceCredits !== "0" && plan.priceCredits !== "";
+      const filtered = hasIdr && hasCredits
+        ? all // both — show all
+        : hasIdr
+          ? all.filter(m => m.category === "idr" || m.category === "usd") // IDR only — no credits
+          : hasCredits
+            ? all.filter(m => m.category === "credits") // Credits only
+            : all; // free — shouldn't reach here
+      setPaymentPopup({ plan, methods: filtered, rates: data.rates ?? null });
+    } catch {
+      setPaymentPopupError("Could not reach the server.");
+    } finally {
+      setPaymentMethodsLoading(false);
+    }
+  };
+
+  /** Confirm payment with selected method — calls new /api/v1/payment/orders. */
+  const confirmPayment = async () => {
+    if (!paymentPopup || !selectedMethodId) return;
+    setPaymentPopupBusy(true);
+    setPaymentPopupError("");
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/payment/orders", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" },
+        body: JSON.stringify({ paymentMethodId: selectedMethodId, planId: paymentPopup.plan.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setPaymentPopupError(body?.error?.message ?? "Payment failed.");
+        return;
+      }
+      const data = await res.json() as {
+        status: string;
+        qrString?: string | null;
+        orderId?: string;
+        topupOrderId?: string;
+        expiresAt?: string | null;
+        totalIdr?: number;
+      };
+      if (data.status === "completed") {
+        setPaymentPopup(null);
+        setPaymentSuccess(true);
+        void load();
+      } else if (data.qrString) {
+        // Show QR — reuse existing QR modal
+        setQrOrder({
+          orderId: data.topupOrderId ?? data.orderId ?? "",
+          qrString: data.qrString,
+          totalIdr: data.totalIdr ?? 0,
+          amountIdr: 0,
+          feeIdr: 0,
+          expiresAt: data.expiresAt ?? null,
+          isSandbox: false,
+        });
+        setQrStatus("pending");
+        setQrError("");
+        setCopied(false);
+        setQrOpen(true);
+        setPaymentPopup(null);
+      } else {
+        setPaymentPopupError("Unexpected response from server.");
+      }
+    } catch {
+      setPaymentPopupError("Could not reach the server.");
+    } finally {
+      setPaymentPopupBusy(false);
+    }
+  };
 
   // Purchase handler: POST /api/v1/pricing-plans/:id/purchase
   const buy = useCallback(async (planId: string, method: "idr" | "credits" | "free") => {
@@ -502,7 +798,10 @@ export default function BillingPage() {
       });
       if (!res.ok) { setInvoiceStatus("error"); return; }
       const data = await res.json() as { topups?: TopupRow[] };
-      setInvoiceTopups((Array.isArray(data.topups) ? data.topups : []).filter(t => t.orderId.startsWith("DEVORA-PLAN-")));
+      setInvoiceTopups((Array.isArray(data.topups) ? data.topups : []).filter(t =>
+        t.orderId.startsWith("DEVORA-PK-") ||
+        t.orderId.startsWith("DEVORA-WP-") ||
+        t.orderId.startsWith("DEVORA-PLAN-")));
       setInvoiceStatus("ready");
     } catch { setInvoiceStatus("error"); }
   }, [getToken]);
@@ -551,7 +850,7 @@ export default function BillingPage() {
     <div className="page-heading"><div><div className="eyebrow small-eyebrow"><CreditCard size={14}/> MAIN / BILLING</div><h1>Billing</h1><p>Your plan, the allowances it grants, and what is left of them.</p></div></div>
 
     {/* ---------- current plan ---------- */}
-    <section className="console-section billing-plan">
+    <section className="console-section">
       <div className="billing-plan-top">
         <div>
           <span className="section-tag">CURRENT PLAN</span>
@@ -562,59 +861,95 @@ export default function BillingPage() {
         </div>
       </div>
       <div className="plan-details">
-        <div><small>CREDITS</small><strong>{formatCredits(credits)} <span>pay-as-you-go</span></strong></div>
-        <div><small>ACTIVE PACKAGES</small><strong>{subs.length} <span>{hasSubs ? "see below" : "none yet"}</span></strong></div>
-        <div><small>{nextExpiry === null ? "RENEWAL DATE" : "NEXT EXPIRY"}</small><strong>{nextExpiry === null ? "—": stamp(nextExpiry)} <span>{nextExpiry === null ? "no active subscription" : daysLeft(nextExpiry)}</span></strong></div>
+        <div>
+          <small>CREDITS</small>
+          <strong>{formatCredits(credits)} <span>pay-as-you-go</span></strong>
+        </div>
+        <div>
+          <small>ACTIVE PACKAGES</small>
+          <strong>{subs.length} <span>{hasSubs ? "see below" : "none yet"}</span></strong>
+        </div>
+        <div>
+          <small>{nextExpiry === null ? "RENEWAL DATE" : "NEXT EXPIRY"}</small>
+          <strong>{nextExpiry === null ? "—" : stamp(nextExpiry)} <span>{nextExpiry === null ? "no active subscription" : daysLeft(nextExpiry)}</span></strong>
+        </div>
       </div>
     </section>
 
     {/* ---------- free tokens ---------- */}
-    <section className="console-section free-tokens-section">
+    <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Free tokens</h2><p>Your lifetime allowance for free and event-covered models — used before credits.</p></div></div>
       </div>
-      <div className={`free-tokens-card${freeUsed >= freeLimit ? " exhausted" : ""}`}>
-        <div className="free-tokens-ring-row">
-          <div className="free-tokens-ring">
-            <svg viewBox="0 0 120 120" className="ring-svg">
-              <circle cx="60" cy="60" r="52" className="ring-track"/>
-              <circle cx="60" cy="60" r="52" className="ring-fill" style={{strokeDasharray: `${ringPct} 327`}}/>
-            </svg>
-            <div className="ring-center">
-              <strong>{Math.round(ringPct / 327 * 100)}<small>%</small></strong>
-              <span>used</span>
-            </div>
-          </div>
-          <div className="free-tokens-stats">
-            <div>
-              <small>USED</small>
-              <strong>{formatCounter(freeUsed)}</strong>
-            </div>
-            <div>
-              <small>LIMIT</small>
-              <strong>{formatCounter(freeLimit)}</strong>
-            </div>
-            <div>
-              <small>REMAINING</small>
-              <strong>{formatCounter(Math.max(0, freeLimit - freeUsed))}</strong>
-            </div>
-          </div>
+
+      <div className="overview-divider" />
+
+      {/* Percentage display — large number, small label, centered */}
+      <div className="allowance-percent">
+        <strong>{freeCapLifted ? "∞" : `${Math.round((freeUsed / freeLimit) * 100)}`}<small>{freeCapLifted ? "" : "%"}</small></strong>
+        <span>used</span>
+      </div>
+
+      <div className="overview-divider" />
+
+      {/* 3 columns: USED / LIMIT / REMAINING */}
+      <div className="overview-stats">
+        <div>
+          <small>USED</small>
+          <strong>{formatCounter(freeUsed)}</strong>
         </div>
-        <div className="free-tokens-foot">
-          {freeCapLifted
-            ? <><span className="billing-badge billing-badge-ok">CAP LIFTED</span> Your tier has no free token limit — free and event models are unlimited.</>
-            : freeUsed >= freeLimit
-              ? <><span className="billing-badge billing-badge-warn">EXHAUSTED</span> Free tokens used up — requests fall through to credits.</>
-              : <><span className="billing-badge billing-badge-ok">{Math.round((freeUsed / freeLimit) * 100)}% USED</span> {formatCounter(freeLimit - freeUsed)} tokens remaining</>}
+        <div>
+          <small>LIMIT</small>
+          <strong>{formatCounter(freeLimit)}</strong>
         </div>
-        <div className="free-tokens-reset">
-          {freeResetAt
-            ? <>Last reset: {new Date(freeResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</>
-            : <>Never reset — your full allowance is intact.</>}
-          <span className="cell-sub"> · Resets are rolled daily across exhausted accounts.</span>
+        <div>
+          <small>REMAINING</small>
+          <strong>{formatCounter(Math.max(0, freeLimit - freeUsed))}</strong>
         </div>
       </div>
+
+      <div className="overview-divider" />
+
+      <div className={`allowance-status-card${freeCapLifted ? " status-ok" : freeUsed >= freeLimit ? " status-warn" : " status-ok"}`}>
+        <div className="allowance-status-body">
+          <div className="allowance-status-title">
+            {freeCapLifted ? <ArrowUpRight size={14}/> : freeUsed >= freeLimit ? <AlertTriangle size={14}/> : <Info size={14}/>}
+            <strong>{freeCapLifted ? "CAP LIFTED" : freeUsed >= freeLimit ? "EXHAUSTED" : `${Math.round((freeUsed / freeLimit) * 100)}% USED`}</strong>
+          </div>
+          <span>{freeCapLifted
+            ? "Your tier has no free token limit — free and event models are unlimited."
+            : freeUsed >= freeLimit
+              ? "Free tokens used up — requests fall through to credits."
+              : `${formatCounter(freeLimit - freeUsed)} tokens remaining`}</span>
+        </div>
+      </div>
+
+      <div className="free-tokens-reset">
+        {freeResetAt
+          ? <>Last reset: {new Date(freeResetAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</>
+          : <>Never reset — your full allowance is intact.</>}
+        <span className="cell-sub"> · Resets are rolled daily across exhausted accounts.</span>
+      </div>
     </section>
+
+    {/* ---------- payment success modal (for instant/credits payment) ---------- */}
+    {paymentSuccess && (
+      <Modal
+        open={paymentSuccess}
+        onClose={() => setPaymentSuccess(false)}
+        title="Purchase complete"
+        subtitle="Your plan is now active."
+        footer={<button className="button button-ink compact-button" type="button" onClick={() => setPaymentSuccess(false)}><Check size={15}/> Done</button>}
+      >
+        <div className="topup-settled">
+          <span className="topup-settled-mark"><Check size={26}/></span>
+          <div className="topup-settled-copy">
+            <strong>Plan activated</strong>
+            <small>Your new package is now live.</small>
+          </div>
+        </div>
+      </Modal>
+    )}
 
     {/* ---------- subscriptions ---------- */}
     <section className="console-section">
@@ -631,7 +966,10 @@ export default function BillingPage() {
       {status === "ready" && hasSubs && <>
         <div className="billing-sub-notice"><AlertTriangle size={14} /> Each package can only be active once at a time. To buy the same package again, remove the active one first. You can hold multiple different packages simultaneously.</div>
         <div className="billing-subs">
-          {subs.map(s => <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()}/>)}
+          {subs.map(s => {
+            const matchingPlan = pubPlans.find(p => p.package?.id === s.packageId || p.id === s.packageId);
+            return <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()} priceIdr={matchingPlan?.priceIdr ?? 0} />;
+          })}
         </div>
       </>}
     </section>
@@ -643,9 +981,6 @@ export default function BillingPage() {
       </div>
 
       {planError && <p className="voucher-message voucher-error" role="alert"><AlertTriangle size={14}/>{planError}</p>}
-      {paymentReady === false && (
-        <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Payment is temporarily unavailable. Please try again later.</p>
-      )}
 
       {pubStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading plans…</strong></div>}
       {pubStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load plans</strong><button type="button" className="button button-outline compact-button" onClick={() => void loadPlans()}>Retry</button></div>}
@@ -737,15 +1072,13 @@ export default function BillingPage() {
               {isCurrent
                 ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
                 : <>
-                    {hasIdr && <button className="button button-ink compact-button" type="button" disabled={busy || paymentReady === false} onClick={() => void buy(p.id, "idr")}>
-                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy with IDR</>}
-                    </button>}
-                    {hasCredits && <button className="button button-outline compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "credits")}>
-                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Coins size={14}/> Buy with credits</>}
-                    </button>}
-                    {isFree && <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "free")}>
-                      {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Check size={14}/> Activate</>}
-                    </button>}
+                    {isFree
+                      ? <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "free")}>
+                          {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Check size={14}/> Activate</>}
+                        </button>
+                      : <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => openPaymentPopup(p)}>
+                          {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy</>}
+                        </button>}
                   </>}
             </div>
           </article>;
@@ -763,14 +1096,17 @@ export default function BillingPage() {
       </div>
       <div className="model-table-wrap">
         <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
+          <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
           <tbody>
             {invoiceTopups.length > 0
               ? invoiceTopups.map(t => <tr key={t.orderId}>
                   <td>{formatWhen(t.createdAt)}</td>
                   <td>
                     <RefChip value={t.orderId}/>
-                    {t.isSandbox && <small className="cell-sub">test payment</small>}
+                    {t.isSandbox && false}
+                  </td>
+                  <td>
+                    <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
                   </td>
                   <td className="cell-status">
                     <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
@@ -792,7 +1128,7 @@ export default function BillingPage() {
                       : <span className="cell-muted">—</span>}
                   </td>
                 </tr>)
-              : <tr><td colSpan={5}><div className="table-empty">
+              : <tr><td colSpan={6}><div className="table-empty">
                   {invoiceStatus === "loading"
                     ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
                     : invoiceStatus === "error"
@@ -843,7 +1179,7 @@ export default function BillingPage() {
         {qrDead ? <div className="topup-dead" role="status">
           <Clock size={15}/>
           <div>
-            <strong>{sandboxRefused ? "Sandbox payment not credited" : "This code has expired"}</strong>
+            <strong>"This code has expired"</strong>
             <span>
               {sandboxRefused
                 ? "The payment went through, but this project is in sandbox mode so no credits were added."
@@ -902,6 +1238,57 @@ export default function BillingPage() {
           <span>{m.name}</span>
         </span>)}
       </div>}
+    </Modal>
+
+    {/* Payment method popup — select how to pay before creating an order. */}
+    <Modal
+      open={paymentPopup !== null}
+      onClose={() => { setPaymentPopup(null); setPaymentPopupError(""); setSelectedMethodId(""); }}
+      title={paymentPopup ? `Buy ${paymentPopup.plan.displayName}` : "Select payment method"}
+      subtitle={paymentPopup ? `Select a payment method` : ""}
+      footer={<>
+        <button className="button button-outline compact-button" type="button" onClick={() => { setPaymentPopup(null); setPaymentPopupError(""); setSelectedMethodId(""); }} disabled={paymentPopupBusy}>Cancel</button>
+        <button className="button button-ink compact-button" type="button" onClick={() => void confirmPayment()} disabled={!selectedMethodId || paymentPopupBusy || paymentMethodsLoading}>
+          {paymentPopupBusy ? <><Loader2 size={14} className="row-spinner"/> Processing…</> : "Continue"}
+        </button>
+      </>}
+    >
+      {paymentMethodsLoading && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading payment methods…</span></div>}
+      {paymentPopupError && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{paymentPopupError}</span></div>}
+      {!paymentMethodsLoading && !paymentPopupError && paymentPopup && paymentPopup.methods.length > 0 && (
+        <div className="payment-method-list">
+          {(["credits", "idr", "usd"] as const).map(cat => {
+            const catMethods = paymentPopup.methods.filter(m => m.category === cat);
+            if (catMethods.length === 0) return null;
+            const catLabel = cat === "credits" ? "Credits" : cat === "idr" ? "IDR (Indonesia Rupiah)" : "USD (Global)";
+            return (
+              <div key={cat} className="payment-method-group">
+                <small className="payment-method-cat">{catLabel}</small>
+                {catMethods.map(m => {
+                  const price = cat === "credits"
+                    ? `${paymentPopup.plan.priceCredits} credits`
+                    : cat === "idr"
+                      ? `Rp ${paymentPopup.plan.priceIdr.toLocaleString("id-ID")}`
+                      : `$${(paymentPopup.plan.priceIdr / 15000).toFixed(2)}`;
+                  const insufficientCredits = m.category === "credits" && Number(credits) < Number(paymentPopup.plan.priceCredits);
+                  const isDisabled = insufficientCredits || !(m.visibility === "active" || m.visibility === "private" || m.isActive);
+                  const disabledReason = !(m.visibility === "active" || m.visibility === "private" || m.isActive) ? " · Unavailable" : insufficientCredits ? " · Insufficient credits" : "";
+                  return (
+                    <label key={m.id} className={`payment-method-option${selectedMethodId === m.id ? " selected" : ""}${isDisabled ? " disabled" : ""}`}>
+                      <input type="radio" name="paymentMethod" value={m.id} checked={selectedMethodId === m.id} onChange={() => !isDisabled && setSelectedMethodId(m.id)} disabled={isDisabled} />
+                      <div className="payment-method-info">
+                        <strong>{m.name}{isDisabled && <span className="payment-insufficient">{disabledReason}</span>}</strong>
+                        {m.description && <small>{m.description}</small>}
+                      </div>
+                      <span className="payment-method-price">{price}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Modal>
   </div>;
 }
