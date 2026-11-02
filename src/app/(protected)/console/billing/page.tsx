@@ -1184,12 +1184,11 @@ export default function BillingPage() {
                         {t.status === "canceled"
                           ? <button
                               type="button"
-                              className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}
-                              style={{ cursor: "pointer", border: "none", background: "inherit" }}
+                              style={{ cursor: "pointer", border: "none", background: "transparent", color: "#7a2320", fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px" }}
                               title="View cancel reason"
                               onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}
                             >{TOPUP_STATUS[t.status].label}</button>
-                          : <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`} style={{ border: "none", background: "inherit" }}>{TOPUP_STATUS[t.status].label}</span>}
+                          : <span style={{ fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px", color: t.status === "completed" ? "#12b3a4" : "#b8860b" }}>{TOPUP_STATUS[t.status].label}</span>}
                       </td>
                       <td>{formatWhen(t.createdAt)}</td>
                       <td>
