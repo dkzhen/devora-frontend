@@ -91,43 +91,38 @@ export function AdminBillingSettingsPage() {
     return { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" };
   }, [getToken]);
 
-  const loadTopups = useCallback(async (opts?: { page?: number; search?: string; status?: string }) => {
+  // Track the in-flight AbortController so a new page click cancels the previous fetch.
+  const topupAbortRef = useRef<AbortController | null>(null);
+
+  const loadTopups = useCallback(async (overridePage?: number) => {
+    // Cancel any in-flight fetch — only the latest click wins.
+    topupAbortRef.current?.abort();
+    const ac = new AbortController();
+    topupAbortRef.current = ac;
+
     setTopupsStatus("loading");
-    const p = opts?.page ?? topupPage;
-    const s = opts?.search ?? topupSearch;
-    const f = opts?.status ?? topupFilter;
+    const p = overridePage ?? topupPage;
+    const params = new URLSearchParams({ page: String(p), limit: "20" });
+    if (topupSearch) params.set("search", topupSearch);
+    if (topupFilter !== "all") params.set("status", topupFilter);
+
     try {
-      const params = new URLSearchParams({ page: String(p), limit: "20" });
-      if (s) params.set("search", s);
-      if (f !== "all") params.set("status", f);
-      const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, { headers: await authHeaders(), cache: "no-store" });
-      if (!res.ok) { setTopupsStatus("error"); return; }
+      const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, {
+        headers: await authHeaders(), cache: "no-store", signal: ac.signal,
+      });
+      if (!res.ok) { if (!ac.signal.aborted) setTopupsStatus("error"); return; }
       const data = await res.json() as { transactions?: TransactionRow[]; pagination?: Pagination };
-      setTopups(data.transactions ?? []);
-      setPagination(data.pagination ?? null);
-      setTopupsStatus("ready");
-    } catch { setTopupsStatus("error"); }
+      // Only apply if this fetch wasn't superseded.
+      if (!ac.signal.aborted) {
+        setTopups(data.transactions ?? []);
+        setPagination(data.pagination ?? null);
+        setTopupsStatus("ready");
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return; // expected — cancelled
+      if (!ac.signal.aborted) setTopupsStatus("error");
+    }
   }, [authHeaders, topupPage, topupSearch, topupFilter]);
-
-  // Track the latest fetch values to avoid stale-closure double fetches.
-  const fetchRef = useRef({ page: topupPage, search: topupSearch, filter: topupFilter });
-  fetchRef.current = { page: topupPage, search: topupSearch, filter: topupFilter };
-
-  const loadTopupsLatest = useCallback(async () => {
-    setTopupsStatus("loading");
-    const { page: p, search: s, filter: f } = fetchRef.current;
-    try {
-      const params = new URLSearchParams({ page: String(p), limit: "20" });
-      if (s) params.set("search", s);
-      if (f !== "all") params.set("status", f);
-      const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, { headers: await authHeaders(), cache: "no-store" });
-      if (!res.ok) { setTopupsStatus("error"); return; }
-      const data = await res.json() as { transactions?: TransactionRow[]; pagination?: Pagination };
-      setTopups(data.transactions ?? []);
-      setPagination(data.pagination ?? null);
-      setTopupsStatus("ready");
-    } catch { setTopupsStatus("error"); }
-  }, [authHeaders]);
 
   const loadSubscriptions = useCallback(async () => {
     setSubsStatus("loading");
@@ -158,12 +153,10 @@ export function AdminBillingSettingsPage() {
     } finally { setSweeping(false); }
   };
 
-  // Debounced fetch on page/search/filter change (server-side pagination).
-  // Uses loadTopupsLatest which reads from ref — no stale closure.
+  // Fetch on page/search/filter change — AbortController ensures only the latest wins.
   useEffect(() => {
-    const t = setTimeout(() => { void loadTopupsLatest(); }, 300);
-    return () => clearTimeout(t);
-  }, [topupPage, topupSearch, topupFilter, loadTopupsLatest]);
+    void loadTopups();
+  }, [topupPage, topupSearch, topupFilter, loadTopups]);
 
   useEffect(() => { void loadSubscriptions(); }, [loadSubscriptions]);
 
@@ -183,7 +176,7 @@ export function AdminBillingSettingsPage() {
         return;
       }
       setOverrideTarget(null);
-      void loadTopupsLatest();
+      void loadTopups();
     } catch {
       setOverrideError("Could not reach the gateway.");
     } finally { setOverriding(false); }
@@ -206,15 +199,14 @@ export function AdminBillingSettingsPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopupsLatest()} disabled={topupsStatus === "loading"}>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupsStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
       </div>
 
-      {topupsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading transactions…</span></div>}
       {topupsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load transactions.</span></div>}
 
-      {topupsStatus === "ready" && topups && <>
+      {(topupsStatus === "loading" || topupsStatus === "ready") && topups && <>\n        {topupsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading…</span></div>}
         {(() => {
           const pending = topups.filter(t => t.status === "pending").length;
           const completed = topups.filter(t => t.status === "completed").length;
