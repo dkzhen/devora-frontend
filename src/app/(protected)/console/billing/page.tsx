@@ -511,6 +511,7 @@ export default function BillingPage() {
   // QRIS purchase modal state.
   const [qrOpen, setQrOpen] = useState(false);
   const [modelPopup, setModelPopup] = useState<{ models: { name: string; provider: string }[]; name: string } | null>(null);
+  const [cancelReason, setCancelReason] = useState<{ orderId: string; reason: string } | null>(null);
   const [qrOrder, setQrOrder] = useState<{
     orderId: string;
     qrString: string | null;
@@ -1180,8 +1181,15 @@ export default function BillingPage() {
                         {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
                       </td>
                       <td className="cell-status">
-                        <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
-                        {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
+                        {t.status === "canceled"
+                          ? <button
+                              type="button"
+                              className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}
+                              style={{ cursor: "pointer", border: "none", background: "inherit" }}
+                              title="View cancel reason"
+                              onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}
+                            >{TOPUP_STATUS[t.status].label}</button>
+                          : <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>}
                       </td>
                       <td>{formatWhen(t.createdAt)}</td>
                       <td>
@@ -1369,6 +1377,17 @@ export default function BillingPage() {
           })}
         </div>
       )}
+    </Modal>
+
+    {/* Cancel reason popup — shows why an order was canceled. */}
+    <Modal
+      open={cancelReason !== null}
+      onClose={() => setCancelReason(null)}
+      title="Order canceled"
+      subtitle={cancelReason?.orderId ?? ""}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setCancelReason(null)}><Check size={15}/> Close</button>}
+    >
+      {cancelReason && <p style={{ margin: 0 }}>{cancelReason.reason}</p>}
     </Modal>
   </div>;
 }
