@@ -230,7 +230,7 @@ export function AdminBillingSettingsPage() {
         {(() => {
           const rows = topups;
           const pageCount = pagination?.totalPages ?? 1;
-          const page = pagination?.page ?? topupPage;
+          const page = topupPage;
           return <>
             <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
               <Search size={14}/>
@@ -275,7 +275,7 @@ export function AdminBillingSettingsPage() {
                 </tbody>
               </table>
             </div>
-            {pagination && pagination.total > 20 && <div className="pagination">
+            {pagination && pagination.totalPages > 1 && <div className="pagination">
               <span className="pagination-summary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, pagination.total)} of {pagination.total}</span>
               <div className="pagination-controls">
                 <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setTopupPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
