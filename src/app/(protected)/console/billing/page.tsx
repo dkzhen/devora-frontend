@@ -1090,6 +1090,8 @@ export default function BillingPage() {
     <section className="console-section invoice-section">
       <div className="section-title-row">
         <div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Plan purchases paid over QRIS.</p></div></div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => void loadInvoices()} disabled={invoiceStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
