@@ -1152,26 +1152,27 @@ export default function BillingPage() {
         return <>
           <div className="model-table-wrap">
             <table className="model-table">
-              <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
+              <thead><tr><th>ORDER ID</th><th>AMOUNT</th><th>STATUS</th><th>DATE</th><th>ACTION</th></tr></thead>
               <tbody>
                 {rows.length > 0
                   ? rows.map(t => <tr key={t.orderId}>
-                      <td>{formatWhen(t.createdAt)}</td>
                       <td>
-                        <RefChip value={t.orderId}/>
-                        {t.isSandbox && false}
-                      </td>
-                      <td>
-                        <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
-                      </td>
-                      <td className="cell-status">
-                        <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
-                        {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
+                        <code
+                          className="cell-num"
+                          style={{ cursor: "pointer", userSelect: "all" }}
+                          title="Click to copy"
+                          onClick={() => { void navigator.clipboard.writeText(t.orderId); }}
+                        >{t.orderId}</code>
                       </td>
                       <td className="cell-num">
                         {formatRupiah(t.totalIdr)}
                         {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
                       </td>
+                      <td className="cell-status">
+                        <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
+                        {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
+                      </td>
+                      <td>{formatWhen(t.createdAt)}</td>
                       <td>
                         {t.status === "pending"
                           ? <button className="row-action" type="button" title="Show QR" aria-label={`Show QR for ${t.orderId}`} onClick={() => {
@@ -1184,7 +1185,7 @@ export default function BillingPage() {
                           : <span className="cell-muted">—</span>}
                       </td>
                     </tr>)
-                  : <tr><td colSpan={6}><div className="table-empty">
+                  : <tr><td colSpan={5}><div className="table-empty">
                       {invoiceStatus === "loading"
                         ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
                         : invoiceStatus === "error"
