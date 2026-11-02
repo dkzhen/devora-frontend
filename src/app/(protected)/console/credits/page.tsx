@@ -390,11 +390,10 @@ export default function CreditsPage() {
         return <>
           <div className="model-table-wrap">
             <table className="model-table">
-              <thead><tr><th>DATE</th><th>ORDER ID</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
+              <thead><tr><th>ORDER ID</th><th>CREDITS</th><th>PAID</th><th>STATUS</th><th>DATE</th><th>ACTION</th></tr></thead>
               <tbody>
                 {rows.length > 0
                   ? rows.map(t => <tr key={t.orderId}>
-                      <td>{formatWhen(t.createdAt)}</td>
                       <td>
                         <code
                           className="cell-num"
@@ -415,17 +414,18 @@ export default function CreditsPage() {
                         >{t.orderId}</code>
                         {t.isSandbox && <small className="cell-sub">test payment</small>}
                       </td>
+                      <td className="cell-num">{formatCredits(t.credits)}</td>
+                      <td className="cell-num">
+                        {formatRupiah(t.totalIdr)}
+                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                      </td>
                       <td className="cell-status">
                         {t.status === "canceled"
                           ? <button type="button" style={{ cursor: "pointer", border: "none", background: "transparent", color: "#7a2320", fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px" }} title="View cancel reason" onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}>{TOPUP_STATUS[t.status].label}</button>
                           : <span style={{ fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px", color: t.status === "completed" ? "#12b3a4" : "#b8860b" }}>{TOPUP_STATUS[t.status].label}</span>}
                         {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
                       </td>
-                      <td className="cell-num">{formatCredits(t.credits)}</td>
-                      <td className="cell-num">
-                        {formatRupiah(t.totalIdr)}
-                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
-                      </td>
+                      <td>{formatWhen(t.createdAt)}</td>
                       <td className="cell-action">
                         {t.status === "pending"
                           ? <div className="row-action-group">
