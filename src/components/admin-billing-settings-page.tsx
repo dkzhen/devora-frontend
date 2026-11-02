@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, Settings, X } from "lucide-react";
 import { formatRupiah } from "@/lib/credits";
@@ -109,6 +109,26 @@ export function AdminBillingSettingsPage() {
     } catch { setTopupsStatus("error"); }
   }, [authHeaders, topupPage, topupSearch, topupFilter]);
 
+  // Track the latest fetch values to avoid stale-closure double fetches.
+  const fetchRef = useRef({ page: topupPage, search: topupSearch, filter: topupFilter });
+  fetchRef.current = { page: topupPage, search: topupSearch, filter: topupFilter };
+
+  const loadTopupsLatest = useCallback(async () => {
+    setTopupsStatus("loading");
+    const { page: p, search: s, filter: f } = fetchRef.current;
+    try {
+      const params = new URLSearchParams({ page: String(p), limit: "20" });
+      if (s) params.set("search", s);
+      if (f !== "all") params.set("status", f);
+      const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, { headers: await authHeaders(), cache: "no-store" });
+      if (!res.ok) { setTopupsStatus("error"); return; }
+      const data = await res.json() as { transactions?: TransactionRow[]; pagination?: Pagination };
+      setTopups(data.transactions ?? []);
+      setPagination(data.pagination ?? null);
+      setTopupsStatus("ready");
+    } catch { setTopupsStatus("error"); }
+  }, [authHeaders]);
+
   const loadSubscriptions = useCallback(async () => {
     setSubsStatus("loading");
     try {
@@ -139,10 +159,11 @@ export function AdminBillingSettingsPage() {
   };
 
   // Debounced fetch on page/search/filter change (server-side pagination).
+  // Uses loadTopupsLatest which reads from ref — no stale closure.
   useEffect(() => {
-    const t = setTimeout(() => { void loadTopups(); }, 300);
+    const t = setTimeout(() => { void loadTopupsLatest(); }, 300);
     return () => clearTimeout(t);
-  }, [topupPage, topupSearch, topupFilter]);
+  }, [topupPage, topupSearch, topupFilter, loadTopupsLatest]);
 
   useEffect(() => { void loadSubscriptions(); }, [loadSubscriptions]);
 
@@ -162,7 +183,7 @@ export function AdminBillingSettingsPage() {
         return;
       }
       setOverrideTarget(null);
-      void loadTopups();
+      void loadTopupsLatest();
     } catch {
       setOverrideError("Could not reach the gateway.");
     } finally { setOverriding(false); }
@@ -185,7 +206,7 @@ export function AdminBillingSettingsPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupsStatus === "loading"}>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopupsLatest()} disabled={topupsStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
       </div>
