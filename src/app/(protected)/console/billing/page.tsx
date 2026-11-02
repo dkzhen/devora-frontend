@@ -6,7 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { toPng } from "html-to-image";
 import QRCode from "qrcode";
 import {
-  AlertTriangle, ArrowUpRight, Check, Clock, Coins, Copy, CreditCard, Download, ExternalLink,
+  AlertTriangle, ArrowUpRight, Check, ChevronLeft, ChevronRight, Clock, Coins, Copy, CreditCard, Download, ExternalLink,
   Infinity as InfinityIcon, Info, Loader2, Package, ReceiptText, QrCode as QrIcon, RefreshCw, Share2, ShieldCheck, X,
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
@@ -167,6 +167,9 @@ type TopupRow = {
   completedAt: string | null;
 };
 
+type InvoiceResult = { data: TopupRow[]; total: number; totalPages: number; page: number };
+type Pagination = { page: number; limit: number; total: number; totalPages: number };
+
 const TOPUP_STATUS: Record<TopupRow["status"], { label: string; tone: string }> = {
   completed: { label: "PAID", tone: "topup-tag-ok" },
   pending: { label: "AWAITING PAYMENT", tone: "topup-tag-wait" },
@@ -181,6 +184,31 @@ function formatWhen(iso: string): string {
 
 function RefChip({ value }: { value: string }) {
   return <code className="ref-chip" title={`Reference ${value}`}>{value}</code>;
+}
+
+/**
+ * Page window for pagination controls.
+ * Shows up to 5 consecutive pages around the current page, with leading 1 and trailing total
+ * when there is a gap. Total pages <= 5: show all, no gaps.
+ */
+function pageWindow(current: number, total: number): (number | "gap")[] {
+  if (total <= 5) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const out: (number | "gap")[] = [];
+  const from = Math.max(1, Math.min(current - 2, total - 4));
+  const to = Math.min(total, from + 4);
+
+  if (from > 1) {
+    out.push(1);
+    if (from > 2) out.push("gap");
+  }
+  for (let n = from; n <= to; n++) out.push(n);
+  if (to < total) {
+    if (to < total - 1) out.push("gap");
+    out.push(total);
+  }
+
+  return out;
 }
 
 /**
@@ -511,8 +539,10 @@ export default function BillingPage() {
   const [paymentPopupError, setPaymentPopupError] = useState("");
   const [selectedMethodId, setSelectedMethodId] = useState("");
 
-  const [invoiceTopups, setInvoiceTopups] = useState<TopupRow[]>([]);
+  const [invoiceResult, setInvoiceResult] = useState<InvoiceResult | null>(null);
   const [invoiceStatus, setInvoiceStatus] = useState<Status>("loading");
+  const [invoicePage, setInvoicePage] = useState(1);
+  const [invoiceRefreshKey, setInvoiceRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -787,26 +817,45 @@ export default function BillingPage() {
     }
   }, [getToken, load]);
 
-  /** Plan-purchase invoices: DEVORA-PLAN-* orders only (not credit top-ups). */
-  const loadInvoices = useCallback(async () => {
-    setInvoiceStatus("loading");
-    try {
-      const token = await getToken();
-      const res = await fetch("/backend/api/v1/topups", {
-        headers: { Authorization: `Bearer ${token ?? ""}` },
-        cache: "no-store",
-      });
-      if (!res.ok) { setInvoiceStatus("error"); return; }
-      const data = await res.json() as { topups?: TopupRow[] };
-      setInvoiceTopups((Array.isArray(data.topups) ? data.topups : []).filter(t =>
-        t.orderId.startsWith("DEVORA-PK-") ||
-        t.orderId.startsWith("DEVORA-WP-") ||
-        t.orderId.startsWith("DEVORA-PLAN-")));
-      setInvoiceStatus("ready");
-    } catch { setInvoiceStatus("error"); }
-  }, [getToken]);
+  // Single fetch effect for invoices — AbortController ensures only the latest wins.
+  // invoiceResult is committed atomically: data + total + page always come from the same response.
+  useEffect(() => {
+    const controller = new AbortController();
 
-  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
+    async function load() {
+      setInvoiceStatus("loading");
+      const params = new URLSearchParams({ page: String(invoicePage), limit: "10" });
+
+      try {
+        const token = await getToken();
+        const res = await fetch(`/backend/api/v1/invoices?${params}`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          if (!controller.signal.aborted) setInvoiceStatus("error");
+          return;
+        }
+        const data = await res.json() as { invoices?: TopupRow[]; pagination?: Pagination };
+        if (!controller.signal.aborted) {
+          setInvoiceResult({
+            data: data.invoices ?? [],
+            total: data.pagination?.total ?? 0,
+            totalPages: data.pagination?.totalPages ?? 1,
+            page: data.pagination?.page ?? invoicePage,
+          });
+          setInvoiceStatus("ready");
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) setInvoiceStatus("error");
+      }
+    }
+
+    void load();
+    return () => controller.abort();
+  }, [invoicePage, getToken, invoiceRefreshKey]);
 
   // Pre-flight: check that Pakasir is ready before allowing QRIS plan purchases.
   // Fetched once on mount — not polled, because it is a one-time gate, not a live status.
@@ -1092,54 +1141,75 @@ export default function BillingPage() {
         <div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Plan purchases paid over QRIS.</p></div></div>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadInvoices()} disabled={invoiceStatus === "loading"}>
+        <button className="button button-outline compact-button" type="button" onClick={() => setInvoiceRefreshKey(k => k + 1)} disabled={invoiceStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
       </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
-          <tbody>
-            {invoiceTopups.length > 0
-              ? invoiceTopups.map(t => <tr key={t.orderId}>
-                  <td>{formatWhen(t.createdAt)}</td>
-                  <td>
-                    <RefChip value={t.orderId}/>
-                    {t.isSandbox && false}
-                  </td>
-                  <td>
-                    <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
-                  </td>
-                  <td className="cell-status">
-                    <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
-                    {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
-                  </td>
-                  <td className="cell-num">
-                    {formatRupiah(t.totalIdr)}
-                    {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
-                  </td>
-                  <td>
-                    {t.status === "pending"
-                      ? <button className="row-action" type="button" title="Show QR" aria-label={`Show QR for ${t.orderId}`} onClick={() => {
-                        setQrOrder({ orderId: t.orderId, qrString: t.qrString ?? null, totalIdr: t.totalIdr, amountIdr: t.amountIdr, feeIdr: t.feeIdr, expiresAt: t.expiresAt ?? null, isSandbox: t.isSandbox });
-                        setQrStatus("pending");
-                        setQrError("");
-                        setCopied(false);
-                        setQrOpen(true);
-                      }}><QrIcon size={14}/></button>
-                      : <span className="cell-muted">—</span>}
-                  </td>
-                </tr>)
-              : <tr><td colSpan={6}><div className="table-empty">
-                  {invoiceStatus === "loading"
-                    ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
-                    : invoiceStatus === "error"
-                      ? <><X size={19}/><strong>Could not load invoice history</strong></>
-                      : <><ReceiptText size={19}/><strong>No invoices yet</strong><p>Plan purchases will appear here.</p></>}
-                </div></td></tr>}
-          </tbody>
-        </table>
-      </div>
+      {(() => {
+        const rows = invoiceResult?.data ?? [];
+        const total = invoiceResult?.total ?? 0;
+        const totalPages = invoiceResult?.totalPages ?? 1;
+        const currentPage = invoiceResult?.page ?? 1;
+        const start = total === 0 ? 0 : (currentPage - 1) * 10 + 1;
+        const end = Math.min(currentPage * 10, total);
+
+        return <>
+          <div className="model-table-wrap">
+            <table className="model-table">
+              <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>AMOUNT</th><th>ACTION</th></tr></thead>
+              <tbody>
+                {rows.length > 0
+                  ? rows.map(t => <tr key={t.orderId}>
+                      <td>{formatWhen(t.createdAt)}</td>
+                      <td>
+                        <RefChip value={t.orderId}/>
+                        {t.isSandbox && false}
+                      </td>
+                      <td>
+                        <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
+                      </td>
+                      <td className="cell-status">
+                        <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
+                        {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
+                      </td>
+                      <td className="cell-num">
+                        {formatRupiah(t.totalIdr)}
+                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                      </td>
+                      <td>
+                        {t.status === "pending"
+                          ? <button className="row-action" type="button" title="Show QR" aria-label={`Show QR for ${t.orderId}`} onClick={() => {
+                            setQrOrder({ orderId: t.orderId, qrString: t.qrString ?? null, totalIdr: t.totalIdr, amountIdr: t.amountIdr, feeIdr: t.feeIdr, expiresAt: t.expiresAt ?? null, isSandbox: t.isSandbox });
+                            setQrStatus("pending");
+                            setQrError("");
+                            setCopied(false);
+                            setQrOpen(true);
+                          }}><QrIcon size={14}/></button>
+                          : <span className="cell-muted">—</span>}
+                      </td>
+                    </tr>)
+                  : <tr><td colSpan={6}><div className="table-empty">
+                      {invoiceStatus === "loading"
+                        ? <><Loader2 size={19} className="row-spinner"/><strong>Loading invoices…</strong></>
+                        : invoiceStatus === "error"
+                          ? <><X size={19}/><strong>Could not load invoice history</strong></>
+                          : <><ReceiptText size={19}/><strong>No invoices yet</strong><p>Plan purchases will appear here.</p></>}
+                    </div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && <div className="pagination">
+            <span className="pagination-summary">Showing {start}–{end} of {total}</span>
+            <div className="pagination-controls">
+              <button type="button" className="icon-button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setInvoicePage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+              {pageWindow(currentPage, totalPages).map((n, i) => n === "gap"
+                ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
+                : <button key={n} type="button" className={`page-number ${n === currentPage ? "page-current" : ""}`} aria-current={n === currentPage ? "page" : undefined} onClick={() => setInvoicePage(n)}>{n}</button>)}
+              <button type="button" className="icon-button" aria-label="Next page" disabled={currentPage === totalPages} onClick={() => setInvoicePage(p => Math.min(totalPages, p + 1))}><ChevronRight size={15}/></button>
+            </div>
+          </div>}
+        </>;
+      })()}
     </section>
 
     {/* ---------- QRIS purchase modal ---------- */}
