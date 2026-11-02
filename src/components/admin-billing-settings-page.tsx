@@ -233,7 +233,7 @@ export function AdminBillingSettingsPage() {
       <div className="section-title-row">
         <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => setTxRefreshKey(k => k + 1)} disabled={txStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
@@ -328,7 +328,7 @@ export function AdminBillingSettingsPage() {
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
           {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
         </button>
