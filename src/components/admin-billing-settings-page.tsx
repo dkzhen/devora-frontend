@@ -206,9 +206,9 @@ export function AdminBillingSettingsPage() {
 
       {topupsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load transactions.</span></div>}
 
-      {(topupsStatus === "loading" || topupsStatus === "ready") && <>
+      {(topupsStatus === "loading" || topupsStatus === "ready") && topups && <>
         {(() => {
-          const rows = topupsStatus === "loading" ? [] : (topups ?? []);
+          const rows = topups;
           const pending = rows.filter(t => t.status === "pending").length;
           const completed = rows.filter(t => t.status === "completed").length;
           const canceled = rows.filter(t => t.status === "canceled").length;
@@ -221,7 +221,7 @@ export function AdminBillingSettingsPage() {
         })()}
 
         {(() => {
-          const rows = topupsStatus === "loading" ? [] : (topups ?? []);
+          const rows = topups;
           const pageCount = pagination?.totalPages ?? 1;
           const page = topupPage;
           return <>
@@ -242,7 +242,7 @@ export function AdminBillingSettingsPage() {
               <table className="model-table">
                 <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CURRENCY</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
                 <tbody>
-                  {rows.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{topupsStatus === "loading" ? <Loader2 size={20} className="spin"/> : topupSearch ? "No matches." : "No transactions yet."}</td></tr>}
+                  {rows.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{topupSearch ? "No matches." : "No transactions yet."}</td></tr>}
                   {rows.map(t => <tr key={t.id}>
                     <td>{t.email}</td>
                     <td className="cell-num">{t.gatewayOrderId ?? "—"}</td>
