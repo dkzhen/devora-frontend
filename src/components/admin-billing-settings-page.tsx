@@ -327,14 +327,14 @@ export function AdminBillingSettingsPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
-            {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
-          </button>
-          <button className="button button-outline compact-button" type="button" onClick={() => setSubRefreshKey(k => k + 1)} disabled={subStatus === "loading"}>
-            <RefreshCw size={15}/> Refresh
-          </button>
-        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
+          {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
+        </button>
+        <button className="button button-outline compact-button" type="button" onClick={() => setSubRefreshKey(k => k + 1)} disabled={subStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
       </div>
 
       {subStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load subscriptions.</span></div>}
