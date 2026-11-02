@@ -23,19 +23,15 @@ import { Modal } from "@/components/modal";
 function pageWindow(current: number, total: number): (number | "gap")[] {
   if (total <= 5) return Array.from({ length: total }, (_, i) => i + 1);
 
-  const out: (number | "gap")[] = [];
-  const from = Math.max(1, Math.min(current - 2, total - 4));
-  const to = Math.min(total, from + 4);
+  // Show first + window of 3 + last = max 5 numbers visible.
+  const out: (number | "gap")[] = [1];
+  const from = Math.max(2, Math.min(current - 1, total - 3));
+  const to = Math.min(total - 1, from + 2);
 
-  if (from > 1) {
-    out.push(1);
-    if (from > 2) out.push("gap");
-  }
+  if (from > 2) out.push("gap");
   for (let n = from; n <= to; n++) out.push(n);
-  if (to < total) {
-    if (to < total - 1) out.push("gap");
-    out.push(total);
-  }
+  if (to < total - 1) out.push("gap");
+  out.push(total);
 
   return out;
 }
