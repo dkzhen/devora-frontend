@@ -1189,7 +1189,7 @@ export default function BillingPage() {
                               title="View cancel reason"
                               onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}
                             >{TOPUP_STATUS[t.status].label}</button>
-                          : <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>}
+                          : <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`} style={{ border: "none", background: "inherit" }}>{TOPUP_STATUS[t.status].label}</span>}
                       </td>
                       <td>{formatWhen(t.createdAt)}</td>
                       <td>
