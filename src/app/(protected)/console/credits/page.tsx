@@ -81,19 +81,15 @@ const PAGE_SIZE = 20;
  * Always shows the first and last page so both ends stay one click away, and collapses the
  * rest to a gap marker.
  */
-export function pageWindow(current: number, total: number, span = 1): (number | "gap")[] {
-  // Enough pages to show them all without a gap.
-  if (total <= span * 2 + 5) return Array.from({ length: total }, (_, i) => i + 1);
-
+export function pageWindow(current: number, total: number): (number | "gap")[] {
+  if (total <= 5) return Array.from({ length: total }, (_, i) => i + 1);
   const out: (number | "gap")[] = [1];
-  const from = Math.max(2, current - span);
-  const to = Math.min(total - 1, current + span);
-
+  const from = Math.max(2, Math.min(current - 1, total - 3));
+  const to = Math.min(total - 1, from + 2);
   if (from > 2) out.push("gap");
   for (let n = from; n <= to; n++) out.push(n);
   if (to < total - 1) out.push("gap");
   out.push(total);
-
   return out;
 }
 
@@ -170,8 +166,13 @@ export default function CreditsPage() {
   /** Rows on the server, which may exceed what was fetched. Paging is sized from this. */
   const [total, setTotal] = useState(0);
   const [topupOpen, setTopupOpen] = useState(false);
-  const [topups, setTopups] = useState<TopupRow[]>([]);
+  type TopupResult = { data: TopupRow[]; total: number; totalPages: number; page: number };
+  type Pagination = { page: number; limit: number; total: number; totalPages: number };
+  const [topupResult, setTopupResult] = useState<TopupResult | null>(null);
   const [topupStatus, setTopupStatus] = useState<Status>("loading");
+  const [topupPage, setTopupPage] = useState(1);
+  const [topupRefreshKey, setTopupRefreshKey] = useState(0);
+  const [cancelReason, setCancelReason] = useState<{ orderId: string; reason: string } | null>(null);
   /**
    * A top-up resumed from the history table — when the payer taps "Show QR" on a pending row,
    * the dialog opens straight on the existing order instead of asking for a new amount. The
@@ -227,25 +228,48 @@ export default function CreditsPage() {
   useEffect(() => { void load(); }, [load]);
 
   /**
-   * Top-up history, read separately from the ledger.
+   * Top-up history, read separately from the ledger with server-side pagination.
    *
    * Its own request because it is a different question and its own failure: an unreachable
    * top-up list must not blank the balance and the activity table above it.
    */
-  const loadTopups = useCallback(async () => {
-    setTopupStatus("loading");
-    try {
-      const token = await getToken();
-      const res = await fetch("/backend/api/v1/topups", {
-        headers: { Authorization: `Bearer ${token ?? ""}` },
-        cache: "no-store",
-      });
-      if (!res.ok) { setTopupStatus("error"); return; }
-      const data = await res.json() as { topups?: TopupRow[] };
-      setTopups((Array.isArray(data.topups) ? data.topups : []).filter(t => !t.orderId.startsWith("DEVORA-PLAN-")));
-      setTopupStatus("ready");
-    } catch { setTopupStatus("error"); }
-  }, [getToken]);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function load() {
+      setTopupStatus("loading");
+      const params = new URLSearchParams({ page: String(topupPage), limit: "10" });
+
+      try {
+        const token = await getToken();
+        const res = await fetch(`/backend/api/v1/topup-history?${params}`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          if (!controller.signal.aborted) setTopupStatus("error");
+          return;
+        }
+        const data = await res.json() as { topups?: TopupRow[]; pagination?: Pagination };
+        if (!controller.signal.aborted) {
+          setTopupResult({
+            data: data.topups ?? [],
+            total: data.pagination?.total ?? 0,
+            totalPages: data.pagination?.totalPages ?? 1,
+            page: data.pagination?.page ?? topupPage,
+          });
+          setTopupStatus("ready");
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) setTopupStatus("error");
+      }
+    }
+
+    void load();
+    return () => controller.abort();
+  }, [topupPage, getToken, topupRefreshKey]);
 
   /**
    * Resume a pending top-up: open the dialog straight on the existing order's QR.
@@ -273,8 +297,6 @@ export default function CreditsPage() {
     }
   }, [getToken]);
 
-  useEffect(() => { void loadTopups(); }, [loadTopups]);
-
   /**
    * Cancel a pending top-up from the history table.
    *
@@ -299,13 +321,13 @@ export default function CreditsPage() {
       }
       setError("");
       setCancelTarget(null);
-      await loadTopups();
+      setTopupRefreshKey(k => k + 1);
     } catch {
       setError("Could not reach the gateway.");
     } finally {
       setCancelingId(null);
     }
-  }, [getToken, loadTopups]);
+  }, [getToken]);
 
   // Sized from the server's count, not from the fetched slice: if a page is ever short
   // (a lower limit, or a growing ledger), the last pages must still be reachable.
@@ -342,66 +364,100 @@ export default function CreditsPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Top-up history</h2><p>What you paid over QRIS, and what is still waiting.</p></div></div>
-        <button className="button button-outline compact-button" type="button" onClick={() => void loadTopups()} disabled={topupStatus === "loading"}>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
+        <button className="button button-outline compact-button" type="button" onClick={() => setTopupRefreshKey(k => k + 1)} disabled={topupStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
       </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <thead><tr><th>DATE</th><th>ORDER</th><th>GATEWAY</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
-          <tbody>
-            {topups.length > 0
-              ? topups.map(t => <tr key={t.orderId}>
-                  <td>{formatWhen(t.createdAt)}</td>
-                  <td>
-                    <RefChip value={t.orderId}/>
-                    {t.isSandbox && <small className="cell-sub">test payment</small>}
-                  </td>
-                  <td>
-                    <span className="billing-badge billing-badge-neutral">{t.gateway ?? "—"}{t.gateway === "waroengpay" ? " (WP)" : t.gateway === "pakasir" ? " (PK)" : ""}</span>
-                  </td>
-                  <td className="cell-status">
-                    <span className={`topup-tag ${TOPUP_STATUS[t.status].tone}`}>{TOPUP_STATUS[t.status].label}</span>
-                    {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
-                    {/* An expired order still stores `canceled`; the honest word for the reader is
-                        EXPIRED, so an abandoned checkout does not read as something they did. */}
-                    {t.status === "canceled" && t.expired && <small className="cell-sub">code expired</small>}
-                  </td>
-                  <td className="cell-num">{formatCredits(t.credits)}</td>
-                  <td className="cell-num">
-                    {formatRupiah(t.totalIdr)}
-                    {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
-                  </td>
-                  {/* ACTION: a pending order can be re-opened (Show QR) or closed (Cancel). Any
-                      other state is final, so a dash keeps the column aligned without offering an
-                      action that would only fail. */}
-                  <td className="cell-action">
-                    {t.status === "pending"
-                      ? <div className="row-action-group">
-                          <button className="action-card" type="button" title="Show QR"
-                            aria-label={`Show QR for ${t.orderId}`}
-                            onClick={() => void resumeTopup(t)}>
-                            <QrCode size={18}/>
-                          </button>
-                          <button className="action-card action-card-danger" type="button" title="Cancel order"
-                            aria-label={`Cancel order ${t.orderId}`}
-                            onClick={() => setCancelTarget(t.orderId)}>
-                            <X size={18}/>
-                          </button>
-                        </div>
-                      : <span className="cell-dash">—</span>}
-                  </td>
-                </tr>)
-              : <tr><td colSpan={7}><div className="table-empty">
-                  {topupStatus === "loading"
-                    ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
-                    : topupStatus === "error"
-                      ? <><X size={19}/><strong>Could not load top-up history</strong></>
-                      : <><QrCode size={19}/><strong>No top-ups yet</strong><p>Add credits with QRIS and the order appears here.</p></>}
-                </div></td></tr>}
-          </tbody>
-        </table>
-      </div>
+      {(() => {
+        const rows = topupResult?.data ?? [];
+        return <>
+          <div className="model-table-wrap">
+            <table className="model-table">
+              <thead><tr><th>DATE</th><th>ORDER ID</th><th>STATUS</th><th>CREDITS</th><th>PAID</th><th>ACTION</th></tr></thead>
+              <tbody>
+                {rows.length > 0
+                  ? rows.map(t => <tr key={t.orderId}>
+                      <td>{formatWhen(t.createdAt)}</td>
+                      <td>
+                        <code
+                          className="cell-num"
+                          style={{ cursor: "pointer", userSelect: "all" }}
+                          title="Click to copy"
+                          onClick={() => {
+                            const text = t.orderId;
+                            if (navigator.clipboard?.writeText) {
+                              void navigator.clipboard.writeText(text);
+                            } else {
+                              const ta = document.createElement("textarea");
+                              ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+                              document.body.appendChild(ta); ta.select();
+                              try { document.execCommand("copy"); } catch {}
+                              document.body.removeChild(ta);
+                            }
+                          }}
+                        >{t.orderId}</code>
+                        {t.isSandbox && <small className="cell-sub">test payment</small>}
+                      </td>
+                      <td className="cell-status">
+                        {t.status === "canceled"
+                          ? <button type="button" style={{ cursor: "pointer", border: "none", background: "transparent", color: "#7a2320", fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px" }} title="View cancel reason" onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}>{TOPUP_STATUS[t.status].label}</button>
+                          : <span style={{ fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px", color: t.status === "completed" ? "#12b3a4" : "#b8860b" }}>{TOPUP_STATUS[t.status].label}</span>}
+                        {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
+                      </td>
+                      <td className="cell-num">{formatCredits(t.credits)}</td>
+                      <td className="cell-num">
+                        {formatRupiah(t.totalIdr)}
+                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                      </td>
+                      <td className="cell-action">
+                        {t.status === "pending"
+                          ? <div className="row-action-group">
+                              <button className="action-card" type="button" title="Show QR"
+                                aria-label={`Show QR for ${t.orderId}`}
+                                onClick={() => void resumeTopup(t)}>
+                                <QrCode size={18}/>
+                              </button>
+                              <button className="action-card action-card-danger" type="button" title="Cancel order"
+                                aria-label={`Cancel order ${t.orderId}`}
+                                onClick={() => setCancelTarget(t.orderId)}>
+                                <X size={18}/>
+                              </button>
+                            </div>
+                          : <span className="cell-dash">—</span>}
+                      </td>
+                    </tr>)
+                  : <tr><td colSpan={6}><div className="table-empty">
+                      {topupStatus === "loading"
+                        ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
+                        : topupStatus === "error"
+                          ? <><X size={19}/><strong>Could not load top-up history</strong></>
+                          : <><QrCode size={19}/><strong>No top-ups yet</strong><p>Add credits with QRIS and the order appears here.</p></>}
+                    </div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {(() => {
+            const totalPages = topupResult?.totalPages ?? 1;
+            const currentPage = topupResult?.page ?? 1;
+            const total = topupResult?.total ?? 0;
+            const start = total === 0 ? 0 : (currentPage - 1) * 10 + 1;
+            const end = Math.min(currentPage * 10, total);
+
+            return totalPages > 1 ? <div className="pagination">
+              <span className="pagination-summary">Showing {start}–{end} of {total}</span>
+              <div className="pagination-controls">
+                <button type="button" className="icon-button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setTopupPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+                {pageWindow(currentPage, totalPages).map((n, i) => n === "gap"
+                  ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
+                  : <button key={n} type="button" className={`page-number ${n === currentPage ? "page-current" : ""}`} aria-current={n === currentPage ? "page" : undefined} onClick={() => setTopupPage(n)}>{n}</button>)}
+                <button type="button" className="icon-button" aria-label="Next page" disabled={currentPage === totalPages} onClick={() => setTopupPage(p => Math.min(totalPages, p + 1))}><ChevronRight size={15}/></button>
+              </div>
+            </div> : null;
+          })()}
+        </>;
+      })()}
       <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires about an hour after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
     </section>
 
@@ -451,8 +507,8 @@ export default function CreditsPage() {
     <TopupDialog
       open={topupOpen}
       onClose={() => { setTopupOpen(false); setResumedTopup(null); }}
-      onSettled={() => { void load(); void loadTopups(); }}
-      onCanceled={() => { void loadTopups(); }}
+      onSettled={() => { void load(); setTopupRefreshKey(k => k + 1); }}
+      onCanceled={() => { setTopupRefreshKey(k => k + 1); }}
       balance={balance}
       resumeTopup={resumedTopup}
     />
@@ -474,6 +530,17 @@ export default function CreditsPage() {
         <AlertTriangle size={14}/>
         <span>Canceling this order while a payment is in progress may result in a race condition where your credits are not credited. Only cancel if you are sure you have not paid.</span>
       </div>
+    </Modal>
+
+    {/* Cancel reason popup — shown when user clicks a CANCELED status in the history table. */}
+    <Modal
+      open={cancelReason !== null}
+      onClose={() => setCancelReason(null)}
+      title="Order canceled"
+      subtitle={cancelReason?.orderId ?? ""}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setCancelReason(null)}>Close</button>}
+    >
+      {cancelReason && <p style={{ margin: 0 }}>{cancelReason.reason}</p>}
     </Modal>
   </div>;
 }
