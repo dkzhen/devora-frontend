@@ -423,7 +423,7 @@ export default function CreditsPage() {
                         {t.status === "canceled"
                           ? <button type="button" style={{ cursor: "pointer", border: "none", background: "transparent", color: "#7a2320", fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px" }} title="View cancel reason" onClick={() => setCancelReason({ orderId: t.orderId, reason: t.expired ? "The QR code expired before payment was received." : "The order was canceled." })}>{TOPUP_STATUS[t.status].label}</button>
                           : <span style={{ fontWeight: 700, fontSize: "11px", letterSpacing: "0.5px", color: t.status === "completed" ? "#12b3a4" : "#b8860b" }}>{TOPUP_STATUS[t.status].label}</span>}
-                        {t.status === "pending" && <Countdown2 expiresAt={t.expiresAt}/>}
+                        {t.status === "pending" && false && <Countdown2 expiresAt={t.expiresAt}/>}
                       </td>
                       <td>{formatWhen(t.createdAt)}</td>
                       <td className="cell-action">
