@@ -7,7 +7,7 @@ import { formatRupiah } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
 
-const TX_PAGE_SIZE = 20;
+const TX_PAGE_SIZE = 20; // used for subscriptions client-side pagination
 
 /**
  * Which page buttons to render: a window around the current page, plus the first and last.
@@ -54,6 +54,7 @@ export function AdminBillingSettingsPage() {
     topupStatus: string | null; isSandbox: boolean | null;
     createdAt: string; updatedAt: string;
   };
+  type Pagination = { page: number; limit: number; total: number; totalPages: number };
   type SubscriptionRow = {
     id: string; userId: string; email: string; packageId: string;
     packageName: string; tier: string; status: string;
@@ -62,6 +63,7 @@ export function AdminBillingSettingsPage() {
   };
   const [topups, setTopups] = useState<TransactionRow[] | null>(null);
   const [topupsStatus, setTopupsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [pagination, setPagination] = useState<Pagination | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
 
@@ -80,8 +82,8 @@ export function AdminBillingSettingsPage() {
   const [overriding, setOverriding] = useState(false);
   const [overrideError, setOverrideError] = useState("");
 
-  // Reset to page 1 when the search query changes.
-  useEffect(() => { setTopupPage(1); }, [topupSearch]);
+  // Reset to page 1 when the search query or filter changes.
+  useEffect(() => { setTopupPage(1); }, [topupSearch, topupFilter]);
   useEffect(() => { setSubPage(1); }, [subSearch]);
 
   const authHeaders = useCallback(async () => {
@@ -89,16 +91,23 @@ export function AdminBillingSettingsPage() {
     return { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" };
   }, [getToken]);
 
-  const loadTopups = useCallback(async () => {
+  const loadTopups = useCallback(async (opts?: { page?: number; search?: string; status?: string }) => {
     setTopupsStatus("loading");
+    const p = opts?.page ?? topupPage;
+    const s = opts?.search ?? topupSearch;
+    const f = opts?.status ?? topupFilter;
     try {
-      const res = await fetch("/backend/api/v1/admin/transactions", { headers: await authHeaders(), cache: "no-store" });
+      const params = new URLSearchParams({ page: String(p), limit: "20" });
+      if (s) params.set("search", s);
+      if (f !== "all") params.set("status", f);
+      const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, { headers: await authHeaders(), cache: "no-store" });
       if (!res.ok) { setTopupsStatus("error"); return; }
-      const data = await res.json() as { transactions?: TransactionRow[] };
+      const data = await res.json() as { transactions?: TransactionRow[]; pagination?: Pagination };
       setTopups(data.transactions ?? []);
+      setPagination(data.pagination ?? null);
       setTopupsStatus("ready");
     } catch { setTopupsStatus("error"); }
-  }, [authHeaders]);
+  }, [authHeaders, topupPage, topupSearch, topupFilter]);
 
   const loadSubscriptions = useCallback(async () => {
     setSubsStatus("loading");
@@ -129,7 +138,13 @@ export function AdminBillingSettingsPage() {
     } finally { setSweeping(false); }
   };
 
-  useEffect(() => { void loadTopups(); void loadSubscriptions(); }, [loadTopups, loadSubscriptions]);
+  // Debounced fetch on page/search/filter change (server-side pagination).
+  useEffect(() => {
+    const t = setTimeout(() => { void loadTopups(); }, 300);
+    return () => clearTimeout(t);
+  }, [topupPage, topupSearch, topupFilter]);
+
+  useEffect(() => { void loadSubscriptions(); }, [loadSubscriptions]);
 
   const doOverride = async () => {
     if (!overrideTarget) return;
@@ -183,27 +198,18 @@ export function AdminBillingSettingsPage() {
           const pending = topups.filter(t => t.status === "pending").length;
           const completed = topups.filter(t => t.status === "completed").length;
           const canceled = topups.filter(t => t.status === "canceled").length;
-          const totalIdr = topups.filter(t => t.status === "completed" && t.currency === "IDR").reduce((s, t) => s + Number(t.amountCurrency), 0);
           return <div className="usage-grid stats-grid">
-            <article className="usage-stat"><strong>{pending}</strong><small><span>Pending</span></small></article>
-            <article className="usage-stat"><strong>{completed}</strong><small><span>Completed</span></small></article>
-            <article className="usage-stat"><strong>{canceled}</strong><small><span>Canceled</span></small></article>
-            <article className="usage-stat"><strong>{formatCounter(totalIdr)}</strong><small><span>IDR volume (completed)</span></small></article>
+            <article className="usage-stat"><strong>{pending}</strong><small><span>Pending (page)</span></small></article>
+            <article className="usage-stat"><strong>{completed}</strong><small><span>Completed (page)</span></small></article>
+            <article className="usage-stat"><strong>{canceled}</strong><small><span>Canceled (page)</span></small></article>
+            <article className="usage-stat"><strong>{pagination?.total ?? 0}</strong><small><span>Total</span></small></article>
           </div>;
         })()}
 
         {(() => {
-          const q = topupSearch.trim().toLowerCase();
-          const filtered = (topupFilter === "all" ? topups : topups.filter(t => t.status === topupFilter)).filter(t =>
-            q === "" ||
-            t.email.toLowerCase().includes(q) ||
-            (t.gatewayOrderId ?? "").toLowerCase().includes(q) ||
-            t.status.toLowerCase().includes(q) ||
-            (t.kind ?? "").toLowerCase().includes(q) ||
-            t.currency.toLowerCase().includes(q));
-          const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
-          const page = Math.min(topupPage, pageCount);
-          const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
+          const rows = topups;
+          const pageCount = pagination?.totalPages ?? 1;
+          const page = pagination?.page ?? topupPage;
           return <>
             <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
               <Search size={14}/>
@@ -222,7 +228,7 @@ export function AdminBillingSettingsPage() {
               <table className="model-table">
                 <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CURRENCY</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
                 <tbody>
-                  {filtered.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
+                  {rows.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{topupSearch ? "No matches." : "No transactions yet."}</td></tr>}
                   {rows.map(t => <tr key={t.id}>
                     <td>{t.email}</td>
                     <td className="cell-num">{t.gatewayOrderId ?? "—"}</td>
@@ -248,8 +254,8 @@ export function AdminBillingSettingsPage() {
                 </tbody>
               </table>
             </div>
-            {filtered.length > TX_PAGE_SIZE && <div className="pagination">
-              <span className="pagination-summary">Showing {(page - 1) * TX_PAGE_SIZE + 1}–{Math.min(page * TX_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+            {pagination && pagination.total > 20 && <div className="pagination">
+              <span className="pagination-summary">Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, pagination.total)} of {pagination.total}</span>
               <div className="pagination-controls">
                 <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setTopupPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
                 {pageWindow(page, pageCount).map((n, i) => n === "gap"
