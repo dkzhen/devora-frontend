@@ -231,11 +231,12 @@ export function AdminBillingSettingsPage() {
     {/* Section 00: Credit transactions across all users. */}
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div>
-          <button className="button button-outline compact-button" type="button" onClick={() => setTxRefreshKey(k => k + 1)} disabled={txStatus === "loading"}>
-            <RefreshCw size={15}/> Refresh
-          </button>
-        </div>
+        <div><span className="section-index">00</span><div><h2>Credit transactions</h2><p>All top-up and plan purchase orders, newest first.</p></div></div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button className="button button-outline compact-button" type="button" onClick={() => setTxRefreshKey(k => k + 1)} disabled={txStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
       </div>
 
       {txStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load transactions.</span></div>}
