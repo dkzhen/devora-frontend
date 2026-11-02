@@ -15,17 +15,29 @@ const TX_PAGE_SIZE = 20;
  * Copied from the credits page so the admin transaction tables get the same pagination
  * behaviour — first and last always reachable, middle collapses to a gap.
  */
-function pageWindow(current: number, total: number, span = 1): (number | "gap")[] {
-  if (total <= span * 2 + 5) return Array.from({ length: total }, (_, i) => i + 1);
+/**
+ * Show up to 5 page numbers around the current page.
+ * - Near the start: 1 2 3 4 5 ...
+ * - In the middle: ... 3 4 5 6 7 ...
+ * - Near the end: ... 4 5 6 7
+ * Total pages <= 5: show all, no gaps.
+ */
+function pageWindow(current: number, total: number): (number | "gap")[] {
+  if (total <= 5) return Array.from({ length: total }, (_, i) => i + 1);
 
-  const out: (number | "gap")[] = [1];
-  const from = Math.max(2, current - span);
-  const to = Math.min(total - 1, current + span);
+  const out: (number | "gap")[] = [];
+  const from = Math.max(1, Math.min(current - 2, total - 4));
+  const to = Math.min(total, from + 4);
 
-  if (from > 2) out.push("gap");
+  if (from > 1) {
+    out.push(1);
+    if (from > 2) out.push("gap");
+  }
   for (let n = from; n <= to; n++) out.push(n);
-  if (to < total - 1) out.push("gap");
-  out.push(total);
+  if (to < total) {
+    if (to < total - 1) out.push("gap");
+    out.push(total);
+  }
 
   return out;
 }
