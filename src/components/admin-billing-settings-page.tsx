@@ -148,9 +148,6 @@ export function AdminBillingSettingsPage() {
         <h1>Transactions</h1>
         <p>All credit top-ups, plan purchases, and payment history.</p>
       </div>
-      <button className="button button-outline compact-button" type="button" onClick={() => { void loadTopups(); void loadSubscriptions(); }} disabled={topupsStatus === "loading" || subsStatus === "loading"}>
-        <RefreshCw size={15}/> Refresh
-      </button>
     </div>
 
     {notice && <p className={notice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
