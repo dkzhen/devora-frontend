@@ -229,6 +229,8 @@ export function AdminPaymentPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">00</span><div><h2>Payment gateways</h2><p>Status and health of each payment gateway.</p></div></div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => { void loadMethods(); }} disabled={methodsStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
@@ -358,6 +360,8 @@ export function AdminPaymentPage() {
     <section className="console-section">
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Exchange rates</h2><p>Credits per unit of currency.</p></div></div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => void loadRates()} disabled={ratesStatus === "loading"}>
           <RefreshCw size={14}/> Refresh
         </button>
