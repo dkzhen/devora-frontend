@@ -284,7 +284,7 @@ export function AdminBillingSettingsPage() {
                     <td className="cell-num">{t.gatewayOrderId ?? "—"}</td>
                     <td>{t.currency}</td>
                     <td className="cell-num">{t.currency === "IDR" ? formatRupiah(Number(t.amountCurrency)) : formatCounter(Number(t.amountCurrency))}</td>
-                    <td className="cell-num">{formatCounter(Number(t.creditsAmount))}</td>
+                    <td className="cell-num">{t.kind === "plan_purchase" && t.currency === "IDR" ? "—" : formatCounter(Number(t.creditsAmount))}</td>
                     <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
                     <td>{t.kind ?? "—"}</td>
                     <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
