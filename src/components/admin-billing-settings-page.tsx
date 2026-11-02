@@ -34,11 +34,13 @@ export function AdminBillingSettingsPage() {
   const { getToken } = useAuth();
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
-  type TopupRow = {
-    orderId: string; userId: string; email: string; credits: string;
-    amountIdr: number; totalIdr: number; status: string; paymentMethod: string;
-    kind: string; pricingPlanId: string | null; isSandbox: boolean;
-    createdAt: string; completedAt: string | null;
+  type TransactionRow = {
+    id: string; userId: string; email: string; status: string;
+    currency: string; amountCurrency: string; creditsAmount: string;
+    pricingPlanId: string | null; gatewayOrderId: string | null;
+    gatewayTxnId: string | null; kind: string | null;
+    topupStatus: string | null; isSandbox: boolean | null;
+    createdAt: string; updatedAt: string;
   };
   type SubscriptionRow = {
     id: string; userId: string; email: string; packageId: string;
@@ -46,7 +48,7 @@ export function AdminBillingSettingsPage() {
     startedAt: string; expiresAt: string | null;
     tokensUsed: string; tokenCap: string | null;
   };
-  const [topups, setTopups] = useState<TopupRow[] | null>(null);
+  const [topups, setTopups] = useState<TransactionRow[] | null>(null);
   const [topupsStatus, setTopupsStatus] = useState<"loading" | "ready" | "error">("loading");
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
   const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -61,7 +63,7 @@ export function AdminBillingSettingsPage() {
   const [sweeping, setSweeping] = useState(false);
 
   // Order override modal (section 00): force-complete or cancel a pending order.
-  const [overrideTarget, setOverrideTarget] = useState<TopupRow | null>(null);
+  const [overrideTarget, setOverrideTarget] = useState<TransactionRow | null>(null);
   const [overrideStatus, setOverrideStatus] = useState<"completed" | "canceled">("completed");
   const [overriding, setOverriding] = useState(false);
   const [overrideError, setOverrideError] = useState("");
@@ -78,10 +80,10 @@ export function AdminBillingSettingsPage() {
   const loadTopups = useCallback(async () => {
     setTopupsStatus("loading");
     try {
-      const res = await fetch("/backend/api/v1/admin/topups", { headers: await authHeaders(), cache: "no-store" });
+      const res = await fetch("/backend/api/v1/admin/transactions", { headers: await authHeaders(), cache: "no-store" });
       if (!res.ok) { setTopupsStatus("error"); return; }
-      const data = await res.json() as { topups?: TopupRow[] };
-      setTopups(data.topups ?? []);
+      const data = await res.json() as { transactions?: TransactionRow[] };
+      setTopups(data.transactions ?? []);
       setTopupsStatus("ready");
     } catch { setTopupsStatus("error"); }
   }, [authHeaders]);
@@ -122,7 +124,7 @@ export function AdminBillingSettingsPage() {
     setOverriding(true);
     setOverrideError("");
     try {
-      const res = await fetch(`/backend/api/v1/admin/topups/${overrideTarget.orderId}/override`, {
+      const res = await fetch(`/backend/api/v1/admin/topups/${overrideTarget.gatewayOrderId}/override`, {
         method: "POST",
         headers: await authHeaders(),
         body: JSON.stringify({ status: overrideStatus }),
@@ -172,7 +174,7 @@ export function AdminBillingSettingsPage() {
           const pending = topups.filter(t => t.status === "pending").length;
           const completed = topups.filter(t => t.status === "completed").length;
           const canceled = topups.filter(t => t.status === "canceled").length;
-          const totalIdr = topups.filter(t => t.status === "completed").reduce((s, t) => s + t.totalIdr, 0);
+          const totalIdr = topups.filter(t => t.status === "completed" && t.currency === "IDR").reduce((s, t) => s + Number(t.amountCurrency), 0);
           return <div className="usage-grid stats-grid">
             <article className="usage-stat"><strong>{pending}</strong><small><span>Pending</span></small></article>
             <article className="usage-stat"><strong>{completed}</strong><small><span>Completed</span></small></article>
@@ -186,9 +188,10 @@ export function AdminBillingSettingsPage() {
           const filtered = (topupFilter === "all" ? topups : topups.filter(t => t.status === topupFilter)).filter(t =>
             q === "" ||
             t.email.toLowerCase().includes(q) ||
-            t.orderId.toLowerCase().includes(q) ||
+            (t.gatewayOrderId ?? "").toLowerCase().includes(q) ||
             t.status.toLowerCase().includes(q) ||
-            t.kind.toLowerCase().includes(q));
+            (t.kind ?? "").toLowerCase().includes(q) ||
+            t.currency.toLowerCase().includes(q));
           const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
           const page = Math.min(topupPage, pageCount);
           const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
@@ -208,26 +211,29 @@ export function AdminBillingSettingsPage() {
             </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CURRENCY</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
                 <tbody>
-                  {filtered.length === 0 && <tr><td colSpan={8} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
-                  {rows.map(t => <tr key={t.orderId}>
+                  {filtered.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No transactions yet."}</td></tr>}
+                  {rows.map(t => <tr key={t.id}>
                     <td>{t.email}</td>
-                    <td className="cell-num">{t.orderId}</td>
-                    <td className="cell-num">{formatCounter(Number(t.credits))}</td>
-                    <td className="cell-num">{formatRupiah(t.amountIdr)}</td>
+                    <td className="cell-num">{t.gatewayOrderId ?? "—"}</td>
+                    <td>{t.currency}</td>
+                    <td className="cell-num">{t.currency === "IDR" ? formatRupiah(Number(t.amountCurrency)) : formatCounter(Number(t.amountCurrency))}</td>
+                    <td className="cell-num">{formatCounter(Number(t.creditsAmount))}</td>
                     <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
-                    <td>{t.kind}</td>
+                    <td>{t.kind ?? "—"}</td>
                     <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
                     <td>
-                      <button
-                        className="button button-outline compact-button"
-                        type="button"
-                        title="Override order status"
-                        onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
-                      >
-                        <Settings size={14}/>
-                      </button>
+                      {t.gatewayOrderId && (
+                        <button
+                          className="button button-outline compact-button"
+                          type="button"
+                          title="Override order status"
+                          onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
+                        >
+                          <Settings size={14}/>
+                        </button>
+                      )}
                     </td>
                   </tr>)}
                 </tbody>
@@ -354,12 +360,12 @@ export function AdminBillingSettingsPage() {
         <div className="model-table-wrap">
           <table className="model-table">
             <tbody>
-              <tr><td><strong>Order ID</strong></td><td className="cell-num">{overrideTarget.orderId}</td></tr>
+              <tr><td><strong>Order ID</strong></td><td className="cell-num">{overrideTarget.gatewayOrderId ?? "—"}</td></tr>
               <tr><td><strong>User email</strong></td><td>{overrideTarget.email}</td></tr>
               <tr><td><strong>Current status</strong></td><td><span className={`status-pill status-${overrideTarget.status}`}>{overrideTarget.status}</span></td></tr>
-              <tr><td><strong>Kind</strong></td><td>{overrideTarget.kind}</td></tr>
-              <tr><td><strong>Amount</strong></td><td className="cell-num">{formatRupiah(overrideTarget.amountIdr)}</td></tr>
-              <tr><td><strong>Credits</strong></td><td className="cell-num">{formatCounter(Number(overrideTarget.credits))}</td></tr>
+              <tr><td><strong>Kind</strong></td><td>{overrideTarget.kind ?? "—"}</td></tr>
+              <tr><td><strong>Amount</strong></td><td className="cell-num">{overrideTarget.currency === "IDR" ? formatRupiah(Number(overrideTarget.amountCurrency)) : formatCounter(Number(overrideTarget.amountCurrency))}</td></tr>
+              <tr><td><strong>Credits</strong></td><td className="cell-num">{formatCounter(Number(overrideTarget.creditsAmount))}</td></tr>
             </tbody>
           </table>
         </div>
