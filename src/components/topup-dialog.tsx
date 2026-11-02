@@ -46,7 +46,8 @@ type PaymentMethod = {
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
-const MIN_TOPUP = 1_000;
+const MIN_TOPUP = 5_000;
+const MIN_TOPUP_SUPERUSER = 1_000;
 const PRESETS = [5_000, 10_000, 25_000, 50_000, 100_000];
 const SUPERUSER_PRESETS = [1_000, ...PRESETS];
 
@@ -151,6 +152,7 @@ export function TopupDialog({
    * showed the QR and a "waiting for payment" line for something already paid.
    */
   const settled = topup?.status === "completed";
+  const minTopup = isSuperuser ? MIN_TOPUP_SUPERUSER : MIN_TOPUP;
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -256,7 +258,7 @@ export function TopupDialog({
   const create = async () => {
     setError("");
     const n = Number(credits);
-    if (!Number.isFinite(n) || n < MIN_TOPUP) { setError(`Minimum top-up is ${MIN_TOPUP.toLocaleString()} credits.`); return; }
+    if (!Number.isFinite(n) || n < minTopup) { setError(`Minimum top-up is ${minTopup.toLocaleString()} credits.`); return; }
     if (!selectedMethodId) { setError("Please select a payment method."); return; }
     setCreating(true);
     try {
@@ -464,7 +466,7 @@ export function TopupDialog({
           : topup === null
             ? <>
                 <button className="button button-outline compact-button" type="button" onClick={handleClose} disabled={creating}>Cancel</button>
-                <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || !selectedMethodId}>
+                <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < minTopup || !selectedMethodId}>
                   {creating ? <><Loader2 size={15} className="row-spinner"/> Processing…</> : <>Buy <Coins size={15}/></>}
                 </button>
               </>
@@ -474,15 +476,15 @@ export function TopupDialog({
                 ? <button className="button button-ink compact-button" type="button" onClick={handleClose}>Close</button>
                 : <>
                     <button className="button button-outline" type="button" onClick={handleClose}>Close</button>
-                    <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < MIN_TOPUP || !selectedMethodId}>
+                    <button className="button button-ink compact-button" type="button" onClick={() => void create()} disabled={creating || Number(credits) < minTopup || !selectedMethodId}>
                       {creating ? <><Loader2 size={15} className="row-spinner"/> Creating…</> : <>Create QR</>}
                     </button>
                   </>
         }
     >
     {error && <p className="voucher-message voucher-error" role="alert"><X size={14}/>{error}</p>}
-    {!settled && topup === null && Number(credits) < MIN_TOPUP && (
-      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {MIN_TOPUP.toLocaleString()} credits.</p>
+    {!settled && topup === null && Number(credits) < minTopup && (
+      <p className="voucher-message voucher-error"><AlertTriangle size={14}/> Minimum top-up is {minTopup.toLocaleString()} credits.</p>
     )}
 
     {settled && topup && <div className="topup-settled">
@@ -509,14 +511,14 @@ export function TopupDialog({
         </div>
         <label className="admin-field">
           <span>Credits</span>
-          <input value={credits} type="number" min={MIN_TOPUP} step="1" placeholder="25000"
+          <input value={credits} type="number" min={minTopup} step="1" placeholder="25000"
             onChange={e => setCredits(e.target.value)} />
         </label>
         {/* Raw digits above, the reading below — the same rule the admin forms follow. */}
         <p className="admin-scale-note" aria-live="polite">
-          {Number(credits) >= MIN_TOPUP
+          {Number(credits) >= minTopup
             ? <><strong>{formatRupiah(Math.round(Number(credits)))}</strong> plus the QRIS fee, paid by you</>
-            : <><strong>—</strong> Minimum is {MIN_TOPUP.toLocaleString()} credits.</>}
+            : <><strong>—</strong> Minimum is {minTopup.toLocaleString()} credits.</>}
         </p>
       </div>
 
