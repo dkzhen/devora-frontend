@@ -1161,7 +1161,18 @@ export default function BillingPage() {
                           className="cell-num"
                           style={{ cursor: "pointer", userSelect: "all" }}
                           title="Click to copy"
-                          onClick={() => { void navigator.clipboard.writeText(t.orderId); }}
+                          onClick={() => {
+                            const text = t.orderId;
+                            if (navigator.clipboard?.writeText) {
+                              void navigator.clipboard.writeText(text);
+                            } else {
+                              const ta = document.createElement("textarea");
+                              ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+                              document.body.appendChild(ta); ta.select();
+                              try { document.execCommand("copy"); } catch {}
+                              document.body.removeChild(ta);
+                            }
+                          }}
                         >{t.orderId}</code>
                       </td>
                       <td className="cell-num">
