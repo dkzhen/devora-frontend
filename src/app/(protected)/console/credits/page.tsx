@@ -29,6 +29,9 @@ type Entry = {
   ref: string;
 };
 
+type LedgerResult = { data: Entry[]; total: number; totalPages: number; page: number };
+type Pagination = { page: number; limit: number; total: number; totalPages: number };
+
 type Status = "loading" | "ready" | "error";
 
 /**
@@ -68,8 +71,6 @@ const TOPUP_STATUS: Record<TopupRow["status"], { label: string; tone: string }> 
   pending: { label: "AWAITING PAYMENT", tone: "topup-tag-wait" },
   canceled: { label: "CANCELED", tone: "topup-tag-off" },
 };
-
-const PAGE_SIZE = 20;
 
 /**
  * Which page buttons to render: a window around the current page, plus the first and last.
@@ -122,16 +123,6 @@ function titleForKind(kind: string): string {
 }
 
 /**
- * A ledger reference, rendered so it can be read aloud and copied exactly.
- *
- * Monospace and selectable by default — the whole point of the id is that it survives being
- * quoted in a ticket, which uppercase-only or truncated styling defeats.
- */
-function RefChip({ value }: { value: string }) {
-  return <code className="ref-chip" title={`Reference ${value}`}>{value}</code>;
-}
-
-/**
  * Time left on a pending order, read from the row's own expiry.
  *
  * The same "one clock" rule the stats feed follows: this ticks against `Date.now()` locally and
@@ -159,15 +150,15 @@ function Countdown2({ expiresAt }: { expiresAt: string | null }) {
 export default function CreditsPage() {
   const { getToken } = useAuth();
   const [balance, setBalance] = useState("0");
-  const [activity, setActivity] = useState<Entry[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
-  /** Rows on the server, which may exceed what was fetched. Paging is sized from this. */
-  const [total, setTotal] = useState(0);
+  const [ledgerResult, setLedgerResult] = useState<LedgerResult | null>(null);
+  const [ledgerStatus, setLedgerStatus] = useState<Status>("loading");
+  const [ledgerError, setLedgerError] = useState("");
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   const [topupOpen, setTopupOpen] = useState(false);
   type TopupResult = { data: TopupRow[]; total: number; totalPages: number; page: number };
-  type Pagination = { page: number; limit: number; total: number; totalPages: number };
   const [topupResult, setTopupResult] = useState<TopupResult | null>(null);
   const [topupStatus, setTopupStatus] = useState<Status>("loading");
   const [topupPage, setTopupPage] = useState(1);
@@ -187,37 +178,13 @@ export default function CreditsPage() {
     setStatus("loading");
     try {
       const token = await getToken();
-      const res = await fetch("/backend/api/v1/users/me?limit=1000", {
+      const res = await fetch("/backend/api/v1/users/me", {
         headers: { Authorization: `Bearer ${token ?? ""}` },
         cache: "no-store",
       });
       if (!res.ok) { setError("Could not load your balance."); setStatus("error"); return; }
-      const data = await res.json() as {
-        user?: { credits?: unknown };
-        ledger?: {
-          id: string; deltaCredits: string; balanceAfter: string;
-          kind: string; ref: string; detail: string; reference: string | null; createdAt: string;
-        }[];
-        /** The account's true ledger size, independent of how many rows were returned. */
-        ledgerTotal?: number;
-      };
+      const data = await res.json() as { user?: { credits?: unknown } };
       setBalance(typeof data.user?.credits === "string" ? data.user.credits : "0");
-      // Built from `credit_ledger`, which records every movement on the account in order.
-      // An empty list here means the account has genuinely not moved, not that the data is
-      // missing — the previous version hardcoded an empty array with that ambiguity.
-      const entries = Array.isArray(data.ledger) ? data.ledger : [];
-      setActivity(entries.map(e => ({
-        id: e.id,
-        title: titleForKind(e.kind),
-        detail: e.detail,
-        date: e.createdAt,
-        amount: e.deltaCredits,
-        balanceAfter: e.balanceAfter,
-        kind: e.kind,
-        ref: e.ref,
-      })));
-      setPage(1);
-      setTotal(typeof data.ledgerTotal === "number" ? data.ledgerTotal : entries.length);
       setStatus("ready");
     } catch {
       setError("Could not reach the gateway.");
@@ -226,6 +193,59 @@ export default function CreditsPage() {
   }, [getToken]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /**
+   * Credit activity — server-side paginated from /api/v1/ledger.
+   *
+   * Separate from the balance fetch: an unreachable ledger must not blank the
+   * balance, and the two have different refresh cycles.
+   */
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadLedger() {
+      setLedgerStatus("loading");
+      const params = new URLSearchParams({ page: String(ledgerPage), limit: "10" });
+
+      try {
+        const token = await getToken();
+        const res = await fetch(`/backend/api/v1/ledger?${params}`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          if (!controller.signal.aborted) setLedgerStatus("error");
+          return;
+        }
+        const data = await res.json() as { entries?: { id: string; deltaCredits: string; balanceAfter: string; kind: string; ref: string; detail: string; reference: string | null; createdAt: string }[]; pagination?: Pagination };
+        if (!controller.signal.aborted) {
+          setLedgerResult({
+            data: (data.entries ?? []).map(e => ({
+              id: e.id,
+              title: titleForKind(e.kind),
+              detail: e.detail,
+              date: e.createdAt,
+              amount: e.deltaCredits,
+              balanceAfter: e.balanceAfter,
+              kind: e.kind,
+              ref: e.ref,
+            })),
+            total: data.pagination?.total ?? 0,
+            totalPages: data.pagination?.totalPages ?? 1,
+            page: data.pagination?.page ?? ledgerPage,
+          });
+          setLedgerStatus("ready");
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) setLedgerStatus("error");
+      }
+    }
+
+    void loadLedger();
+    return () => controller.abort();
+  }, [ledgerPage, getToken, ledgerRefreshKey]);
 
   /**
    * Top-up history, read separately from the ledger with server-side pagination.
@@ -328,11 +348,6 @@ export default function CreditsPage() {
       setCancelingId(null);
     }
   }, [getToken]);
-
-  // Sized from the server's count, not from the fetched slice: if a page is ever short
-  // (a lower limit, or a growing ledger), the last pages must still be reachable.
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const rows = activity.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return <div className="page-stack">
     <div className="page-heading"><div><div className="eyebrow small-eyebrow"><Wallet size={14}/> MAIN / CREDITS</div><h1>Credits</h1><p>Track the balance you use across Devora services.</p></div></div>
@@ -461,45 +476,77 @@ export default function CreditsPage() {
       <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires about an hour after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
     </section>
 
+    {/* Section 02: Credit activity — every credit movement, server-side paginated. */}
     <section className="console-section activity-section">
-      <div className="section-title-row"><div><span className="section-index">02</span><div><h2>Credit activity</h2><p>Every credit movement on your account.</p></div></div></div>
-      <div className="model-table-wrap">
-        <table className="model-table credit-table">
-          <thead><tr><th>DATE</th><th>ACTIVITY</th><th>REFERENCE</th><th>DETAIL</th><th>AMOUNT</th></tr></thead>
-          <tbody>
-            {rows.length > 0
-              ? rows.map(row => <tr key={row.id}>
-                  <td>{formatWhen(row.date)}</td>
-                  <td className="cell-activity"><span className={`model-dot ${Number(row.amount) > 0 ? "mint-dot" : "coral-dot"}`}/><strong>{row.title}</strong></td>
-                  <td><RefChip value={row.ref}/></td>
-                  <td>{row.detail}<small className="ledger-after">balance {formatCredits(row.balanceAfter)}</small></td>
-                  <td className={`credit-amount ${Number(row.amount) > 0 ? "credit-positive" : ""}`}>{formatCharge(row.amount)}</td>
-                </tr>)
-              : <tr><td colSpan={5}><div className="table-empty">
-                  {status === "loading"
-                    ? <><Loader2 size={19} className="row-spinner"/><strong>Loading activity…</strong><p>Reading your ledger.</p></>
-                    : <><Activity size={19}/><strong>No credit activity yet</strong><p>AI Gateway charges will appear here once requests are billed.</p></>}
-                </div></td></tr>}
-          </tbody>
-        </table>
+      <div className="section-title-row">
+        <div><span className="section-index">02</span><div><h2>Credit activity</h2><p>Every credit movement on your account.</p></div></div>
       </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
+        <button className="button button-outline compact-button" type="button" onClick={() => setLedgerRefreshKey(k => k + 1)} disabled={ledgerStatus === "loading"}>
+          <RefreshCw size={15}/> Refresh
+        </button>
+      </div>
+      {(() => {
+        const rows = ledgerResult?.data ?? [];
+        const total = ledgerResult?.total ?? 0;
+        const totalPages = ledgerResult?.totalPages ?? 1;
+        const currentPage = ledgerResult?.page ?? 1;
+        const start = total === 0 ? 0 : (currentPage - 1) * 10 + 1;
+        const end = Math.min(currentPage * 10, total);
 
-      {total > PAGE_SIZE && <div className="pagination">
-        <span className="pagination-summary">Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</span>
-        <div className="pagination-controls">
-          <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
-          {/* A window, not every page. The ledger grows without bound, and rendering one
-              button per page put 27 of them in a row — 1010px of controls on a 390px screen,
-              which pushed the layout 723px past the viewport. First and last are always
-              reachable; the middle collapses to a gap. */}
-          {pageWindow(page, pageCount).map((n, i) => n === "gap"
-            ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
-            : <button key={n} type="button" className={`page-number ${n === page ? "page-current" : ""}`} aria-current={n === page ? "page" : undefined} onClick={() => setPage(n)}>{n}</button>)}
-          <button type="button" className="icon-button" aria-label="Next page" disabled={page === pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}><ChevronRight size={15}/></button>
-        </div>
-      </div>}
+        return <>
+          <div className="model-table-wrap">
+            <table className="model-table credit-table">
+              <thead><tr><th>DATE</th><th>ACTIVITY</th><th>REFERENCE</th><th>DETAIL</th><th>AMOUNT</th></tr></thead>
+              <tbody>
+                {rows.length > 0
+                  ? rows.map(row => <tr key={row.id}>
+                      <td>{formatWhen(row.date)}</td>
+                      <td className="cell-activity"><span className={`model-dot ${Number(row.amount) > 0 ? "mint-dot" : "coral-dot"}`}/><strong>{row.title}</strong></td>
+                      <td>
+                        <code className="cell-num" style={{ cursor: "pointer", userSelect: "all" }} title="Click to copy"
+                          onClick={() => {
+                            const text = row.ref;
+                            if (navigator.clipboard?.writeText) {
+                              void navigator.clipboard.writeText(text);
+                            } else {
+                              const ta = document.createElement("textarea");
+                              ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+                              document.body.appendChild(ta); ta.select();
+                              try { document.execCommand("copy"); } catch {}
+                              document.body.removeChild(ta);
+                            }
+                          }}
+                        >{row.ref}</code>
+                      </td>
+                      <td>{row.detail}<small className="ledger-after">balance {formatCredits(row.balanceAfter)}</small></td>
+                      <td className={`credit-amount ${Number(row.amount) > 0 ? "credit-positive" : ""}`}>{formatCharge(row.amount)}</td>
+                    </tr>)
+                  : <tr><td colSpan={5}><div className="table-empty">
+                      {ledgerStatus === "loading"
+                        ? <><Loader2 size={19} className="row-spinner"/><strong>Loading activity…</strong><p>Reading your ledger.</p></>
+                        : ledgerStatus === "error"
+                          ? <><X size={19}/><strong>Could not load activity</strong></>
+                          : <><Activity size={19}/><strong>No credit activity yet</strong><p>AI Gateway charges will appear here once requests are billed.</p></>}
+                    </div></td></tr>}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="table-note"><AlertTriangle size={14}/> Charges are sub-credit for most requests, so amounts are shown to six decimals.</div>
+          {totalPages > 1 && <div className="pagination">
+            <span className="pagination-summary">Showing {start}–{end} of {total}</span>
+            <div className="pagination-controls">
+              <button type="button" className="icon-button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setLedgerPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+              {pageWindow(currentPage, totalPages).map((n, i) => n === "gap"
+                ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
+                : <button key={n} type="button" className={`page-number ${n === currentPage ? "page-current" : ""}`} aria-current={n === currentPage ? "page" : undefined} onClick={() => setLedgerPage(n)}>{n}</button>)}
+              <button type="button" className="icon-button" aria-label="Next page" disabled={currentPage === totalPages} onClick={() => setLedgerPage(p => Math.min(totalPages, p + 1))}><ChevronRight size={15}/></button>
+            </div>
+          </div>}
+
+          <div className="table-note"><AlertTriangle size={14}/> Charges are sub-credit for most requests, so amounts are shown to six decimals.</div>
+        </>;
+      })()}
     </section>
 
     {/* Paying for credits. The dialog prices the order server-side and polls the gateway for
@@ -507,7 +554,7 @@ export default function CreditsPage() {
     <TopupDialog
       open={topupOpen}
       onClose={() => { setTopupOpen(false); setResumedTopup(null); }}
-      onSettled={() => { void load(); setTopupRefreshKey(k => k + 1); }}
+      onSettled={() => { void load(); setTopupRefreshKey(k => k + 1); setLedgerRefreshKey(k => k + 1); }}
       onCanceled={() => { setTopupRefreshKey(k => k + 1); }}
       balance={balance}
       resumeTopup={resumedTopup}
