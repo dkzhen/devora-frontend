@@ -7,8 +7,6 @@ import { formatRupiah } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
 
-const TX_PAGE_SIZE = 20; // used for subscriptions client-side pagination
-
 /**
  * Which page buttons to render: a window around the current page, plus the first and last.
  *
@@ -61,11 +59,13 @@ export function AdminBillingSettingsPage() {
     tokensUsed: string; tokenCap: string | null;
   };
   type TxResult = { data: TransactionRow[]; total: number; totalPages: number; page: number };
+  type SubResult = { data: SubscriptionRow[]; total: number; totalPages: number; page: number };
   const [txResult, setTxResult] = useState<TxResult | null>(null);
   const [txStatus, setTxStatus] = useState<"loading" | "ready" | "error">("loading");
   const [txRefreshKey, setTxRefreshKey] = useState(0);
-  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[] | null>(null);
-  const [subsStatus, setSubsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [subResult, setSubResult] = useState<SubResult | null>(null);
+  const [subStatus, setSubStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [subRefreshKey, setSubRefreshKey] = useState(0);
 
   // Search + pagination state for the topups table (section 00) and subscriptions table (section 01).
   const [topupSearch, setTopupSearch] = useState("");
@@ -84,7 +84,7 @@ export function AdminBillingSettingsPage() {
 
   // Reset to page 1 when the search query or filter changes.
   useEffect(() => { setTopupPage(1); }, [topupSearch, topupFilter]);
-  useEffect(() => { setSubPage(1); }, [subSearch]);
+  useEffect(() => { setSubPage(1); }, [subSearch, subFilter]);
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -133,16 +133,47 @@ export function AdminBillingSettingsPage() {
     return () => controller.abort();
   }, [topupPage, topupSearch, topupFilter, authHeaders, txRefreshKey]);
 
-  const loadSubscriptions = useCallback(async () => {
-    setSubsStatus("loading");
-    try {
-      const res = await fetch("/backend/api/v1/admin/subscriptions", { headers: await authHeaders(), cache: "no-store" });
-      if (!res.ok) { setSubsStatus("error"); return; }
-      const data = await res.json() as { subscriptions?: SubscriptionRow[] };
-      setSubscriptions(data.subscriptions ?? []);
-      setSubsStatus("ready");
-    } catch { setSubsStatus("error"); }
-  }, [authHeaders]);
+  // Single fetch effect for subscriptions (Section 01).
+  // The effect owns the AbortController — cleanup aborts the in-flight request.
+  // subResult is committed atomically: data + total + page always come from the same response.
+  // authHeaders is stable (useCallback with [getToken] dep), so it won't cause re-fetches.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function load() {
+      setSubStatus("loading");
+
+      const params = new URLSearchParams({ page: String(subPage), limit: "20" });
+      if (subSearch) params.set("search", subSearch);
+      if (subFilter !== "all") params.set("status", subFilter);
+
+      try {
+        const res = await fetch(`/backend/api/v1/admin/subscriptions?${params}`, {
+          headers: await authHeaders(), cache: "no-store", signal: controller.signal,
+        });
+        if (!res.ok) {
+          if (!controller.signal.aborted) setSubStatus("error");
+          return;
+        }
+        const data = await res.json() as { subscriptions?: SubscriptionRow[]; pagination?: { total: number; totalPages: number; page: number } };
+        if (!controller.signal.aborted) {
+          setSubResult({
+            data: data.subscriptions ?? [],
+            total: data.pagination?.total ?? 0,
+            totalPages: data.pagination?.totalPages ?? 1,
+            page: data.pagination?.page ?? subPage,
+          });
+          setSubStatus("ready");
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (!controller.signal.aborted) setSubStatus("error");
+      }
+    }
+
+    void load();
+    return () => controller.abort();
+  }, [subPage, subSearch, subFilter, authHeaders, subRefreshKey]);
 
   const doSweep = async () => {
     setSweeping(true);
@@ -156,13 +187,11 @@ export function AdminBillingSettingsPage() {
       }
       const data = await res.json() as { expired?: number; planReset?: boolean };
       setNotice({ kind: "ok", text: `Swept ${data.expired ?? 0} lapsed subscriptions${data.planReset ? " — plan tiers reset" : ""}.` });
-      void loadSubscriptions();
+      setSubRefreshKey(k => k + 1);
     } catch {
       setNotice({ kind: "error", text: "Could not reach the server." });
     } finally { setSweeping(false); }
   };
-
-  useEffect(() => { void loadSubscriptions(); }, [loadSubscriptions]);
 
   const doOverride = async () => {
     if (!overrideTarget) return;
@@ -300,38 +329,37 @@ export function AdminBillingSettingsPage() {
           <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
             {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
           </button>
-          <button className="button button-outline compact-button" type="button" onClick={() => void loadSubscriptions()} disabled={subsStatus === "loading"}>
+          <button className="button button-outline compact-button" type="button" onClick={() => setSubRefreshKey(k => k + 1)} disabled={subStatus === "loading"}>
             <RefreshCw size={15}/> Refresh
           </button>
         </div>
       </div>
 
-      {subsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading subscriptions…</span></div>}
-      {subsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load subscriptions.</span></div>}
+      {subStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load subscriptions.</span></div>}
 
-      {subsStatus === "ready" && subscriptions && <>
+      {(subStatus === "loading" || subStatus === "ready") && <>
         {(() => {
-          const active = subscriptions.filter(s => s.status === "active").length;
-          const expired = subscriptions.filter(s => s.status === "expired").length;
-          const cancelled = subscriptions.filter(s => s.status === "cancelled").length;
+          const rows = subResult?.data ?? [];
+          const active = rows.filter(s => s.status === "active").length;
+          const expired = rows.filter(s => s.status === "expired").length;
+          const cancelled = rows.filter(s => s.status === "cancelled").length;
           return <div className="usage-grid stats-grid">
-            <article className="usage-stat"><strong>{active}</strong><small><span>Active</span></small></article>
-            <article className="usage-stat"><strong>{expired}</strong><small><span>Expired</span></small></article>
-            <article className="usage-stat"><strong>{cancelled}</strong><small><span>Cancelled</span></small></article>
+            <article className="usage-stat"><strong>{active}</strong><small><span>Active (page)</span></small></article>
+            <article className="usage-stat"><strong>{expired}</strong><small><span>Expired (page)</span></small></article>
+            <article className="usage-stat"><strong>{cancelled}</strong><small><span>Cancelled (page)</span></small></article>
+            <article className="usage-stat"><strong>{subResult?.total ?? 0}</strong><small><span>Total</span></small></article>
           </div>;
         })()}
 
         {(() => {
-          const q = subSearch.trim().toLowerCase();
-          const filtered = (subFilter === "all" ? subscriptions : subscriptions.filter(s => s.status === subFilter)).filter(s =>
-            q === "" ||
-            s.email.toLowerCase().includes(q) ||
-            s.packageName.toLowerCase().includes(q) ||
-            s.tier.toLowerCase().includes(q) ||
-            s.status.toLowerCase().includes(q));
-          const pageCount = Math.max(1, Math.ceil(filtered.length / TX_PAGE_SIZE));
-          const page = Math.min(subPage, pageCount);
-          const rows = filtered.slice((page - 1) * TX_PAGE_SIZE, page * TX_PAGE_SIZE);
+          const rows = subResult?.data ?? [];
+          const total = subResult?.total ?? 0;
+          const totalPages = subResult?.totalPages ?? 1;
+          // currentPage comes from the committed response, NOT subPage (optimistic local state).
+          // This ensures the page label and range are always consistent with the displayed rows.
+          const currentPage = subResult?.page ?? 1;
+          const start = total === 0 ? 0 : (currentPage - 1) * 20 + 1;
+          const end = Math.min(currentPage * 20, total);
           return <>
             <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
               <Search size={14}/>
@@ -350,7 +378,7 @@ export function AdminBillingSettingsPage() {
               <table className="model-table">
                 <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>PACKAGE</th><th style={{ whiteSpace: "nowrap" }}>TIER</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>STARTED</th><th style={{ whiteSpace: "nowrap" }}>EXPIRES</th><th style={{ whiteSpace: "nowrap" }}>TOKENS USED</th></tr></thead>
                 <tbody>
-                  {filtered.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{q ? "No matches." : "No subscriptions yet."}</td></tr>}
+                  {rows.length === 0 && <tr><td colSpan={7} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{subSearch ? "No matches." : "No subscriptions yet."}</td></tr>}
                   {rows.map(s => <tr key={s.id}>
                     <td>{s.email}</td>
                     <td>{s.packageName}</td>
@@ -363,14 +391,14 @@ export function AdminBillingSettingsPage() {
                 </tbody>
               </table>
             </div>
-            {filtered.length > TX_PAGE_SIZE && <div className="pagination">
-              <span className="pagination-summary">Showing {(page - 1) * TX_PAGE_SIZE + 1}–{Math.min(page * TX_PAGE_SIZE, filtered.length)} of {filtered.length}</span>
+            {totalPages > 1 && <div className="pagination">
+              <span className="pagination-summary">Showing {start}–{end} of {total}</span>
               <div className="pagination-controls">
-                <button type="button" className="icon-button" aria-label="Previous page" disabled={page === 1} onClick={() => setSubPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
-                {pageWindow(page, pageCount).map((n, i) => n === "gap"
+                <button type="button" className="icon-button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setSubPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
+                {pageWindow(currentPage, totalPages).map((n, i) => n === "gap"
                   ? <span key={`gap-${i}`} className="page-gap" aria-hidden>…</span>
-                  : <button key={n} type="button" className={`page-number ${n === page ? "page-current" : ""}`} aria-current={n === page ? "page" : undefined} onClick={() => setSubPage(n)}>{n}</button>)}
-                <button type="button" className="icon-button" aria-label="Next page" disabled={page === pageCount} onClick={() => setSubPage(p => Math.min(pageCount, p + 1))}><ChevronRight size={15}/></button>
+                  : <button key={n} type="button" className={`page-number ${n === currentPage ? "page-current" : ""}`} aria-current={n === currentPage ? "page" : undefined} onClick={() => setSubPage(n)}>{n}</button>)}
+                <button type="button" className="icon-button" aria-label="Next page" disabled={currentPage === totalPages} onClick={() => setSubPage(p => Math.min(totalPages, p + 1))}><ChevronRight size={15}/></button>
               </div>
             </div>}
           </>;
