@@ -242,6 +242,7 @@ export function AdminPaymentPage() {
       {methodsStatus === "ready" && methods && (() => {
         const idrMethods = methods.filter(m => m.category === "idr");
         const usdMethods = methods.filter(m => m.category === "usd");
+        const creditsMethods = methods.filter(m => m.category === "credits");
 
         const renderGatewayRow = (m: PaymentMethod) => {
           const isReady = m.gatewayReady;
@@ -349,6 +350,17 @@ export function AdminPaymentPage() {
             {usdMethods.length === 0 && (
               <div style={{ padding: "24px 16px", textAlign: "center", border: "1.5px dashed #d8d1c5", borderRadius: 8 }}>
                 <p style={{ opacity: 0.6, margin: 0 }}>No Global payment method configured.</p>
+              </div>
+            )}
+            {creditsMethods.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: "var(--fs-note)", fontWeight: 700, opacity: 0.6, marginTop: 25, marginBottom: 12 }}>Credits</div>
+                {creditsMethods.map(renderGatewayRow)}
+              </div>
+            )}
+            {creditsMethods.length === 0 && (
+              <div style={{ padding: "24px 16px", textAlign: "center", border: "1.5px dashed #d8d1c5", borderRadius: 8 }}>
+                <p style={{ opacity: 0.6, margin: 0 }}>No Credits payment method configured.</p>
               </div>
             )}
           </div>
