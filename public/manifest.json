@@ -1,0 +1,13 @@
+{
+  "name": "Devora — One platform, more ways to build",
+  "short_name": "Devora",
+  "description": "One workspace for AI infrastructure, credits, billing, and the tools that help you build.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5efe2",
+  "theme_color": "#17140d",
+  "icons": [
+    { "src": "/favicon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/favicon-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

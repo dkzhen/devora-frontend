@@ -3,6 +3,7 @@
 import { Check, Package } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PrimaryLink } from "@/components/brand";
+import { SectionHead } from "@/components/section-head";
 
 type PlanPackage = {
   id: string;
@@ -58,18 +59,7 @@ export function LandingPricing() {
 
   return (
     <section className="land-pricing">
-      <div className="land-pricing-head">
-        <div>
-          <div className="section-tag">
-            <Package size={13} /> PRICING
-          </div>
-          <h2>
-            Packages that fit.
-            <br />
-            <span>Start small, scale when ready.</span>
-          </h2>
-        </div>
-      </div>
+      <SectionHead tag="PRICING" heading="Packages that fit." accent="Start small, scale when ready." href="/pricing" linkLabel="See All Packages"/>
 
       <div className="pkg-grid">
         {loading
@@ -135,17 +125,19 @@ export function LandingPricing() {
 
                 <div className="pkg-price">
                   {plan.priceIdr > 0 && (
-                    <span className="pkg-price-idr">{formatIdr(plan.priceIdr)}</span>
+                    <div><span className="pkg-price-idr">{plan.priceIdr.toLocaleString("id-ID")}</span></div>
                   )}
-                  {plan.priceIdr > 0 &&
-                    plan.priceCredits !== "0" &&
-                    plan.priceCredits !== "" && (
-                      <span className="pkg-price-or">or</span>
-                    )}
-                  {plan.priceCredits !== "0" && plan.priceCredits !== "" && (
-                    <span className="pkg-price-credits">
-                      {plan.priceCredits} credits
-                    </span>
+                  {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
+                    <div><span className="pkg-price-credits">{plan.priceCredits}</span></div>
+                  )}
+                  {plan.priceIdr > 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
+                    <div><span className="pkg-price-method">via IDR or credits</span></div>
+                  )}
+                  {plan.priceIdr > 0 && (plan.priceCredits === "0" || plan.priceCredits === "") && (
+                    <div><span className="pkg-price-method">via IDR</span></div>
+                  )}
+                  {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
+                    <div><span className="pkg-price-method">via credits</span></div>
                   )}
                   {plan.priceIdr === 0 &&
                     (plan.priceCredits === "0" || plan.priceCredits === "") && (
@@ -158,10 +150,6 @@ export function LandingPricing() {
                 </div>
               </article>
             ))}
-      </div>
-
-      <div className="landing-pricing-cta">
-        <PrimaryLink href="/pricing">See all packages</PrimaryLink>
       </div>
     </section>
   );

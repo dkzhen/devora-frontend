@@ -3,8 +3,29 @@ import { AppClerkProvider } from "@/components/clerk-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Devora — one platform, more ways to build",
+  title: "Devora",
   description: "One workspace for AI infrastructure, credits, billing, and the tools that help you build.",
+  metadataBase: new URL("https://devora.my.id"),
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/favicon-180x180.png",
+  },
+  openGraph: {
+    title: "Devora — one platform, more ways to build",
+    description: "Your AI stack, billing, and workspace tools. All in one place, so your ideas can move a little faster.",
+    url: "https://devora.my.id",
+    siteName: "Devora",
+    locale: "en_US",
+    type: "website",
+    images: [{ url: "/favicon-512x512.png", width: 512, height: 512, alt: "Devora" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "Devora — one platform, more ways to build",
+    description: "Your AI stack, billing, and workspace tools. All in one place.",
+    images: ["/favicon-512x512.png"],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

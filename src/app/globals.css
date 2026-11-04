@@ -35,7 +35,7 @@
  --font-code: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--body);font-size:var(--fs-base);-webkit-font-smoothing:antialiased}button,input{font:inherit}button,a{-webkit-tap-highlight-color:transparent}a{color:inherit;text-decoration:none}button{color:inherit}::selection{background:var(--mint);color:var(--ink)}
-.brand{display:inline-flex;align-items:center;gap:9px;font-family:var(--display);font-size:var(--fs-h4);font-weight:800;letter-spacing:-1.4px}.brand-mark{width:30px;height:30px;border:2px solid var(--ink);background:var(--mint);display:grid;place-items:center;box-shadow:2px 2px 0 var(--ink);transform:rotate(-4deg)}.brand-light{color:var(--paper)}.brand-light .brand-mark{border-color:var(--paper)}.button{border-radius:4px;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:45px;padding:0 17px;border:2px solid var(--ink);font-size:var(--fs-small);font-weight:700;transition:transform .16s,box-shadow .16s,background-color .16s;cursor:pointer}
+.brand{display:inline-flex;align-items:center;gap:9px;font-family:var(--display);font-size:var(--fs-h4);font-weight:800;letter-spacing:-1.4px}.brand-mark{width:30px;height:30px;border:2px solid var(--ink);background:var(--mustard);display:grid;place-items:center;box-shadow:2px 2px 0 var(--ink);transform:rotate(-4deg);flex-shrink:0}.brand-mark img{width:17px;height:17px;object-fit:contain}.brand-light{color:var(--paper)}.brand-light .brand-mark{border-color:var(--paper)}.button{border-radius:4px;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:45px;padding:0 17px;border:2px solid var(--ink);font-size:var(--fs-small);font-weight:700;transition:transform .16s,box-shadow .16s,background-color .16s;cursor:pointer}
 /* No auto margins on children: inside a centred flex row they push the label off-centre. */
 .button>svg{margin:0}.button:hover{transform:translate(-2px,-2px);box-shadow:3px 3px 0 var(--ink)}.button-ink{background:var(--ink);color:white}.button-ink:hover{background:#302b20}.button-outline{background:var(--paper)}.button-outline:hover{background:#f0eadf}.compact-button{min-height:36px;padding:0 11px;font-size:var(--fs-small);gap:7px;white-space:nowrap}.button:disabled{opacity:.65;cursor:wait;transform:none;box-shadow:none}.demo-note{display:inline-flex;align-items:center;gap:7px;color:#746e62;font-size:var(--fs-note);font-weight:700;letter-spacing:1px}.demo-dot{width:7px;height:7px;background:var(--coral);border-radius:50%;display:inline-block}.route-loading{min-height:100vh;display:grid;place-items:center;color:var(--muted);font-size:var(--fs-small)}
 
@@ -84,101 +84,64 @@
  --u: clamp(1.55px, 0.42vw + 1.05px, 2.6px);
 }
 
-/* Orbits: the outer bounds of the composition. Percentages of the art box, with the height
- chosen so the ROTATED bounds still fit — a 78% x 54% ellipse rotated 28 degrees spans about
- 71% x 67% of the box, comfortably inside it. */
-.orbit{
- position:absolute;
- left:50%;top:50%;
- border:1px solid rgba(23,20,13,.17);
- border-radius:50%;
+/* Provider orbit system — Superdesign pattern: track → node-pos → node-counter → provider-node.
+   Ring sizes are percentage-based. Icon translate uses CSS vars calculated from art box width
+   so icons stay on the ring line at every viewport. */
+.hero-orbit-system{
+ position:relative;width:100%;height:100%;
+ display:grid;place-items:center;isolation:isolate;
+ container-type:size;
 }
-/* 78% x 54% at -28 degrees: rotated bounds are 0.883W + 0.469H = 180.1 + 186.9 = 367 of the
- 392-unit height, so it clears with room. */
-.orbit-one{width:78%;height:54%;transform:translate(-50%,-50%) rotate(-28deg)}
-/* The tall one, and the reason the old version leaked: 66% x 73% rotated 43 degrees spans
- ~66% x 78%, which still clears the box. Sizing by height fraction rather than a fixed
- aspect-ratio is what keeps that true when the container changes. */
-/* This is the one that leaked in both earlier versions, so the numbers are written out.
- At 43 degrees the rotated bounds of an ellipse W x H are (W*sin43 + H*cos43) tall. For the
- bounds to fit the 392-unit box: 0.682W + 0.731H <= 392. With a 57% width (283.9) that gives
- H <= 271.6, so 65% of 392 (254.8) clears it with ~12 units to spare. Because the art box
- ratio is now locked, the same fractions hold at every viewport. */
-.orbit-two{width:57%;height:65%;transform:translate(-50%,-50%) rotate(43deg)}
-
-.hero-cube{
- position:relative;z-index:1;
- width:38%;aspect-ratio:1;
- transform:rotate(-7deg);
- filter:drop-shadow(calc(1.6 * var(--u)) calc(1.6 * var(--u)) 0 rgba(23,20,13,.15));
+/* Rings: solid colored lines, centered via margin (no transform conflict with animation) */
+.orbit-ring{position:absolute;top:50%;left:50%;aspect-ratio:1;border-radius:50%;pointer-events:none}
+.orbit-ring-outer{width:72%;border:1.5px dashed var(--mint);margin:-36% 0 0 -36%;animation:orbit-spin 25s linear infinite}
+.orbit-ring-inner{width:52%;border:1.5px dashed var(--coral);margin:-26% 0 0 -26%;animation:orbit-spin-reverse 15s linear infinite}
+.orbit-center-node{
+ position:absolute;width:64px;height:64px;top:50%;left:50%;transform:translate(-50%,-50%);
+ background:var(--paper);border-radius:16px;
+ display:grid;place-items:center;z-index:10;
+ box-shadow:0 4px 12px -2px rgba(23,20,13,.12);
 }
-.cube-face{position:absolute;border:calc(1.5 * var(--u)) solid var(--ink)}
-/* One face defines the box; the other two hang off it. Every offset is a percentage of the
- cube, so the isometric joins stay closed at any size — fixed pixel offsets opened a seam
- the moment the cube was scaled. */
-/* The cube's mint face, carrying a four-pointed star rather than the "D." glyph it used to
- hold. Centred with grid so the mark stays optically centred at any cube size, and sized off
- --u so it tracks the illustration instead of needing a media query of its own. */
-.cube-front{width:69%;height:69%;left:15%;top:25%;background:var(--mint);display:grid;place-items:center;z-index:1}
-.cube-front{font:400 calc(26 * var(--u))/1 var(--body);color:var(--ink)}
-.cube-top{
- width:69%;height:29%;left:15%;top:0;
- background:var(--mustard);
- transform:skewY(-29deg) scaleY(.72);
- transform-origin:bottom;
- font:800 calc(18 * var(--u))/1 var(--display);
- text-align:center;
- z-index:2;
-}
-.cube-side{
- width:29%;height:69%;right:0;top:10%;
- background:var(--coral);
- transform:skewY(-40deg) scaleX(.72);
- transform-origin:left;
- z-index:-1;
-}
-
-.hero-star{position:absolute;z-index:2;line-height:1}
-/* Kept inside 90% on every edge: these are decoration, and decoration that touches the frame
- reads as a mistake. */
-.star-one{top:6%;right:7%;font-size:calc(23.5 * var(--u));color:var(--violet);transform:rotate(15deg)}
-.star-two{left:3%;bottom:14%;font-size:calc(19 * var(--u));color:var(--coral);transform:rotate(-20deg)}
-
-/* Two matching captions in opposite corners. They are the same object seen twice — same size,
- same weight, same two-line shape — so they read as a pair rather than as two unrelated bits
- of text. The top one used to be a sentence with an arrow; it is now a phrase, so the arrow,
- the flex row and the underline it needed are gone.
- 
- Set light: weight 500 on a muted grey, not 700 on near-black. At display sizes these words
- are decoration around the cube, and heavy type there competes with the headline instead of
- supporting it. Both labels share one colour so neither looks like the important one. */
-.art-label{position:absolute;font:500 calc(4.5 * var(--u))/1.5 var(--body);letter-spacing:.8px;color:#9a9488;z-index:2}
-.art-label-top{top:11%;left:0}
-.art-label-bottom{right:0;bottom:6%;text-align:right}
-
-/* The bubble and the bottom label both live in the lower-right quadrant and used to overlap by
- 64x13 — the bubble sat on top of the label's second line. They are now separated on the
- vertical axis: the label hugs the floor, the bubble floats clear above it. */
-.hero-bubble{
- position:absolute;z-index:3;
- right:5%;bottom:34%;
- width:11%;aspect-ratio:1;
- background:var(--violet);color:white;
- border:calc(1 * var(--u)) solid var(--ink);
+/* Track: zero-size pivot at center, static (icons don't move) */
+.orbit-track{position:absolute;top:50%;left:50%;width:0;height:0;z-index:5}
+.orbit-track-outer{animation:none}
+.orbit-track-inner{animation:none}
+/* node-pos: positioned on ring via static rotate+translate (not animated) */
+.node-pos{position:absolute;top:0;left:0;width:0;height:0}
+/* node-counter: undoes the node-pos angle so icon stays oriented */
+.node-counter{position:absolute;top:0;left:0;width:0;height:0}
+/* provider-node: the visible icon badge */
+.provider-node{
+ position:absolute;width:40px;height:40px;top:-20px;left:-20px;
+ background:var(--paper);border-radius:50%;
  display:grid;place-items:center;
- font-size:calc(13 * var(--u));
- transform:rotate(12deg);
- box-shadow:calc(1.5 * var(--u)) calc(1.5 * var(--u)) 0 var(--ink);
+ border:1px solid rgba(23,20,13,.15);
+ box-shadow:0 2px 4px -1px rgba(0,0,0,.08);
+}
+.orbit-track-outer .provider-node{animation:none}
+.orbit-track-inner .provider-node{animation:none}
+.provider-node img{width:22px;height:22px;padding:2px;border-radius:50%}
+.provider-node-sm{width:32px;height:32px;top:-16px;left:-16px}
+.provider-node-sm img{width:18px;height:18px}
+/* Pause on hover */
+.hero-orbit-system:hover .orbit-track,
+.hero-orbit-system:hover .provider-node{animation-play-state:paused}
+@keyframes orbit-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes orbit-spin-reverse{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
+@keyframes orbit-counter-spin{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
+@keyframes orbit-counter-spin-reverse{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){
+ .orbit-track,.provider-node{animation:none}
 }
 
 /* Stacked layout. Same proportions, smaller frame — the percentages do the rest, so these
  breakpoints only decide how much room the illustration gets. */
 /* Only the cap changes; the ratio never does, so nothing needs re-tuning here. */
 @media(max-width:900px){
- .hero-art{width:min(100%,392px);--u:clamp(1.4px,0.9vw + 0.7px,2.1px)}
+ .hero-art{width:min(100%,392px);--u:clamp(1.4px,0.9vw + 0.7px,2.1px);margin-top:32px}
 }
 @media(max-width:520px){
- .hero-art{width:min(100%,330px);--u:clamp(1.25px,2.2vw + 0.35px,1.85px)}
+ .hero-art{width:min(100%,330px);--u:clamp(1.25px,2.2vw + 0.35px,1.85px);margin-top:28px}
  .art-label{font-size:calc(4.2 * var(--u))}
 }
 
@@ -1038,6 +1001,12 @@
  block on /events. */
 .ev-faq-wrap{max-width:1240px;margin:auto;padding:60px 7.5% 96px}
 .ev-faq{max-width:820px;margin:0 auto}
+.land-contact{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding-bottom:28px;margin-bottom:36px;border-bottom:1.5px solid #e0dbce}
+.land-contact h2{font:700 var(--fs-h2)/1.15 var(--display);letter-spacing:-1px;margin:0}
+.land-contact p{font-size:var(--fs-small);color:#6f695d;margin:0;max-width:440px;line-height:1.55}
+.land-contact-links{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+.land-contact-links a{display:inline-flex;align-items:center;gap:6px;font:700 var(--fs-small) var(--display);color:var(--ink);border:1.5px solid var(--ink);padding:8px 16px;text-decoration:none;transition:background .12s,color .12s}
+.land-contact-links a:hover{background:var(--ink);color:var(--paper)}
 .ev-faq-head{display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center;
  padding:0 22px 22px;border-bottom:2px solid var(--ink)}
 .ev-faq-tag{font:700 var(--fs-micro) var(--body);letter-spacing:1.4px;color:#6f695d;
@@ -1333,10 +1302,11 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev-page-info{display:flex;flex-direction:column;align-items:center;font:700 var(--fs-small) var(--display);color:var(--ink)}
 .ev-page-info small{font:600 var(--fs-note) var(--body);letter-spacing:.2px;color:#8b857a;margin-top:2px}
 
-/* Pricing page package cards. House shape: 2px ink border, hard shadow, cream/paper ground,
- one accent per card. Three columns at desktop, single at narrow. */
-.pkg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,440px));gap:20px;justify-content:center}
-.pkg-card{position:relative;border:2px solid var(--ink);background:var(--paper);box-shadow:6px 6px 0 var(--ink);padding:24px 22px 22px;display:flex;flex-direction:column;gap:14px}
+/* Pricing grid: cards fill available columns. The 300px minimum keeps cards readable
+   before wrapping; 1fr lets each track grow to the same width instead of capping at a
+   fixed max that leaves empty space on one side. Three columns at desktop, auto-wrap. */
+.pkg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;align-items:stretch}
+.pkg-card{position:relative;border:2px solid var(--ink);background:var(--paper);box-shadow:6px 6px 0 var(--ink);padding:24px 22px 22px;display:flex;flex-direction:column;gap:14px;height:100%}
 .pkg-card-mint::before,.pkg-card-coral::before,.pkg-card-violet::before{content:"";position:absolute;top:0;left:0;right:0;height:6px}
 .pkg-card-mint::before{background:var(--mint)}
 .pkg-card-coral::before{background:var(--coral)}
@@ -1363,9 +1333,12 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pkg-features{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .pkg-features li{display:flex;align-items:flex-start;gap:7px;font-size:var(--fs-small);line-height:1.5;color:#5a5448}
 .pkg-features li svg{flex:none;margin-top:2px;color:var(--mint)}
-.pkg-price{display:flex;align-items:baseline;gap:10px;padding:10px 0;border-top:1.5px solid #eae4d8}
+.pkg-price{display:flex;flex-direction:column;gap:12px;padding:14px 0;border-top:1.5px solid #eae4d8}
 .pkg-price-idr{font:800 var(--fs-h3)/1 var(--display);letter-spacing:-.8px;color:var(--ink)}
-.pkg-price-credits{font:700 var(--fs-small) var(--display);color:#8b8579}.pkg-price-or{font:600 var(--fs-note) var(--body);color:#a09a8e;text-transform:lowercase}
+.pkg-price-credits{font:700 var(--fs-h4)/1 var(--display);letter-spacing:-.4px;color:#8b8579}
+.pkg-price-method{font:600 var(--fs-note) var(--body);color:#a09a8e;margin-top:-4px}
+.pkg-price-or{display:flex;align-items:center;gap:8px;font:600 var(--fs-note) var(--body);color:#a09a8e;text-transform:lowercase}
+.pkg-price-or::before,.pkg-price-or::after{content:"";flex:1;height:1.5px;background:#e0dbce}
 .pkg-price-free{font:800 var(--fs-h4) var(--display);letter-spacing:-.4px;color:var(--mint)}
 
 /* Admin: pricing plan feature chips (tag editor). */
@@ -2163,7 +2136,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .pf-right{align-items:flex-start;text-align:left}
 }
 .landing-footer{max-width:1240px;margin:auto;padding:44px 7.5% 34px;border-top:2px solid var(--ink)}
-.lf-grid{display:grid;grid-template-columns:2fr repeat(3,1fr);gap:34px 28px;align-items:start}
+.lf-grid{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:34px 28px;align-items:start}
 .lf-brand{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
 .lf-brand .brand{font-size:var(--fs-h5)}
 .lf-brand p{margin:0;font-size:var(--fs-small);color:#746f64;max-width:250px;line-height:1.55}

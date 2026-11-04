@@ -44,6 +44,14 @@ const LANDING_FAQ: FaqItem[] = [
 export function LandingFaq() {
   return <section className="land-faq" id="faq" aria-label="Frequently asked questions">
     <div className="ev-faq">
+      <div className="land-contact">
+        <h2>Still have questions?</h2>
+        <p>Reach out anytime — we answer quickly.</p>
+        <div className="land-contact-links">
+          <a href="mailto:dani@dkzhen.org">dani@dkzhen.org</a>
+          <a href="https://t.me/dk_zhen2" target="_blank" rel="noopener noreferrer">Telegram @dk_zhen2</a>
+        </div>
+      </div>
       <div className="ev-faq-head">
         <h2>The details, up front.</h2>
         <p>The things people ask before their first request.</p>

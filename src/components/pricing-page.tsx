@@ -102,9 +102,11 @@ export function PricingPage() {
             </ul>}
 
             <div className="pkg-price">
-              {plan.priceIdr > 0 && <span className="pkg-price-idr">{formatIdr(plan.priceIdr)}</span>}
-              {plan.priceIdr > 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && <span className="pkg-price-or">or</span>}
-              {plan.priceCredits !== "0" && plan.priceCredits !== "" && <span className="pkg-price-credits">{plan.priceCredits} credits</span>}
+              {plan.priceIdr > 0 && <div><span className="pkg-price-idr">{plan.priceIdr.toLocaleString("id-ID")}</span></div>}
+              {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && <div><span className="pkg-price-credits">{plan.priceCredits}</span></div>}
+              {plan.priceIdr > 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && <div><span className="pkg-price-method">via IDR or credits</span></div>}
+              {plan.priceIdr > 0 && (plan.priceCredits === "0" || plan.priceCredits === "") && <div><span className="pkg-price-method">via IDR</span></div>}
+              {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && <div><span className="pkg-price-method">via credits</span></div>}
               {plan.priceIdr === 0 && (plan.priceCredits === "0" || plan.priceCredits === "") && <span className="pkg-price-free">Free</span>}
             </div>
 
@@ -124,15 +126,17 @@ export function PricingPage() {
                 <dt>Request rate</dt>
                 <dd>
                   {unlimited
-                    ? (pkg.throttledRpm !== null
-                      ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><InfinityIcon size={18} style={{position:"relative",top:"2px"}}/> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
-                      : <span>Unlimited</span>
-                    )
-                    : (pkg.baseRpm !== null
-                      ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
-                      : <span>Unlimited</span>
-                    )
-                  }
+                                      ? (pkg.baseRpm !== null && pkg.throttledRpm !== null
+                                        ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><strong>{pkg.baseRpm}</strong> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
+                                        : pkg.baseRpm !== null
+                                          ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                                          : <span>Unlimited</span>
+                                      )
+                                      : (pkg.baseRpm !== null
+                                        ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                                        : <span>Unlimited</span>
+                                      )
+                                    }
                 </dd>
               </div>
             </dl>

@@ -1055,9 +1055,11 @@ export default function BillingPage() {
             </ul>}
 
             <div className="pkg-price">
-              {hasIdr && <span className="pkg-price-idr">{formatIdr(p.priceIdr)}</span>}
-              {hasIdr && hasCredits && <span className="pkg-price-or">or</span>}
-              {hasCredits && <span className="pkg-price-credits">{formatCredits(p.priceCredits)} credits</span>}
+              {hasIdr && <div><span className="pkg-price-idr">{p.priceIdr.toLocaleString("id-ID")}</span></div>}
+              {!hasIdr && hasCredits && <div><span className="pkg-price-credits">{p.priceCredits}</span></div>}
+              {hasIdr && hasCredits && <div><span className="pkg-price-method">via IDR or credits</span></div>}
+              {hasIdr && !hasCredits && <div><span className="pkg-price-method">via IDR</span></div>}
+              {!hasIdr && hasCredits && <div><span className="pkg-price-method">via credits</span></div>}
               {isFree && <span className="pkg-price-free">Free</span>}
             </div>
 
@@ -1077,15 +1079,17 @@ export default function BillingPage() {
                 <dt>Request rate</dt>
                 <dd>
                   {unlimited
-                    ? (pkg.throttledRpm !== null
-                      ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><InfinityIcon size={18} style={{position:"relative",top:"2px"}}/> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
-                      : <span>Unlimited</span>
-                    )
-                    : (pkg.baseRpm !== null
-                      ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
-                      : <span>Unlimited</span>
-                    )
-                  }
+                                      ? (pkg.baseRpm !== null && pkg.throttledRpm !== null
+                                        ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><strong>{pkg.baseRpm}</strong> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
+                                        : pkg.baseRpm !== null
+                                          ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                                          : <span>Unlimited</span>
+                                      )
+                                      : (pkg.baseRpm !== null
+                                        ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                                        : <span>Unlimited</span>
+                                      )
+                                    }
                 </dd>
               </div>
             </dl>

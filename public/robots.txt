@@ -1,0 +1,10 @@
+# Allow all crawlers full access
+User-agent: *
+Allow: /
+
+# Block console/auth pages from indexing (private app areas)
+Disallow: /console/
+Disallow: /auth
+
+# Sitemap location
+Sitemap: https://devora.my.id/sitemap.xml

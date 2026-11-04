@@ -381,10 +381,21 @@ export function TopupDialog({
     handle = window.setInterval(() => {
       if (stopped) return;
       if (expiryMs !== null && Number.isFinite(expiryMs) && Date.now() > expiryMs) {
-        // Past the deadline: ask once more, then stop for good.
+        // Past the deadline: cancel the order at the gateway, then poll once for the final
+        // status. The cancel call forces the backend to update both topups and payment_orders,
+        // so the admin transactions view stays consistent even when the gateway still reports
+        // "pending" at the exact expiry moment (race condition).
         window.clearInterval(handle!);
         stopped = true;
-        void poll();
+        const cancel = async () => {
+          try {
+            await fetch(`/backend/api/v1/topups/${encodeURIComponent(orderId)}/cancel`, {
+              method: "POST", headers: await authHeaders(),
+            });
+          } catch { /* best-effort: the UI state update below still shows the correct expired state */ }
+          setTopup(prev => prev === null ? null : { ...prev, status: "canceled" });
+        };
+        void cancel();
         return;
       }
       void poll();
