@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, Settings, X } from "lucide-react";
-import { formatRupiah } from "@/lib/credits";
+import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, Settings, X, Eye, Check, Copy } from "lucide-react";
+import { formatUsd, formatIdr } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
 
@@ -36,6 +36,47 @@ function pageWindow(current: number, total: number): (number | "gap")[] {
   return out;
 }
 
+/**
+ * A table cell whose text can be copied with one click.
+ *
+ * `navigator.clipboard` only exists in a secure context, and the admin console is
+ * reached over plain HTTP on the LAN — so it falls back to a hidden textarea +
+ * `execCommand("copy")`, the same path the top-up dialog uses. The button shows a
+ * check for two seconds after a successful copy.
+ */
+function CopyCell({ value, title }: { value: string | null; title?: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return <td className="cell-num">—</td>;
+
+  const copy = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard blocked — the text is still selectable */ }
+  };
+
+  return <td className="cell-num">
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: 260 }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={title ?? value}>{value}</span>
+      <button type="button" className="icon-button" title="Copy" onClick={copy} aria-label="Copy">
+        {copied ? <Check size={13}/> : <Copy size={13}/>}
+      </button>
+    </span>
+  </td>;
+}
+
 export function AdminBillingSettingsPage() {
   const { getToken } = useAuth();
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -47,6 +88,10 @@ export function AdminBillingSettingsPage() {
     gatewayTxnId: string | null; kind: string | null;
     topupStatus: string | null; isSandbox: boolean | null;
     createdAt: string; updatedAt: string;
+    // Detail-popup only — not shown as table columns.
+    qrString: string | null; vaNumber: string | null;
+    expiresAt: string | null; completedAt: string | null;
+    gateway: string | null; paymentMethodName: string | null;
   };
   type SubscriptionRow = {
     id: string; userId: string; email: string; packageId: string;
@@ -54,8 +99,9 @@ export function AdminBillingSettingsPage() {
     startedAt: string; expiresAt: string | null;
     tokensUsed: string; tokenCap: string | null;
   };
-  type TxResult = { data: TransactionRow[]; total: number; totalPages: number; page: number };
-  type SubResult = { data: SubscriptionRow[]; total: number; totalPages: number; page: number };
+  type TxResult = { data: TransactionRow[]; total: number; totalPages: number; page: number; stats: TxStats | null };
+  type TxStats = { completed: number; pending: number; canceled: number; paidUsd: number; paidIdr: number; paidTotalIdr: number; usdRate: number };
+  type SubResult = { data: SubscriptionRow[]; total: number; totalPages: number; page: number; stats?: { active: number; expired: number; cancelled: number } | null };
   const [txResult, setTxResult] = useState<TxResult | null>(null);
   const [txStatus, setTxStatus] = useState<"loading" | "ready" | "error">("loading");
   const [txRefreshKey, setTxRefreshKey] = useState(0);
@@ -77,6 +123,9 @@ export function AdminBillingSettingsPage() {
   const [overrideStatus, setOverrideStatus] = useState<"completed" | "canceled">("completed");
   const [overriding, setOverriding] = useState(false);
   const [overrideError, setOverrideError] = useState("");
+
+  // Read-only detail popup: every field for one order, gateway txn id included.
+  const [detailTarget, setDetailTarget] = useState<TransactionRow | null>(null);
 
   // Reset to page 1 when the search query or filter changes.
   useEffect(() => { setTopupPage(1); }, [topupSearch, topupFilter]);
@@ -109,13 +158,14 @@ export function AdminBillingSettingsPage() {
           if (!controller.signal.aborted) setTxStatus("error");
           return;
         }
-        const data = await res.json() as { transactions?: TransactionRow[]; pagination?: { total: number; totalPages: number; page: number } };
+        const data = await res.json() as { transactions?: TransactionRow[]; pagination?: { total: number; totalPages: number; page: number }; stats?: TxStats };
         if (!controller.signal.aborted) {
           setTxResult({
             data: data.transactions ?? [],
             total: data.pagination?.total ?? 0,
             totalPages: data.pagination?.totalPages ?? 1,
             page: data.pagination?.page ?? topupPage,
+            stats: data.stats ?? null,
           });
           setTxStatus("ready");
         }
@@ -151,13 +201,14 @@ export function AdminBillingSettingsPage() {
           if (!controller.signal.aborted) setSubStatus("error");
           return;
         }
-        const data = await res.json() as { subscriptions?: SubscriptionRow[]; pagination?: { total: number; totalPages: number; page: number } };
+        const data = await res.json() as { subscriptions?: SubscriptionRow[]; pagination?: { total: number; totalPages: number; page: number }; stats?: { active: number; expired: number; cancelled: number } };
         if (!controller.signal.aborted) {
           setSubResult({
             data: data.subscriptions ?? [],
             total: data.pagination?.total ?? 0,
             totalPages: data.pagination?.totalPages ?? 1,
             page: data.pagination?.page ?? subPage,
+            stats: data.stats ?? null,
           });
           setSubStatus("ready");
         }
@@ -239,15 +290,28 @@ export function AdminBillingSettingsPage() {
 
       {(txStatus === "loading" || txStatus === "ready") && <>
         {(() => {
-          const rows = txResult?.data ?? [];
-          const pending = rows.filter(t => t.status === "pending").length;
-          const completed = rows.filter(t => t.status === "completed").length;
-          const canceled = rows.filter(t => t.status === "canceled").length;
-          return <div className="usage-grid stats-grid">
-            <article className="usage-stat"><strong>{pending}</strong><small><span>Pending (page)</span></small></article>
-            <article className="usage-stat"><strong>{completed}</strong><small><span>Completed (page)</span></small></article>
-            <article className="usage-stat"><strong>{canceled}</strong><small><span>Canceled (page)</span></small></article>
-            <article className="usage-stat"><strong>{txResult?.total ?? 0}</strong><small><span>Total</span></small></article>
+          const s = txResult?.stats;
+          return <div className="usage-grid stats-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            {/* One card for order counts, with the status breakdown living inside it. */}
+            <article className="usage-stat">
+              <strong>{txResult?.total ?? 0}</strong>
+              <small><span>Total orders</span></small>
+              <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: "var(--fs-small)", flexWrap: "wrap" }}>
+                <span style={{ color: "#2e7d32" }}>● {s?.completed ?? 0} success</span>
+                <span style={{ color: "#b8860b" }}>● {s?.pending ?? 0} pending</span>
+                <span style={{ color: "#c62828" }}>● {s?.canceled ?? 0} failed</span>
+              </div>
+            </article>
+            {/* One card for money — headline is both currencies folded into IDR at
+                the live (markup-inclusive) rate; the per-currency split sits under it. */}
+            <article className="usage-stat">
+              <strong>{formatIdr(s?.paidTotalIdr ?? 0)}</strong>
+              <small><span>Total paid (IDR equivalent)</span></small>
+              <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: "var(--fs-small)", flexWrap: "wrap" }}>
+                <span>{formatUsd(s?.paidUsd ?? 0)} USD</span>
+                <span>{formatIdr(s?.paidIdr ?? 0)} IDR</span>
+              </div>
+            </article>
           </div>;
         })()}
 
@@ -276,35 +340,44 @@ export function AdminBillingSettingsPage() {
             </div>
             <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th style={{ whiteSpace: "nowrap" }}>EMAIL</th><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>CURRENCY</th><th style={{ whiteSpace: "nowrap" }}>AMOUNT</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>ORDER ID</th><th style={{ whiteSpace: "nowrap" }}>PAID</th><th style={{ whiteSpace: "nowrap" }}>STATUS</th><th style={{ whiteSpace: "nowrap" }}>KIND</th><th style={{ whiteSpace: "nowrap" }}>CREATED</th><th style={{ whiteSpace: "nowrap" }}>ACTIONS</th></tr></thead>
                 <tbody>
-                  {rows.length === 0 && <tr><td colSpan={9} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{topupSearch ? "No matches." : "No transactions yet."}</td></tr>}
+                  {rows.length === 0 && <tr><td colSpan={6} className="cell-num" style={{ textAlign: "center", padding: "20px" }}>{topupSearch ? "No matches." : "No transactions yet."}</td></tr>}
                   {rows.map(t => <tr key={t.id}>
-                    <td>{t.email}</td>
-                    <td className="cell-num">{t.gatewayOrderId ?? "—"}</td>
-                    <td>{t.currency}</td>
-                    <td className="cell-num">{t.currency === "IDR" ? formatRupiah(Number(t.amountCurrency)) : formatCounter(Number(t.amountCurrency))}</td>
-                    <td className="cell-num">{t.kind === "plan_purchase" && t.currency === "IDR" ? "—" : formatCounter(Number(t.creditsAmount))}</td>
+                    <CopyCell value={t.gatewayOrderId} />
+                    <td className="cell-num">{t.currency === "IDR" ? formatIdr(Number(t.amountCurrency)) : formatUsd(Number(t.amountCurrency))}</td>
                     <td><span className={`status-pill status-${t.status}`}>{t.status}</span></td>
                     <td>{t.kind ?? "—"}</td>
                     <td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td>
                     <td>
-                      {t.gatewayOrderId && (
+                      <div style={{ display: "flex", gap: 6 }}>
                         <button
                           className="button button-outline compact-button"
                           type="button"
-                          title="Override order status"
-                          onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
+                          title="View full details"
+                          onClick={() => setDetailTarget(t)}
                         >
-                          <Settings size={14}/>
+                          <Eye size={14}/>
                         </button>
-                      )}
+                        {t.gatewayOrderId && (
+                          <button
+                            className="button button-outline compact-button"
+                            type="button"
+                            title="Override order status"
+                            onClick={() => { setOverrideTarget(t); setOverrideStatus("completed"); setOverrideError(""); }}
+                          >
+                            <Settings size={14}/>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>)}
                 </tbody>
               </table>
             </div>
-            {totalPages > 1 && <div className="pagination">
+            {/* Pagination only applies to plain browsing — a search returns every
+                match, so there are no further pages to walk. */}
+            {totalPages > 1 && !topupSearch && <div className="pagination">
               <span className="pagination-summary">Showing {start}–{end} of {total}</span>
               <div className="pagination-controls">
                 <button type="button" className="icon-button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setTopupPage(p => Math.max(1, p - 1))}><ChevronLeft size={15}/></button>
@@ -338,13 +411,13 @@ export function AdminBillingSettingsPage() {
       {(subStatus === "loading" || subStatus === "ready") && <>
         {(() => {
           const rows = subResult?.data ?? [];
-          const active = rows.filter(s => s.status === "active").length;
-          const expired = rows.filter(s => s.status === "expired").length;
-          const cancelled = rows.filter(s => s.status === "cancelled").length;
+          const active = subResult?.stats?.active ?? rows.filter(s => s.status === "active").length;
+          const expired = subResult?.stats?.expired ?? rows.filter(s => s.status === "expired").length;
+          const cancelled = subResult?.stats?.cancelled ?? rows.filter(s => s.status === "cancelled").length;
           return <div className="usage-grid stats-grid">
-            <article className="usage-stat"><strong>{active}</strong><small><span>Active (page)</span></small></article>
-            <article className="usage-stat"><strong>{expired}</strong><small><span>Expired (page)</span></small></article>
-            <article className="usage-stat"><strong>{cancelled}</strong><small><span>Cancelled (page)</span></small></article>
+            <article className="usage-stat"><strong>{active}</strong><small><span>Active</span></small></article>
+            <article className="usage-stat"><strong>{expired}</strong><small><span>Expired</span></small></article>
+            <article className="usage-stat"><strong>{cancelled}</strong><small><span>Cancelled</span></small></article>
             <article className="usage-stat"><strong>{subResult?.total ?? 0}</strong><small><span>Total</span></small></article>
           </div>;
         })()}
@@ -404,6 +477,54 @@ export function AdminBillingSettingsPage() {
       </>}
     </section>
 
+    {/* Detail popup: every field for one order, gateway txn id included. */}
+    <Modal
+      open={detailTarget !== null}
+      title="Transaction details"
+      subtitle={detailTarget?.gatewayOrderId ?? undefined}
+      onClose={() => setDetailTarget(null)}
+      footer={<>
+        <button className="button button-outline compact-button" type="button" onClick={() => setDetailTarget(null)}>Close</button>
+      </>}
+    >
+      {detailTarget && (() => {
+        const t = detailTarget;
+        const isUsd = t.currency === "USD";
+        const fmt = (v: string | null, mono = false) => v ?? "—";
+        return <>
+          <div className="model-table-wrap">
+            <table className="model-table">
+              <tbody>
+                <tr><td><strong>Order ID</strong></td><td className="cell-num">{t.gatewayOrderId ?? "—"}</td></tr>
+                <tr><td><strong>Gateway txn ID</strong></td><td className="cell-num" style={{ wordBreak: "break-all" }}>{fmt(t.gatewayTxnId, true)}</td></tr>
+                <tr><td><strong>Payment order ID</strong></td><td className="cell-num" style={{ wordBreak: "break-all" }}>{t.id}</td></tr>
+                <tr><td><strong>User email</strong></td><td>{t.email}</td></tr>
+                <tr><td><strong>User ID</strong></td><td className="cell-num" style={{ wordBreak: "break-all" }}>{t.userId}</td></tr>
+                <tr><td><strong>Status</strong></td><td><span className={`status-pill status-${t.status}`}>{t.status}</span></td></tr>
+                <tr><td><strong>Kind</strong></td><td>{t.kind ?? "—"}</td></tr>
+                <tr><td><strong>Gateway</strong></td><td>{t.gateway ?? "—"}{t.paymentMethodName ? ` (${t.paymentMethodName})` : ""}</td></tr>
+                <tr><td><strong>Paid</strong></td><td className="cell-num">{isUsd ? formatUsd(Number(t.amountCurrency)) : formatIdr(Number(t.amountCurrency))}</td></tr>
+                <tr><td><strong>Currency</strong></td><td>{t.currency}</td></tr>
+                <tr><td><strong>Credits</strong></td><td className="cell-num">{formatCounter(Number(t.creditsAmount))}</td></tr>
+                <tr><td><strong>Sandbox</strong></td><td>{t.isSandbox ? "Yes" : "No"}</td></tr>
+                <tr><td><strong>Topup status</strong></td><td>{t.topupStatus ?? "—"}</td></tr>
+                <tr><td><strong>Created</strong></td><td className="cell-num">{new Date(t.createdAt).toLocaleString("en-GB")}</td></tr>
+                <tr><td><strong>Updated</strong></td><td className="cell-num">{new Date(t.updatedAt).toLocaleString("en-GB")}</td></tr>
+                <tr><td><strong>Expires</strong></td><td className="cell-num">{t.expiresAt ? new Date(t.expiresAt).toLocaleString("en-GB") : "—"}</td></tr>
+                <tr><td><strong>Completed</strong></td><td className="cell-num">{t.completedAt ? new Date(t.completedAt).toLocaleString("en-GB") : "—"}</td></tr>
+                {t.pricingPlanId && <tr><td><strong>Pricing plan</strong></td><td className="cell-num" style={{ wordBreak: "break-all" }}>{t.pricingPlanId}</td></tr>}
+                {t.vaNumber && <tr><td><strong>VA number</strong></td><td className="cell-num">{t.vaNumber}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {t.qrString && <div className="admin-subfield" style={{ marginTop: 14 }}>
+            <span className="admin-subfield-label">QR string / crypto invoice ref</span>
+            <code style={{ display: "block", fontSize: "var(--fs-small)", wordBreak: "break-all", background: "var(--cream)", padding: "10px 12px", borderRadius: 4 }}>{t.qrString}</code>
+          </div>}
+        </>;
+      })()}
+    </Modal>
+
     {/* Override modal: force-complete or cancel a pending order. */}
     <Modal
       open={overrideTarget !== null}
@@ -428,7 +549,7 @@ export function AdminBillingSettingsPage() {
               <tr><td><strong>User email</strong></td><td>{overrideTarget.email}</td></tr>
               <tr><td><strong>Current status</strong></td><td><span className={`status-pill status-${overrideTarget.status}`}>{overrideTarget.status}</span></td></tr>
               <tr><td><strong>Kind</strong></td><td>{overrideTarget.kind ?? "—"}</td></tr>
-              <tr><td><strong>Amount</strong></td><td className="cell-num">{overrideTarget.currency === "IDR" ? formatRupiah(Number(overrideTarget.amountCurrency)) : formatCounter(Number(overrideTarget.amountCurrency))}</td></tr>
+              <tr><td><strong>Amount</strong></td><td className="cell-num">{overrideTarget.currency === "IDR" ? formatIdr(Number(overrideTarget.amountCurrency)) : formatUsd(Number(overrideTarget.amountCurrency))}</td></tr>
               <tr><td><strong>Credits</strong></td><td className="cell-num">{formatCounter(Number(overrideTarget.creditsAmount))}</td></tr>
             </tbody>
           </table>

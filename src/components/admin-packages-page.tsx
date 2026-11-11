@@ -82,8 +82,11 @@ type PricingPlan = {
   displayName: string;
   displayDescription: string;
   features: string[];
-  priceIdr: number;
+  /** The single base price. Legacy column name kept for compatibility. */
+  price: number;
   priceCredits: string;
+  /** Rails this card accepts: IDR / CREDITS / USD. */
+  paymentMethods: string[];
   packageId: string;
   packageName: string;
   sortOrder: number;
@@ -97,17 +100,25 @@ type PlanForm = {
   displayName: string;
   displayDescription: string;
   features: string[];
-  priceIdr: string;
-  priceCredits: string;
-  paymentType: "idr" | "credits" | "both";
+  /** The single base price. Rendered in whichever currency the buyer picks. */
+  price: string;
+  /** Rails this card accepts. Empty is invalid — the form refuses to save. */
+  paymentMethods: string[];
   packageId: string;
   sortOrder: string;
   isPublic: boolean;
 };
 
+/** Rails a pricing card can accept. Order drives the checkbox list and the stored array. */
+const PAYMENT_METHODS: { value: string; label: string; hint: string }[] = [
+  { value: "IDR", label: "IDR", hint: "Rupiah — QRIS / bank transfer." },
+  { value: "CREDITS", label: "Credits", hint: "Instant deduct from the account's credit balance." },
+  { value: "USD", label: "USD", hint: "Crypto via CoinPayments (USDT / USDC)." },
+];
+
 const EMPTY_PLAN: PlanForm = {
   displayName: "", displayDescription: "", features: [],
-  priceIdr: "0", priceCredits: "0", paymentType: "idr", packageId: "", sortOrder: "0", isPublic: true,
+  price: "0", paymentMethods: ["IDR"], packageId: "", sortOrder: "0", isPublic: true,
 };
 
 function slugifyPlan(input: string): string {
@@ -317,9 +328,10 @@ export function AdminPackagesPage() {
       displayName: p.displayName,
       displayDescription: p.displayDescription,
       features: [...p.features],
-      priceIdr: String(p.priceIdr),
-      priceCredits: p.priceCredits,
-      paymentType: Number(p.priceCredits) > 0 && p.priceIdr > 0 ? "both" : Number(p.priceCredits) > 0 ? "credits" : "idr",
+      price: String(p.price),
+      // A legacy card with no rails stored still reads as IDR (the reader's fallback),
+      // so the checkbox list matches what checkout will actually offer.
+      paymentMethods: p.paymentMethods?.length ? p.paymentMethods : ["IDR"],
       packageId: p.packageId,
       sortOrder: String(p.sortOrder),
       isPublic: p.isPublic,
@@ -353,13 +365,19 @@ export function AdminPackagesPage() {
     const displayName = planForm.displayName.trim();
     if (!displayName) { setPlanNotice({ kind: "error", text: "Give the plan a display name." }); return; }
     if (!planForm.packageId) { setPlanNotice({ kind: "error", text: "Select a package to link." }); return; }
+    if (planForm.paymentMethods.length === 0) {
+      setPlanNotice({ kind: "error", text: "Pick at least one payment method." });
+      return;
+    }
 
+    // One price, sent as both the new and legacy field names so an older backend
+    // still receives a value it understands.
     const payload = {
       displayName,
       displayDescription: planForm.displayDescription.trim(),
       features: planForm.features,
-      priceIdr: planForm.paymentType === "credits" ? "0" : (planForm.priceIdr.trim() || "0"),
-      priceCredits: planForm.paymentType === "idr" ? "0" : (planForm.priceCredits.trim() || "0"),
+      price: planForm.price.trim() || "0",
+      paymentMethods: planForm.paymentMethods,
       packageId: planForm.packageId,
       sortOrder: planForm.sortOrder.trim() || "0",
       isPublic: planForm.isPublic,
@@ -623,7 +641,7 @@ export function AdminPackagesPage() {
         </div>}
         {plansStatus === "ready" && pricingPlans.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th>PRICE IDR</th><th style={{whiteSpace:"nowrap"}}>PRICE CREDITS</th><th>SORT</th><th>PUBLIC</th><th></th>
+            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th style={{whiteSpace:"nowrap"}}>PRICE</th><th style={{whiteSpace:"nowrap"}}>PAYMENT METHODS</th><th>SORT</th><th>PUBLIC</th><th></th>
           </tr></thead>
           <tbody>{pricingPlans.map(p => <tr key={p.id}>
             <td>
@@ -635,9 +653,13 @@ export function AdminPackagesPage() {
               <small className="cell-sub"><code>{p.packageId}</code></small>
             </td>
             <td className="cell-num">
-              {p.priceIdr > 0 ? `Rp ${p.priceIdr.toLocaleString("id-ID")}` : <span className="cell-muted">free</span>}
+              {p.price > 0 ? `Rp ${p.price.toLocaleString("id-ID")}` : <span className="cell-muted">free</span>}
             </td>
-            <td className="cell-num">{p.priceCredits !== "0" && p.priceCredits !== "" ? p.priceCredits : <span className="cell-muted">—</span>}</td>
+            <td>
+              {(p.paymentMethods?.length ? p.paymentMethods : ["IDR"]).map(m => (
+                <span key={m} className="plan-tag" style={{ marginRight: 4 }}>{m}</span>
+              ))}
+            </td>
             <td className="cell-num">{p.sortOrder}</td>
             <td>{p.isPublic ? <span className="plan-tag">public</span> : <span className="cell-muted">hidden</span>}</td>
             <td>
@@ -707,36 +729,34 @@ export function AdminPackagesPage() {
         </div>}
       </div>
 
-      <div className="admin-form">
-        <label className="admin-field">
-          <span>Payment method</span>
-          <Select label="Payment method" value={planForm.paymentType}
-            onChange={v => setPlanForm(f => ({ ...f, paymentType: v as PlanForm["paymentType"] }))}
-            options={[
-              { value: "idr", label: "IDR (Rupiah)" },
-              { value: "credits", label: "Credits" },
-              { value: "both", label: "IDR + Credits" },
-            ]} />
-          <small>Which currencies this plan accepts at checkout. IDR = QRIS, Credits = instant deduct.</small>
-        </label>
+      {/* Payment methods: a multi-select. The card accepts every rail ticked here. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Payment methods <em>{planForm.paymentMethods.length} selected</em></span>
+        <p className="admin-subfield-hint">Every ticked rail is offered at checkout. The buyer picks one; the price above is shown in that currency.</p>
+        <div className="pkg-models-list">
+          {PAYMENT_METHODS.map(m => {
+            const on = planForm.paymentMethods.includes(m.value);
+            return <label key={m.value} className={on ? "pkg-model-row pkg-model-row-on" : "pkg-model-row"}>
+              <input type="checkbox" checked={on}
+                onChange={() => setPlanForm(f => ({
+                  ...f,
+                  paymentMethods: on
+                    ? f.paymentMethods.filter(v => v !== m.value)
+                    : PAYMENT_METHODS.filter(x => x.value === m.value || f.paymentMethods.includes(x.value)).map(x => x.value),
+                }))} />
+              <span className="pkg-model-check">{on ? <Check size={12}/> : null}</span>
+              <span className="pkg-model-copy"><strong>{m.label}</strong><small>{m.hint}</small></span>
+            </label>;
+          })}
+        </div>
       </div>
       <div className="admin-form">
-        {(planForm.paymentType === "idr" || planForm.paymentType === "both") && (
-          <label className="admin-field">
-            <span>Price IDR</span>
-            <input value={planForm.priceIdr} placeholder="0" type="number" min={0}
-              onChange={e => setPlanForm(f => ({ ...f, priceIdr: e.target.value }))} />
-            <small>0 = free. Formatted as Rp on the card.</small>
-          </label>
-        )}
-        {(planForm.paymentType === "credits" || planForm.paymentType === "both") && (
-          <label className="admin-field">
-            <span>Price credits</span>
-            <input value={planForm.priceCredits} placeholder="0"
-              onChange={e => setPlanForm(f => ({ ...f, priceCredits: e.target.value }))} />
-            <small>Credit cost charged from user balance.</small>
-          </label>
-        )}
+        <label className="admin-field">
+          <span>Price</span>
+          <input value={planForm.price} placeholder="75000" type="number" min={0}
+            onChange={e => setPlanForm(f => ({ ...f, price: e.target.value }))} />
+          <small>0 = free. Shown as IDR, Credits or USD depending on the method the buyer picks.</small>
+        </label>
       </div>
       <div className="admin-form">
         <label className="admin-field">

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Activity, AlertTriangle, ChevronLeft, ChevronRight, Gift, Loader2, Plus, QrCode, RefreshCw, Wallet, X } from "lucide-react";
 import { Modal } from "@/components/modal";
-import { formatCredits, formatCharge, formatRupiah } from "@/lib/credits";
+import { formatCredits, formatCharge, formatIdr, formatRupiah, formatUsd } from "@/lib/credits";
 import { TopupDialog, type Topup } from "@/components/topup-dialog";
 
 /**
@@ -27,6 +27,12 @@ type Entry = {
   kind: string;
   /** Quotable id, e.g. ADMIN-TOPUP-261011-A1B2C3. This is what a ticket cites. */
   ref: string;
+  /**
+   * The order id this entry belongs to (DEVORA-WP-…, DEVORA-CP-…, a plan id, etc).
+   * Derived from the ledger's `reference` column — present on every entry that
+   * originated from an order, absent on pure ledger movements (model charges, etc).
+   */
+  reference: string | null;
 };
 
 type LedgerResult = { data: Entry[]; total: number; totalPages: number; page: number };
@@ -52,7 +58,8 @@ type TopupRow = {
   expiresAt: string | null;
   isSandbox: boolean;
   gateway: string | null;
-  /** The server's verdict on the deadline, so the row does not rely on the reader's clock. */
+  payCurrency: string | null;
+  payAmount: string | null;
   expired: boolean;
   createdAt: string;
   completedAt: string | null;
@@ -107,19 +114,70 @@ function formatWhen(iso: string): string {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function titleForKind(kind: string): string {
-  switch (kind) {
-    case "model_charge": return "Model usage";
-    case "model_settle": return "Usage settled";
-    case "model_refund": return "Refund";
-    case "admin_topup": return "Credits granted";
-    case "admin_deduct": return "Credits deducted";
-    case "admin_adjust": return "Manual adjustment";
-    case "voucher_redeem": return "Voucher redeemed";
-    case "topup_settlement": return "QRIS top-up";
-    case "ledger_opening": return "Opening balance";
-    default: return kind.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+/**
+ * Which rail an entry came from, read off the order id it references.
+ *
+ * The ledger's `reference` column has always carried the order id, so a row can be
+ * classified from data that is already stored — no migration, and rows written before
+ * a rail existed still classify correctly:
+ *
+ *   DEVORA-WP-SUBSCRIPTION-… → indonesia plan purchase (QRIS / bank transfer)
+ *   DEVORA-CP-SUBSCRIPTION-… → global plan purchase (crypto via CoinPayments)
+ *   DEVORA-WP-TOPUP-…        → indonesia credit top-up (QRIS)
+ *   DEVORA-CP-TOPUP-…        → global credit top-up (crypto)
+ *   DEVORA-MT-… / DEVORA-PK-…→ other QRIS gateways
+ *
+ * Returns null for entries with no order reference (model charges, admin grants, …).
+ */
+function railForEntry(kind: string, reference: string | null): "indonesia" | "global" | null {
+  if (kind !== "topup_settlement" && kind !== "plan_purchase") return null;
+  const ref = reference ?? "";
+  if (ref.startsWith("DEVORA-CP-")) return "global";
+  if (ref.startsWith("DEVORA-WP-") || ref.startsWith("DEVORA-MT-") || ref.startsWith("DEVORA-PK-")) return "indonesia";
+  return null;
+}
+
+/**
+ * The ACTIVITY column label — uppercase, text-only, no dot icon.
+ *
+ * Distinguishes the two payment rails and the two purchase types, so a row says which
+ * gateway it ran through rather than everything reading "QRIS top-up". Rows with no
+ * order reference keep the label their kind always had — old rows are unchanged.
+ */
+function titleForKind(kind: string, reference: string | null = null): string {
+  const rail = railForEntry(kind, reference);
+  if (kind === "topup_settlement") {
+    if (rail === "global") return "GLOBAL-TOPUP";
+    return "IDN-TOPUP";
   }
+  if (kind === "plan_purchase") {
+    if (rail === "global") return "GLOBAL-SUBSCRIPTION";
+    if (rail === "indonesia") return "IDN-SUBSCRIPTION";
+    return "SUBSCRIPTION PURCHASE";
+  }
+  switch (kind) {
+    case "model_charge": return "MODEL USAGE";
+    case "model_settle": return "USAGE SETTLED";
+    case "model_refund": return "REFUND";
+    case "admin_topup": return "CREDITS GRANTED";
+    case "admin_deduct": return "CREDITS DEDUCTED";
+    case "admin_adjust": return "MANUAL ADJUSTMENT";
+    case "voucher_redeem": return "VOUCHER REDEEMED";
+    case "ledger_opening": return "OPENING BALANCE";
+    default: return kind.replace(/_/g, " ").toUpperCase();
+  }
+}
+
+/**
+ * CSS class for the activity label, based on kind + rail.
+ * - Top-ups (credits added): green
+ * - Subscription purchases: orange
+ * - Charges/deductions: coral (default)
+ */
+function activityClass(kind: string, amount: string, reference: string | null = null): string {
+  if (kind === "topup_settlement" && Number(amount) > 0) return "activity-topup";
+  if (kind === "plan_purchase") return "activity-subscription";
+  return "";
 }
 
 /**
@@ -223,13 +281,14 @@ export default function CreditsPage() {
           setLedgerResult({
             data: (data.entries ?? []).map(e => ({
               id: e.id,
-              title: titleForKind(e.kind),
+              title: titleForKind(e.kind, e.reference),
               detail: e.detail,
               date: e.createdAt,
               amount: e.deltaCredits,
               balanceAfter: e.balanceAfter,
               kind: e.kind,
               ref: e.ref,
+              reference: e.reference,
             })),
             total: data.pagination?.total ?? 0,
             totalPages: data.pagination?.totalPages ?? 1,
@@ -378,7 +437,7 @@ export default function CreditsPage() {
 
     <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">01</span><div><h2>Top-up history</h2><p>What you paid over QRIS, and what is still waiting.</p></div></div>
+        <div><span className="section-index">01</span><div><h2>Top-up history</h2><p>What you paid — IDR or crypto — and what is still waiting.</p></div></div>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => setTopupRefreshKey(k => k + 1)} disabled={topupStatus === "loading"}>
@@ -416,8 +475,10 @@ export default function CreditsPage() {
                       </td>
                       <td className="cell-num">{formatCredits(t.credits)}</td>
                       <td className="cell-num">
-                        {formatRupiah(t.totalIdr)}
-                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                        {t.gateway === "coinpayments" && t.payAmount
+                          ? <>{formatUsd(t.payAmount)}</>
+                          : <>{formatIdr(t.totalIdr)}
+                          {t.feeIdr > 0 && <small className="cell-sub">{formatIdr(t.amountIdr)} + {formatIdr(t.feeIdr)} fee</small>}</>}
                       </td>
                       <td className="cell-status">
                         {t.status === "canceled"
@@ -448,7 +509,7 @@ export default function CreditsPage() {
                         ? <><Loader2 size={19} className="row-spinner"/><strong>Loading top-ups…</strong></>
                         : topupStatus === "error"
                           ? <><X size={19}/><strong>Could not load top-up history</strong></>
-                          : <><QrCode size={19}/><strong>No top-ups yet</strong><p>Add credits with QRIS and the order appears here.</p></>}
+                          : <><QrCode size={19}/><strong>No top-ups yet</strong><p>Add credits with IDR or crypto and the order appears here.</p></>}
                     </div></td></tr>}
               </tbody>
             </table>
@@ -473,7 +534,7 @@ export default function CreditsPage() {
           })()}
         </>;
       })()}
-      <div className="table-note"><AlertTriangle size={14}/> A QRIS order expires about an hour after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
+      <div className="table-note"><AlertTriangle size={14}/> An order expires about 15 minutes after it is created; an unpaid order still shows here so an abandoned checkout is visible.</div>
     </section>
 
     {/* Section 02: Credit activity — every credit movement, server-side paginated. */}
@@ -497,14 +558,14 @@ export default function CreditsPage() {
         return <>
           <div className="model-table-wrap">
             <table className="model-table credit-table">
-              <thead><tr><th>DATE</th><th>ACTIVITY</th><th>REFERENCE</th><th>DETAIL</th><th>AMOUNT</th></tr></thead>
+              <thead><tr><th>REFERENCE</th><th>ACTIVITY</th><th>AMOUNT</th><th>DATE</th><th>DETAIL</th></tr></thead>
               <tbody>
                 {rows.length > 0
-                  ? rows.map(row => <tr key={row.id}>
-                      <td>{formatWhen(row.date)}</td>
-                      <td className="cell-activity"><span className={`model-dot ${Number(row.amount) > 0 ? "mint-dot" : "coral-dot"}`}/><strong>{row.title}</strong></td>
+                  ? rows.map(row => {
+                      const actClass = activityClass(row.kind, row.amount, row.reference);
+                      return <tr key={row.id}>
                       <td>
-                        <code className="cell-num" style={{ cursor: "pointer", userSelect: "all" }} title="Click to copy"
+                        <code className="cell-num ref-copy" style={{ cursor: "pointer", userSelect: "all" }} title="Click to copy"
                           onClick={() => {
                             const text = row.ref;
                             if (navigator.clipboard?.writeText) {
@@ -519,9 +580,16 @@ export default function CreditsPage() {
                           }}
                         >{row.ref}</code>
                       </td>
-                      <td>{row.detail}<small className="ledger-after">balance {formatCredits(row.balanceAfter)}</small></td>
+                      <td className="cell-activity">
+                        <span className="cell-activity-copy">
+                          <strong className={actClass || undefined}>{row.title}</strong>
+                        </span>
+                      </td>
                       <td className={`credit-amount ${Number(row.amount) > 0 ? "credit-positive" : ""}`}>{formatCharge(row.amount)}</td>
-                    </tr>)
+                      <td>{formatWhen(row.date)}</td>
+                      <td>{row.detail}<small className="ledger-after">balance {formatCredits(row.balanceAfter)}</small></td>
+                    </tr>;
+                    })
                   : <tr><td colSpan={5}><div className="table-empty">
                       {ledgerStatus === "loading"
                         ? <><Loader2 size={19} className="row-spinner"/><strong>Loading activity…</strong><p>Reading your ledger.</p></>

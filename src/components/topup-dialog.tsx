@@ -27,6 +27,8 @@ type Topup = {
   feeIdr: number;
   totalIdr: number;
   qrString: string | null;
+  cryptoInvoiceId?: string | null;
+  gateway?: string | null;
   expiresAt: string | null;
   isSandbox: boolean;
 };
@@ -112,6 +114,123 @@ function Countdown({ left }: { left: number | null }) {
   </span>;
 }
 
+export type CryptoOption = { symbol: string; name: string; address: string; amount: string };
+
+/** Official-ish coin marks for the picker. Anything without a file falls back to the ticker text. */
+const COIN_ICONS: Record<string, string> = {
+  USDT: "/coins/usdt.svg",
+  USDC: "/coins/usdc.svg",
+  LTC: "/coins/ltc.svg",
+};
+
+/** Coins that reuse another coin's mark but should read as a variant (testnet, wrapped). */
+const COIN_ICON_DIM: Record<string, boolean> = { LTCT: true };
+
+function CoinIcon({ symbol, size = 20 }: { symbol: string; size?: number }) {
+  const src = COIN_ICONS[symbol] ?? (symbol === "LTCT" ? COIN_ICONS.LTC : undefined);
+  if (!src) {
+    return <span style={{ fontSize: size * 0.5, fontWeight: 700, opacity: .5, width: size, textAlign: "center" }}>{symbol.slice(0, 3)}</span>;
+  }
+  return <img src={src} alt={symbol} width={size} height={size} style={{ flexShrink: 0, borderRadius: "50%", opacity: COIN_ICON_DIM[symbol] ? .45 : 1 }} />;
+}
+
+export function CryptoPayOptions({ invoiceId, onSelect, onCopyError, onAmountUsd }: { invoiceId: string; onSelect: (opt: CryptoOption) => void; onCopyError?: (message: string) => void; onAmountUsd?: (usd: number) => void }) {
+  const [options, setOptions] = useState<CryptoOption[] | null>(null);
+  const [selected, setSelected] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/backend/api/v1/payment/crypto-options/${invoiceId}`);
+        if (!cancelled && res.ok) {
+          const data = await res.json() as { currencies?: CryptoOption[]; amountUsd?: number };
+          const list = data.currencies ?? [];
+          setOptions(list);
+          if (list.length > 0) onSelect(list[0]!);
+          if (typeof data.amountUsd === "number") onAmountUsd?.(data.amountUsd);
+        }
+      } catch { /* best effort */ }
+    })();
+    return () => { cancelled = true; };
+    // Only refetch when the invoice changes — onSelect/onAmountUsd are inline
+    // callbacks whose identity changes every render, so including them here
+    // would restart the fetch on every parent re-render and never settle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceId]);
+
+  if (!options) return <div className="table-empty"><Loader2 size={22} className="row-spinner"/><strong>Loading payment options...</strong></div>;
+  if (options.length === 0) return <div className="table-empty"><QrCode size={22}/><strong>No crypto options available</strong></div>;
+
+  const coin = options[selected]!;
+
+  const copyAddress = async () => {
+    const text = coin.address;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for non-secure contexts (plain HTTP on LAN).
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      onCopyError?.("Clipboard is blocked on this connection — select the text and copy it manually.");
+    }
+  };
+
+  const onSelectCoin = (i: number) => { setSelected(i); onSelect(options[i]!); };
+
+  return (
+    <>
+      {/* Payment address card */}
+      <div style={{ border: "1px solid rgba(23,20,13,.15)", borderRadius: 8, padding: "12px 14px", marginBottom: 12, background: "var(--paper)" }}>
+        <span className="admin-subfield-label" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+          <CoinIcon symbol={coin.symbol} size={16} /> Payment address · {coin.symbol}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <code style={{ flex: 1, fontSize: "var(--fs-small)", wordBreak: "break-all", userSelect: "all", background: "var(--cream)", padding: "10px 12px", borderRadius: 4 }}>
+            {coin.address}
+          </code>
+          <button type="button" onClick={copyAddress} style={{ flexShrink: 0, padding: "10px 12px", border: "1px solid var(--ink)", borderRadius: 4, background: "var(--paper)", cursor: "pointer", display: "flex", alignItems: "center", color: "var(--ink)" }}>
+            {copied ? <Check size={18}/> : <Copy size={18}/>}
+          </button>
+        </div>
+      </div>
+
+      {/* Coin selection — radio cards */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Choose coin</span>
+        <div className="payment-method-list">
+          {options.map((c, i) => (
+            <label key={c.symbol + i}
+              className={`payment-method-option${i === selected ? " selected" : ""}`}
+              style={{ cursor: "pointer" }} onClick={() => onSelectCoin(i)}>
+              <input type="radio" name="cryptoCoin" checked={i === selected} readOnly />
+              <div className="payment-method-info" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <CoinIcon symbol={c.symbol} size={24} />
+                <div>
+                  <strong>{c.name}</strong>
+                  <small>{c.amount} {c.symbol}</small>
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function TopupDialog({
   open, onClose, onSettled, onCanceled, balance, resumeTopup,
 }: {
@@ -138,11 +257,16 @@ export function TopupDialog({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [amountCopied, setAmountCopied] = useState(false);
   const [showCancelWarning, setShowCancelWarning] = useState(false);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [selectedMethodId, setSelectedMethodId] = useState("");
   const [methodsLoading, setMethodsLoading] = useState(false);
   const [isSuperuser, setIsSuperuser] = useState(false);
+  const [usdRate, setUsdRate] = useState<number | null>(null);
+  const [usdToCredits, setUsdToCredits] = useState<number | null>(null);
+  const [usdRateUpdatedAt, setUsdRateUpdatedAt] = useState<string | null>(null);
+  const [selectedCrypto, setSelectedCrypto] = useState<CryptoOption | null>(null);
 
   /**
    * Derived from the order's own status, not from a flag set inside the poll.
@@ -164,7 +288,14 @@ export function TopupDialog({
   // dialog opens straight on its QR without minting a new one.
   useEffect(() => {
     if (!open) return;
-    setTopup(resumeTopup ?? null);
+    // Transform crypto topup: if gateway is coinpayments, qrString is invoice UUID
+    const initial = resumeTopup ? { ...resumeTopup } : null;
+    if (initial && initial.gateway === "coinpayments" && initial.qrString && !initial.cryptoInvoiceId) {
+      initial.cryptoInvoiceId = initial.qrString;
+      initial.qrString = null;
+    }
+    setTopup(initial);
+    setSelectedCrypto(null);
     setError("");
     setCopied(false);
     // Fetch user plan to determine if 1K preset should be shown.
@@ -198,10 +329,20 @@ export function TopupDialog({
         if (cancelled) return;
         if (!res.ok) { setMethodsLoading(false); return; }
         const data = await res.json() as { methods?: PaymentMethod[] };
-        const idrMethods = (data.methods ?? []).filter(m => m.category === "idr");
-        setPaymentMethods(idrMethods);
-        const firstActive = idrMethods.find(m => m.visibility === "active" || m.visibility === "private" || m.isActive);
+        const validMethods = (data.methods ?? []).filter(m => m.category === "idr" || m.category === "usd");
+        setPaymentMethods(validMethods);
+        const firstActive = validMethods.find(m => m.visibility === "active" || m.visibility === "private" || m.isActive);
         setSelectedMethodId(firstActive ? firstActive.id : "");
+        // Fetch USD rate
+        try {
+          const rRes = await fetch("/backend/api/v1/payment/usd-rate");
+          if (!cancelled && rRes.ok) {
+            const rData = await rRes.json() as { usdToIdr: number; usdToCredits?: number; updatedAt?: string };
+            setUsdRate(rData.usdToIdr);
+            if (rData.usdToCredits) setUsdToCredits(rData.usdToCredits);
+            if (rData.updatedAt) setUsdRateUpdatedAt(rData.updatedAt);
+          }
+        } catch { /* best-effort */ }
       } catch {
         if (!cancelled) setError("Could not load payment methods.");
       } finally {
@@ -281,6 +422,7 @@ export function TopupDialog({
         feeIdr?: number;
         totalIdr?: number;
         expiresAt?: string | null;
+        method?: string;
       };
       // Instant payment (e.g. credits method that settles immediately).
       if (data.status === "completed") {
@@ -301,6 +443,7 @@ export function TopupDialog({
       // QR-based payment: seed the topup with QR data and let the poll take over.
       if (data.qrString) {
         const topupOrderId = data.topupOrderId ?? data.orderId ?? "";
+        const isCrypto = (data.method ?? "") === "coinpayments";
         setTopup({
           orderId: topupOrderId,
           status: "pending",
@@ -308,7 +451,8 @@ export function TopupDialog({
           amountIdr: data.amountIdr ?? data.totalIdr ?? 0,
           feeIdr: data.feeIdr ?? 0,
           totalIdr: data.totalIdr ?? 0,
-          qrString: data.qrString,
+          qrString: isCrypto ? null : data.qrString,
+          cryptoInvoiceId: isCrypto ? data.qrString : null,
           expiresAt: data.expiresAt ?? null,
           isSandbox: false,
         });
@@ -366,7 +510,13 @@ export function TopupDialog({
         }
         const data = await res.json() as { topup?: Topup };
         if (stopped || !data.topup) return;
-        setTopup(prev => (prev === null ? data.topup! : { ...prev, ...data.topup! }));
+        // Detect crypto from gateway field — if coinpayments, qrString is invoice UUID
+        const t = data.topup;
+        if (t.gateway === "coinpayments" && t.qrString && !t.cryptoInvoiceId) {
+          t.cryptoInvoiceId = t.qrString;
+          t.qrString = null;
+        }
+        setTopup(prev => (prev === null ? t : { ...prev, ...t }));
         // `settled` is derived from the status, so nothing to flip here — only the page needs
         // telling that the balance moved.
         if (data.topup.status === "completed") onSettled();
@@ -407,9 +557,7 @@ export function TopupDialog({
     };
   }, [open, orderId, orderStatus, expiresAt, authHeaders, onSettled]);
 
-  const copyString = async () => {
-    if (!topup?.qrString) return;
-    const text = topup.qrString;
+  const copyText = async (text: string): Promise<boolean> => {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -424,11 +572,32 @@ export function TopupDialog({
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      return true;
     } catch {
-      setError("Clipboard is blocked on this connection — select the text and copy it manually.");
+      return false;
     }
+  };
+
+  const copyString = async () => {
+    if (!topup?.qrString) return;
+    const ok = await copyText(topup.qrString);
+    if (!ok) {
+      setError("Clipboard is blocked on this connection — select the text and copy it manually.");
+      return;
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyCryptoAmount = async () => {
+    if (!selectedCrypto) return;
+    const ok = await copyText(selectedCrypto.amount);
+    if (!ok) {
+      setError("Clipboard is blocked on this connection — select the text and copy it manually.");
+      return;
+    }
+    setAmountCopied(true);
+    window.setTimeout(() => setAmountCopied(false), 2000);
   };
 
   const fee = topup?.feeIdr ?? 0;
@@ -468,7 +637,7 @@ export function TopupDialog({
         title={settled ? "Credits added" : "Add credits"}
         subtitle={settled
           ? "The payment settled and your balance is updated."
-          : "Pay with any QRIS app — GoPay, OVO, DANA, ShopeePay, or your bank."}
+          : "Pay with QRIS, bank transfer, or crypto — IDR & USD supported."}
         busy={creating}
         footer={settled
           ? <button className="button button-ink compact-button" type="button" onClick={handleClose}>
@@ -528,10 +697,19 @@ export function TopupDialog({
         {/* Raw digits above, the reading below — the same rule the admin forms follow. */}
         <p className="admin-scale-note" aria-live="polite">
           {Number(credits) >= minTopup
-            ? <><strong>{formatRupiah(Math.round(Number(credits)))}</strong> plus the QRIS fee, paid by you</>
+            ? <><strong>{formatRupiah(Math.round(Number(credits)))}</strong> in IDR (Indonesia Rupiah){usdToCredits ? <> · ~${((Math.round(Number(credits)) / usdToCredits).toFixed(2))} USD</> : null}</>
             : <><strong>—</strong> Minimum is {minTopup.toLocaleString()} credits.</>}
         </p>
       </div>
+
+      {/* USD rate conversion card */}
+      {usdToCredits && <div style={{ background: "rgba(23,117,107,.06)", border: "1px solid rgba(23,117,107,.15)", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
+        <span className="admin-subfield-label">USD Rate</span>
+        <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", opacity: .75 }}>
+          1 USD = {usdToCredits.toLocaleString("id-ID")} Credits
+          {usdRateUpdatedAt && <> · Last updated {new Date(usdRateUpdatedAt).toLocaleString("id-ID")}</>}
+        </p>
+      </div>}
 
       {/* Payment method selection — radio cards like billing page. */}
       <div className="admin-subfield">
@@ -583,27 +761,48 @@ export function TopupDialog({
           ? <div className="topup-qr topup-qr-dead" aria-hidden>
               <span className="topup-qr-void"><QrCode size={30}/><small>CODE EXPIRED</small></span>
             </div>
+          : topup.cryptoInvoiceId && !selectedCrypto
+          ? null
           : <div className="topup-qr">
               {topup.qrString
                 ? <QrCanvas value={topup.qrString}/>
+                : topup.cryptoInvoiceId && selectedCrypto
+                ? <QrCanvas value={selectedCrypto.address} />
+                : topup.cryptoInvoiceId
+                ? null
                 : <div className="table-empty"><QrCode size={22}/><strong>No QR returned</strong></div>}
             </div>}
         <div className="topup-facts">
           <div className="topup-fact">
             <small>YOU PAY</small>
-            <strong>{formatRupiah(topup.totalIdr)}</strong>
+            {topup.cryptoInvoiceId && selectedCrypto
+              ? <span className="topup-fact-copyable">
+   <strong>{selectedCrypto.amount} {selectedCrypto.symbol}</strong>
+   <button type="button" className="topup-fact-copy" title="Copy amount"
+     onClick={() => void copyCryptoAmount()} aria-label="Copy amount">
+     {amountCopied ? <Check size={14}/> : <Copy size={14}/>}
+   </button>
+ </span>
+              : topup.cryptoInvoiceId
+              ? <strong>—</strong>
+              : <strong>{formatRupiah(topup.totalIdr)}</strong>}
           </div>
           <div className="topup-fact">
             <small>YOU GET</small>
             <strong>{formatCredits(topup.credits)} <span>credits</span></strong>
           </div>
-          {buyerPaysFee && <div className="topup-fact topup-fact-sub">
+          {buyerPaysFee && !topup.cryptoInvoiceId && <div className="topup-fact topup-fact-sub">
             <small>BREAKDOWN</small>
             <strong>{formatRupiah(topup.amountIdr)} + {formatRupiah(fee)} fee</strong>
           </div>}
           {!dead && !canceled && <Countdown left={timeLeft}/>}
         </div>
       </div>
+
+      {/* Crypto payment options — OUTSIDE topup-pay, own bordered card */}
+      {topup.cryptoInvoiceId && <div style={{ border: "1px solid rgba(23,20,13,.15)", borderRadius: 8, padding: "12px 14px", marginTop: 8, background: "var(--paper)" }}>
+        <CryptoPayOptions invoiceId={topup.cryptoInvoiceId} onSelect={setSelectedCrypto} onCopyError={setError} />
+      </div>}
 
       {/* The code is dead but the order never settled. Without this the dialog kept showing a
           scannable QR and "waiting for payment" indefinitely, because the local countdown and
@@ -633,12 +832,12 @@ export function TopupDialog({
 
       {/* The "only pay this QR" note is for a live order — a canceled or dead order has nothing
           left to pay, so telling the payer which QR to use would only be confusing. */}
-      {live && <div className="modal-info-note">
+      {live && topup.qrString && <div className="modal-info-note">
         <strong>Important</strong>
         <span>Only pay using this QRIS. If you started another checkout, the previous QR is canceled and cannot be used.</span>
       </div>}
 
-      {live && topup.qrString && <details className="topup-raw">
+      {live && !!topup.qrString && <details className="topup-raw">
         <summary>Can&apos;t scan it? Copy the code</summary>
         <div className="topup-raw-row">
           <code>{topup.qrString}</code>

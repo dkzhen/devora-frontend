@@ -38,11 +38,31 @@ async function isSuperuser(getToken: () => Promise<string | null>): Promise<bool
 }
 
 export default clerkMiddleware(async (auth, request) => {
-  // Keep the frontend buildable and usable as a public prototype when Clerk is
-  // not configured. Once keys are present, every decision below is session-based.
   if (!CLERK_ENABLED) return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;
+
+  // Clerk handshake loop guard: when the session token expires and the refresh
+  // token is gone, Clerk repeatedly redirects to /__clerk/v1/client/handshake
+  // with __clerk_hs_reason=session-token-expired-refresh-refresh_token_not_found.
+  // Intercept that before it spirals — send the user to sign in cleanly.
+  const hsReason = request.nextUrl.searchParams.get("__clerk_hs_reason");
+  if (hsReason && (hsReason.includes("refresh_token_not_found") || hsReason.includes("expired"))) {
+    const signInUrl = new URL(AUTH_PATH, request.url);
+    // Strip all Clerk params so the redirect target is clean.
+    const cleanPath = pathname.replace(/^\/__clerk\/v1\/client\/handshake/, "/console");
+    signInUrl.searchParams.set("next", cleanPath);
+    const res = NextResponse.redirect(signInUrl);
+    // Nuke the stale session cookies so the sign-in page starts fresh.
+    res.cookies.delete("__clerk_dbjs");
+    res.cookies.delete("__clerk_dbjs2");
+    res.cookies.delete("__clerk_frontend_cache");
+    res.cookies.delete("__clerk_sat");
+    res.cookies.delete("__clerk_sut");
+    res.cookies.delete("__clerk_dsu");
+    return res;
+  }
+
   const session = await auth();
   const { userId } = session;
 

@@ -65,6 +65,29 @@ export function formatRupiah(idr: number): string {
 }
 
 /**
+ * IDR for tables: currency code + grouped number, no "Rp" prefix.
+ *
+ * Matches the USD row (`USD 2.76`) so both currencies read the same way.
+ * Thousands separator is a dot — Indonesian convention.
+ */
+export function formatIdr(idr: number): string {
+  if (!Number.isFinite(idr)) return "—";
+  return `IDR ${Math.round(idr).toLocaleString("id-ID")}`;
+}
+
+/**
+ * USD, 2 decimals max, trailing zeros trimmed.
+ *
+ * `2.7600` reads as noise; `2.76` is what the payer actually sees on the invoice.
+ * Whole values drop the decimal point entirely (`3`, not `3.00`).
+ */
+export function formatUsd(usd: number | string): string {
+  const n = typeof usd === "number" ? usd : Number(usd);
+  if (!Number.isFinite(n)) return "—";
+  return `USD ${n.toFixed(2).replace(/\.?0+$/, "")}`;
+}
+
+/**
  * Money back into credits at a given rate.
  *
  * For pricing a top-up: the operator types rupiah and the form shows how many credits that buys.

@@ -11,9 +11,10 @@ import {
 } from "lucide-react";
 import { formatCounter } from "@/lib/format-counter";
 import { formatTokens } from "@/lib/tokens";
-import { formatCredits, formatRupiah } from "@/lib/credits";
+import { formatCredits, formatRupiah, formatUsd } from "@/lib/credits";
 import { CLERK_ENABLED } from "@/lib/clerk-config";
 import { PackageActions } from "@/components/package-actions";
+import { CryptoPayOptions, type CryptoOption } from "@/components/topup-dialog";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
 
@@ -69,12 +70,15 @@ type PricingPlan = {
   displayName: string;
   displayDescription: string;
   features: string[];
-  priceIdr: number;
+  /** The single base price, in the plan's base unit. */
+  price: number;
   priceCredits: string;
+  /** Rails this card accepts: IDR / CREDITS / USD. */
+  paymentMethods: string[];
   package: PlanPackage;
 };
 
-const formatIdr = (n: number): string => "Rp " + n.toLocaleString("id-ID");
+const formatIdr = (n: number): string => "IDR " + n.toLocaleString("id-ID");
 const PLAN_POLL_MS = 4_000;
 
 function QrCanvas({ value, size = 232 }: { value: string; size?: number }) {
@@ -144,8 +148,9 @@ type PaymentMethodItem = {
 type PubPlan = {
   id: string;
   displayName: string;
-  priceIdr: number;
+  price: number;
   priceCredits: string;
+  paymentMethods: string[];
   package: PlanPackage;
 };
 
@@ -162,6 +167,9 @@ type TopupRow = {
   expiresAt: string | null;
   isSandbox: boolean;
   gateway: string | null;
+  /** Currency-aware paid amount from payment_orders (USD orders). */
+  payCurrency: string | null;
+  payAmount: string | null;
   expired: boolean;
   createdAt: string;
   completedAt: string | null;
@@ -211,8 +219,8 @@ function pageWindow(current: number, total: number): (number | "gap")[] {
  * Share card — Devora themed (cream/paper/mint), exportable as PNG.
  * Promo: shows package value (tokens/credits) vs what pay-as-you-go would cost.
  */
-function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted, models, priceIdr }: {
-  sub: Subscription; unlimited: boolean; used: number; cap: number | null; pct: number | null; throttled: boolean; exhausted: boolean; models: { provider: string; name: string }[]; priceIdr: number;
+function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted, models, price }: {
+  sub: Subscription; unlimited: boolean; used: number; cap: number | null; pct: number | null; throttled: boolean; exhausted: boolean; models: { provider: string; name: string }[]; price: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -302,17 +310,17 @@ function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted
             <div>
               <small style={{fontSize:"var(--fs-micro)",letterSpacing:"0.7px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:3}}>PACKAGE PRICE</small>
               <strong style={{fontFamily:"var(--display)",fontSize:"var(--fs-h4)",color:"var(--ink)"}}>
-                {priceIdr > 0 ? formatIdr(priceIdr) : "Free"}
+                {price > 0 ? formatIdr(price) : "Free"}
               </strong>
             </div>
             <div>
               <small style={{fontSize:"var(--fs-micro)",letterSpacing:"0.7px",color:"var(--muted)",fontWeight:700,display:"block",marginBottom:3}}>PAY-AS-YOU-GO EQ.</small>
               <strong style={{fontFamily:"var(--display)",fontSize:"var(--fs-small)",color:"var(--coral)",textDecoration:"line-through"}}>
-                {priceIdr > 0 ? formatIdr(totalGranted) : `${formatCounter(paygoCreditsEquivalent)} credits`}
+                {price > 0 ? formatIdr(totalGranted) : `${formatCounter(paygoCreditsEquivalent)} credits`}
               </strong>
               <div style={{fontSize:"var(--fs-micro)",color:"var(--mint)",fontWeight:600,marginTop:2}}>
-                {priceIdr > 0 && totalGranted > 0
-                  ? `Save ${Math.round((1 - priceIdr / totalGranted) * 100)}% vs pay-as-you-go`
+                {price > 0 && totalGranted > 0
+                  ? `Save ${Math.round((1 - price / totalGranted) * 100)}% vs pay-as-you-go`
                   : "Package saves credits on every request"}
               </div>
             </div>
@@ -377,7 +385,7 @@ function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted
  * different packages), so this is a list item, not a single hero — the page shows every
  * subscription the account holds rather than assuming one.
  */
-function SubscriptionCard({ sub, onChanged, priceIdr }: { sub: Subscription; onChanged: () => void; priceIdr: number }) {
+function SubscriptionCard({ sub, onChanged, price }: { sub: Subscription; onChanged: () => void; price: number }) {
   const MODELS_SHOWN = 4;
   const [allModels, setAllModels] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -487,7 +495,7 @@ function SubscriptionCard({ sub, onChanged, priceIdr }: { sub: Subscription; onC
         subtitle={sub.name}
         footer={<button className="button button-outline compact-button" type="button" onClick={() => setShareOpen(false)}>Close</button>}
       >
-        <PackageShareCard sub={sub} unlimited={unlimited} used={used} cap={cap} pct={pct} throttled={throttled} exhausted={exhausted} models={models} priceIdr={priceIdr} />
+        <PackageShareCard sub={sub} unlimited={unlimited} used={used} cap={cap} pct={pct} throttled={throttled} exhausted={exhausted} models={models} price={price} />
       </Modal>
     )}
 
@@ -511,6 +519,7 @@ export default function BillingPage() {
   // QRIS purchase modal state.
   const [qrOpen, setQrOpen] = useState(false);
   const [modelPopup, setModelPopup] = useState<{ models: { name: string; provider: string }[]; name: string } | null>(null);
+  const [detailPopup, setDetailPopup] = useState<{ plan: PricingPlan; lang: "en" | "id" } | null>(null);
   const [cancelReason, setCancelReason] = useState<{ orderId: string; reason: string } | null>(null);
   const [qrOrder, setQrOrder] = useState<{
     orderId: string;
@@ -530,11 +539,19 @@ export default function BillingPage() {
   const [paymentMessage, setPaymentMessage] = useState("");
 
   // Payment method popup state
-  const [paymentPopup, setPaymentPopup] = useState<{ plan: PubPlan; methods: PaymentMethodItem[]; rates: { idrToCredits: number } | null } | null>(null);
+  const [paymentPopup, setPaymentPopup] = useState<{ plan: PubPlan; methods: PaymentMethodItem[]; rates: { idrToCredits: number } | null; usdRate: number | null; usdRateUpdatedAt: string | null } | null>(null);
+  // Crypto (CoinPayments) plan checkout: the invoice UUID the coin picker polls.
+  const [planCryptoOrder, setPlanCryptoOrder] = useState<{ orderId: string; invoiceId: string; totalUsd: number; expiresAt: string | null } | null>(null);
+  // Countdown for the crypto modal — must be a top-level hook, not inside JSX.
+  const planCryptoTimeLeft = useTimeLeft(planCryptoOrder?.expiresAt ?? null);
+  // The coin the buyer picked in the crypto picker — drives the YOU PAY display.
+  const [planCryptoSelected, setPlanCryptoSelected] = useState<CryptoOption | null>(null);
+  const [planCryptoCopied, setPlanCryptoCopied] = useState(false);
   const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
   const [paymentPopupBusy, setPaymentPopupBusy] = useState(false);
   const [paymentPopupError, setPaymentPopupError] = useState("");
   const [selectedMethodId, setSelectedMethodId] = useState("");
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   const [invoiceResult, setInvoiceResult] = useState<InvoiceResult | null>(null);
   const [invoiceStatus, setInvoiceStatus] = useState<Status>("loading");
@@ -677,32 +694,94 @@ export default function BillingPage() {
     };
   }, [qrOpen, qrOrderId, qrOrderStatus, qrExpiresAt, getToken, load]);
 
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  // Poll the crypto (CoinPayments) order too. The webhook settles it server-side, but the
+  // buyer is sitting on the crypto modal — without this they would have to reload to learn
+  // the package was granted. Same interval and same endpoint as the QRIS poll above.
+  useEffect(() => {
+    const cryptoOrderId = planCryptoOrder?.orderId ?? null;
+    if (planCryptoOrder === null || cryptoOrderId === null) return;
+    let stopped = false;
+    let handle: number | undefined;
+
+    const poll = async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`/backend/api/v1/topups/${encodeURIComponent(cryptoOrderId)}`, {
+          headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store",
+        });
+        if (stopped) return;
+        if (!res.ok) return;
+        const data = await res.json() as { topup?: { status: "pending" | "completed" | "canceled" } };
+        if (stopped || !data.topup) return;
+        if (data.topup.status === "completed") {
+          if (handle !== undefined) window.clearInterval(handle);
+          stopped = true;
+          // Close the payment modal and show the success state — same as the credits page.
+          setPlanCryptoOrder(null);
+          setPaymentSuccess(true);
+          void load();
+        } else if (data.topup.status !== "pending") {
+          if (handle !== undefined) window.clearInterval(handle);
+          stopped = true;
+          setPlanCryptoOrder(null);
+          void load();
+        }
+      } catch { /* transient, next tick retries */ }
+    };
+
+    handle = window.setInterval(() => { if (!stopped) void poll(); }, PLAN_POLL_MS);
+    return () => {
+      stopped = true;
+      if (handle !== undefined) window.clearInterval(handle);
+    };
+  }, [planCryptoOrder, getToken, load]);
 
   const openPaymentPopup = async (plan: PubPlan) => {
     setPaymentPopupError("");
     setPaymentMethodsLoading(true);
     setSelectedMethodId("");
-    setPaymentPopup({ plan, methods: [], rates: null });
+    setPaymentPopup({ plan, methods: [], rates: null, usdRate: null, usdRateUpdatedAt: null });
     try {
       const token = await getToken();
       const res = await fetch("/backend/api/v1/payment/methods", {
         headers: { Authorization: `Bearer ${token ?? ""}` },
       });
       if (!res.ok) { setPaymentPopupError("Could not load payment methods."); return; }
-      const data = await res.json() as { methods?: PaymentMethodItem[]; rates?: { idrToCredits: number } };
+      const data = await res.json() as { methods?: PaymentMethodItem[]; rates?: { fromCurrency: string; toCurrency: string; rate: string | number }[] };
       const all = data.methods ?? [];
-      // Filter methods based on what the plan accepts
-      const hasIdr = plan.priceIdr > 0;
-      const hasCredits = plan.priceCredits !== "0" && plan.priceCredits !== "";
-      const filtered = hasIdr && hasCredits
-        ? all // both — show all
-        : hasIdr
-          ? all.filter(m => m.category === "idr" || m.category === "usd") // IDR only — no credits
-          : hasCredits
-            ? all.filter(m => m.category === "credits") // Credits only
-            : all; // free — shouldn't reach here
-      setPaymentPopup({ plan, methods: filtered, rates: data.rates ?? null });
+      // Read the live IDR→CREDITS rate from the same table the backend prices with.
+      // No hardcoded fallback: if the row is missing the rail shows a dash rather than
+      // a made-up number.
+      const idrRateRow = (data.rates ?? []).find(r => r.fromCurrency === "IDR" && r.toCurrency === "CREDITS");
+      const idrToCredits = idrRateRow ? Number(idrRateRow.rate) : 0;
+      // The plan's own rail list decides what is offered. A legacy card with no list
+      // stored falls back to IDR — the rail it was always sold on.
+      const rails = plan.paymentMethods?.length ? plan.paymentMethods : ["IDR"];
+      // Each rail maps to the payment_methods categories that can serve it. A method the
+      // plan does not accept is left out entirely rather than shown as disabled.
+      // Additionally, the CREDITS rail is only offered when the plan has a positive base
+      // price. Credits are derived from price_idr at the live idr_per_credit rate, so a
+      // zero-price plan has nothing to charge.
+      const allowedCategories = new Set<string>();
+      if (rails.includes("IDR")) allowedCategories.add("idr");
+      if (rails.includes("CREDITS") && Number(plan.price) > 0) allowedCategories.add("credits");
+      if (rails.includes("USD")) allowedCategories.add("usd");
+      const filtered = allowedCategories.size === 0
+        ? all
+        : all.filter(m => allowedCategories.has(m.category));
+      // Live USD→IDR for the USD rail, from the same rate table the credits page uses.
+      // No hardcoded divisor — the number comes from the backend or not at all.
+      let usdRate: number | null = null;
+      let usdRateUpdatedAt: string | null = null;
+      try {
+        const rateRes = await fetch("/backend/api/v1/payment/usd-rate", { cache: "no-store" });
+        if (rateRes.ok) {
+          const rateData = await rateRes.json() as { usdToCredits?: number | null; effectiveUsdToIdr?: number | null; updatedAt?: string | null };
+          usdRate = rateData.effectiveUsdToIdr ?? rateData.usdToCredits ?? null;
+          usdRateUpdatedAt = rateData.updatedAt ?? null;
+        }
+      } catch { /* rate unavailable — the USD rail shows a dash rather than a made-up price */ }
+      setPaymentPopup({ plan, methods: filtered, rates: { idrToCredits } , usdRate, usdRateUpdatedAt });
     } catch {
       setPaymentPopupError("Could not reach the server.");
     } finally {
@@ -734,7 +813,24 @@ export default function BillingPage() {
         topupOrderId?: string;
         expiresAt?: string | null;
         totalIdr?: number;
+        totalUsd?: number;
+        method?: string;
+        gateway?: string;
       };
+      // Crypto (CoinPayments) returns the invoice UUID as qrString, same shape as the
+      // credits top-up. Route it to the crypto picker rather than the QR modal, which
+      // would render a UUID as a QR code.
+      const isCrypto = data.method === "coinpayments" || data.gateway === "coinpayments";
+      if (isCrypto) {
+        setPlanCryptoOrder({
+          orderId: data.topupOrderId ?? data.orderId ?? "",
+          invoiceId: data.qrString ?? "",
+          totalUsd: data.totalUsd ?? 0,
+          expiresAt: data.expiresAt ?? null,
+        });
+        setPaymentPopup(null);
+        return;
+      }
       if (data.status === "completed") {
         setPaymentPopup(null);
         setPaymentSuccess(true);
@@ -1014,7 +1110,7 @@ export default function BillingPage() {
         <div className="billing-subs">
           {subs.map(s => {
             const matchingPlan = pubPlans.find(p => p.package?.id === s.packageId || p.id === s.packageId);
-            return <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()} priceIdr={matchingPlan?.priceIdr ?? 0} />;
+            return <SubscriptionCard key={s.id} sub={s} onChanged={() => void load()} price={matchingPlan?.price ?? 0} />;
           })}
         </div>
       </>}
@@ -1037,15 +1133,29 @@ export default function BillingPage() {
           const pkg = p.package;
           const unlimited = pkg.category === "unlimited";
           const granted = unlimited ? pkg.fairUseCap : pkg.tokenCap;
-          const hasIdr = p.priceIdr > 0;
-          const hasCredits = p.priceCredits !== "0" && p.priceCredits !== "";
-          const isFree = !hasIdr && !hasCredits;
+          const isFree = p.price === 0;
+          // Rails this card accepts, in a stable order. A legacy card with no list
+          // falls back to IDR — the rail every pre-multi-select card was sold on.
+          const rails = p.paymentMethods?.length
+            ? (["IDR", "CREDITS", "USD"] as const).filter(r => p.paymentMethods.includes(r) && !(r === "CREDITS" && p.price <= 0))
+            : ["IDR"];
+          const railsLabel = rails.length <= 1
+            ? `via ${rails[0] === "IDR" ? "IDR" : rails[0] === "CREDITS" ? "credits" : "USD"}`
+            : `via ${rails.map(r => r === "CREDITS" ? "credits" : r).slice(0, -1).join(", ")} or ${rails[rails.length - 1] === "CREDITS" ? "credits" : rails[rails.length - 1]}`;
           const isCurrent = subs.some(s => s.packageId === pkg.id);
           const busy = purchasing === p.id;
           return <article key={p.id} className={`billing-plan-card pkg-card pkg-card-${["mint", "coral", "violet"][i % 3]}`}>
             <div className="pkg-card-top">
               <span className="pkg-icon">{unlimited ? <InfinityIcon size={20}/> : <Package size={20}/>}</span>
-              <span className="plan-tag">{pkg.tier}</span>
+              <button
+                type="button"
+                className="pkg-info-btn"
+                title="Package details"
+                aria-label={`Details for ${p.displayName}`}
+                onClick={() => setDetailPopup({ plan: p, lang: "en" })}
+              >
+                <Info size={15}/>
+              </button>
             </div>
             <h2 className="pkg-name">{p.displayName}</h2>
             {p.displayDescription && <p className="pkg-desc">{p.displayDescription}</p>}
@@ -1055,11 +1165,8 @@ export default function BillingPage() {
             </ul>}
 
             <div className="pkg-price">
-              {hasIdr && <div><span className="pkg-price-idr">{p.priceIdr.toLocaleString("id-ID")}</span></div>}
-              {!hasIdr && hasCredits && <div><span className="pkg-price-credits">{p.priceCredits}</span></div>}
-              {hasIdr && hasCredits && <div><span className="pkg-price-method">via IDR or credits</span></div>}
-              {hasIdr && !hasCredits && <div><span className="pkg-price-method">via IDR</span></div>}
-              {!hasIdr && hasCredits && <div><span className="pkg-price-method">via credits</span></div>}
+              {!isFree && <div><span className="pkg-price-idr">{p.price.toLocaleString("id-ID")}</span></div>}
+              {!isFree && <div><span className="pkg-price-method">{railsLabel}</span></div>}
               {isFree && <span className="pkg-price-free">Free</span>}
             </div>
 
@@ -1139,7 +1246,7 @@ export default function BillingPage() {
     {/* ---------- invoices ---------- */}
     <section className="console-section invoice-section">
       <div className="section-title-row">
-        <div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Plan purchases paid over QRIS.</p></div></div>
+        <div><span className="section-index">04</span><div><h2>Invoice history</h2><p>Plan purchases — IDR, credits, or crypto.</p></div></div>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => setInvoiceRefreshKey(k => k + 1)} disabled={invoiceStatus === "loading"}>
@@ -1157,7 +1264,7 @@ export default function BillingPage() {
         return <>
           <div className="model-table-wrap">
             <table className="model-table">
-              <thead><tr><th>ORDER ID</th><th>AMOUNT</th><th>STATUS</th><th>DATE</th><th>ACTION</th></tr></thead>
+              <thead><tr><th>ORDER ID</th><th>PAID</th><th>STATUS</th><th>DATE</th><th>ACTION</th></tr></thead>
               <tbody>
                 {rows.length > 0
                   ? rows.map(t => <tr key={t.orderId}>
@@ -1181,8 +1288,10 @@ export default function BillingPage() {
                         >{t.orderId}</code>
                       </td>
                       <td className="cell-num">
-                        {formatRupiah(t.totalIdr)}
-                        {t.feeIdr > 0 && <small className="cell-sub">{formatRupiah(t.amountIdr)} + {formatRupiah(t.feeIdr)} fee</small>}
+                        {t.gateway === "coinpayments" && t.payAmount
+                          ? <>{formatUsd(Number(t.payAmount))}</>
+                          : <>{formatIdr(t.totalIdr)}
+                          {t.feeIdr > 0 && <small className="cell-sub">{formatIdr(t.amountIdr)} + {formatIdr(t.feeIdr)} fee</small>}</>}
                       </td>
                       <td className="cell-status">
                         {t.status === "canceled"
@@ -1197,12 +1306,23 @@ export default function BillingPage() {
                       <td>{formatWhen(t.createdAt)}</td>
                       <td>
                         {t.status === "pending"
-                          ? <button className="row-action" type="button" title="Show QR" aria-label={`Show QR for ${t.orderId}`} onClick={() => {
-                            setQrOrder({ orderId: t.orderId, qrString: t.qrString ?? null, totalIdr: t.totalIdr, amountIdr: t.amountIdr, feeIdr: t.feeIdr, expiresAt: t.expiresAt ?? null, isSandbox: t.isSandbox });
-                            setQrStatus("pending");
-                            setQrError("");
-                            setCopied(false);
-                            setQrOpen(true);
+                          ? <button className="row-action" type="button" title="View order" aria-label={`View order ${t.orderId}`} onClick={() => {
+                            // Crypto orders have an invoice UUID, not a QR string — opening the
+                            // QR modal would render the UUID as a QR code, which is wrong.
+                            if (t.gateway === "coinpayments" && t.qrString) {
+                              setPlanCryptoOrder({
+                                orderId: t.orderId,
+                                invoiceId: t.qrString,
+                                totalUsd: 0, // unknown at this point — the picker fetches addresses, not the order
+                                expiresAt: t.expiresAt ?? null,
+                              });
+                            } else {
+                              setQrOrder({ orderId: t.orderId, qrString: t.qrString ?? null, totalIdr: t.totalIdr, amountIdr: t.amountIdr, feeIdr: t.feeIdr, expiresAt: t.expiresAt ?? null, isSandbox: t.isSandbox });
+                              setQrStatus("pending");
+                              setQrError("");
+                              setCopied(false);
+                              setQrOpen(true);
+                            }
                           }}><QrIcon size={14}/></button>
                           : <span className="cell-muted">—</span>}
                       </td>
@@ -1331,7 +1451,146 @@ export default function BillingPage() {
       </div>}
     </Modal>
 
+    {/* Package detail popup — EN/ID toggle, shows full package info. */}
+    {detailPopup && (() => {
+      const p = detailPopup.plan;
+      const pkg = p.package;
+      const unlimited = pkg.category === "unlimited";
+      const granted = unlimited ? pkg.fairUseCap : pkg.tokenCap;
+      const isFree = p.price === 0;
+      const rails = p.paymentMethods?.length
+        ? (["IDR", "CREDITS", "USD"] as const).filter(r => p.paymentMethods.includes(r) && !(r === "CREDITS" && p.price <= 0))
+        : ["IDR"];
+      const lang = detailPopup.lang;
+      const t = (en: string, id: string) => lang === "id" ? id : en;
+      return <Modal
+        open={detailPopup !== null}
+        onClose={() => setDetailPopup(null)}
+        title={p.displayName}
+        subtitle={t("Package details", "Detail paket")}
+        footer={<button className="button button-ink compact-button" type="button" onClick={() => setDetailPopup(null)}><Check size={15}/> {t("Done", "Selesai")}</button>}
+      >
+        {/* Language toggle */}
+        <div className="detail-lang-toggle">
+          <button type="button" className={lang === "en" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => setDetailPopup(d => d ? { ...d, lang: "en" } : null)}>EN</button>
+          <button type="button" className={lang === "id" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => setDetailPopup(d => d ? { ...d, lang: "id" } : null)}>ID</button>
+        </div>
+
+        <div className="detail-info-grid">
+          <div className="detail-info-row"><span>{t("Tier", "Tingkat")}</span><strong>{pkg.tier}</strong></div>
+          <div className="detail-info-row"><span>{t("Category", "Kategori")}</span><strong>{unlimited ? t("Unlimited (fair use)", "Unlimited (fair use)") : t("Hard cap", "Token terbatas")}</strong></div>
+          <div className="detail-info-row"><span>{t("Price", "Harga")}</span><strong>{isFree ? t("Free", "Gratis") : p.price.toLocaleString("id-ID")}</strong></div>
+          <div className="detail-info-row"><span>{t("Payment methods", "Metode bayar")}</span><strong>{rails.map(r => r === "CREDITS" ? "credits" : r).join(", ")}</strong></div>
+          <div className="detail-info-row"><span>{t("Token allowance", "Jatah token")}</span><strong>{unlimited ? t("Unlimited", "Tak terbatas") : (granted ? formatCounter(Number(granted)) : "—")}</strong></div>
+          <div className="detail-info-row"><span>{t("Duration", "Durasi")}</span><strong>{pkg.durationDays === null ? t("Lifetime", "Seumur hidup") : `${pkg.durationDays} ${t("days", "hari")}`}</strong></div>
+          <div className="detail-info-row"><span>{t("Request rate", "Batas request")}</span><strong>{pkg.baseRpm === null ? t("Unlimited", "Tak terbatas") : `${pkg.baseRpm} rpm`}{unlimited && pkg.throttledRpm !== null ? ` → ${pkg.throttledRpm} rpm` : ""}</strong></div>
+          <div className="detail-info-row"><span>{t("Models covered", "Model tercakup")}</span><strong>{pkg.modelCount}</strong></div>
+        </div>
+
+        {p.features.length > 0 && <div className="detail-features">
+          <span className="detail-section-label">{t("Features", "Fitur")}</span>
+          <ul className="pkg-features">
+            {p.features.map((f, idx) => <li key={idx}><Check size={13}/> {f}</li>)}
+          </ul>
+        </div>}
+
+        {p.displayDescription && <div className="detail-desc">
+          <span className="detail-section-label">{t("Description", "Deskripsi")}</span>
+          <p>{p.displayDescription}</p>
+        </div>}
+
+        {pkg.models && pkg.models.length > 0 && <div className="detail-models">
+          <span className="detail-section-label">{t("Models", "Model")}</span>
+          <div className="model-chips" style={{ gap: 7 }}>
+            {pkg.models.map(m => <span className="model-chip" key={`${m.provider}/${m.name}`}>
+              <ProviderMark provider={m.provider} size={16}/>
+              <span>{m.name}</span>
+            </span>)}
+          </div>
+        </div>}
+
+        <div className="detail-outcome">
+          {unlimited
+            ? (pkg.throttledRpm !== null
+              ? t(`Fair use: ${formatTokens(Number(pkg.fairUseCap))} tokens at full speed, then ${pkg.throttledRpm} rpm — never cut off.`, `Fair use: ${formatTokens(Number(pkg.fairUseCap))} token di kecepatan penuh, lalu ${pkg.throttledRpm} rpm — tidak pernah diputus.`)
+              : t("Truly unlimited — no fair use cap, no throttle.", "Benar-benar unlimited — tanpa batas fair use, tanpa throttle."))
+            : t("Once the allowance is spent, the plan ends and your account falls back to pay-as-you-go credits.", "Setelah jatah token habis, paket berakhir dan akun kembali ke pay-as-you-go credits.")}
+        </div>
+      </Modal>;
+    })()}
+
     {/* Payment method popup — select how to pay before creating an order. */}
+    {/* Crypto (CoinPayments) checkout for a plan purchase — same layout as the credits
+        top-up dialog: QR + YOU PAY + countdown, not a bare address card. */}
+    <Modal
+      open={planCryptoOrder !== null}
+      title="Pay with crypto"
+      subtitle={planCryptoOrder && planCryptoOrder.totalUsd > 0 ? `USD ${planCryptoOrder.totalUsd.toFixed(2)}` : "Loading…"}
+      onClose={() => setPlanCryptoOrder(null)}
+      footer={<button className="button button-outline compact-button" type="button" onClick={() => setPlanCryptoOrder(null)}>Close</button>}
+    >
+      {planCryptoOrder && planCryptoOrder.invoiceId && (
+        <>
+          {/* Crypto picker: address card + coin selection. Rendered unconditionally —
+              CryptoPayOptions fetches both the coin addresses AND the USD amount via
+              callback. Gating it behind totalUsd > 0 would create a deadlock: the
+              picker never loads because it is the thing that fetches totalUsd. */}
+          <CryptoPayOptions
+            invoiceId={planCryptoOrder.invoiceId}
+            onSelect={setPlanCryptoSelected}
+            onAmountUsd={(usd) => setPlanCryptoOrder(prev => prev ? { ...prev, totalUsd: usd } : prev)}
+          />
+
+          {/* Facts row: YOU PAY shows the selected coin amount + copy, USD below it. */}
+          <div className="topup-pay" style={{ marginTop: 12 }}>
+            <div className="topup-facts">
+              <div className="topup-fact">
+                <small>YOU PAY</small>
+                {planCryptoSelected
+                  ? <span className="topup-fact-copyable">
+                      <strong>{planCryptoSelected.amount} {planCryptoSelected.symbol}</strong>
+                      <button type="button" className="topup-fact-copy" title="Copy amount"
+                        onClick={() => {
+                          const text = planCryptoSelected.amount;
+                          try {
+                            if (navigator.clipboard && window.isSecureContext) {
+                              void navigator.clipboard.writeText(text);
+                            } else {
+                              const ta = document.createElement("textarea");
+                              ta.value = text;
+                              ta.style.position = "fixed";
+                              ta.style.left = "-9999px";
+                              document.body.appendChild(ta);
+                              ta.select();
+                              document.execCommand("copy");
+                              document.body.removeChild(ta);
+                            }
+                            setPlanCryptoCopied(true);
+                            window.setTimeout(() => setPlanCryptoCopied(false), 2000);
+                          } catch { /* clipboard blocked */ }
+                        }} aria-label="Copy amount">
+                        {planCryptoCopied ? <Check size={14}/> : <Copy size={14}/>}
+                      </button>
+                    </span>
+                  : <strong>—</strong>}
+              </div>
+              <div className="topup-fact">
+                <small>PACKAGE</small>
+                <strong>Plan purchase</strong>
+              </div>
+            </div>
+            {/* USD equivalent below the facts, not in the grid — it's context, not the primary figure. */}
+            {planCryptoOrder.totalUsd > 0 && (
+              <div style={{ textAlign: "center", fontSize: "var(--fs-small)", color: "var(--muted)" }}>
+                ≈ USD {planCryptoOrder.totalUsd.toFixed(2)}
+              </div>
+            )}
+            {planCryptoTimeLeft !== null && <Countdown left={planCryptoTimeLeft} />}
+          </div>
+        </>
+      )}
+    </Modal>
+
     <Modal
       open={paymentPopup !== null}
       onClose={() => { setPaymentPopup(null); setPaymentPopupError(""); setSelectedMethodId(""); }}
@@ -1346,8 +1605,32 @@ export default function BillingPage() {
     >
       {paymentMethodsLoading && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading payment methods…</span></div>}
       {paymentPopupError && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{paymentPopupError}</span></div>}
-      {!paymentMethodsLoading && !paymentPopupError && paymentPopup && paymentPopup.methods.length > 0 && (
-        <div className="payment-method-list">
+      {!paymentMethodsLoading && !paymentPopupError && paymentPopup && (
+        <>
+          {/* Price package — what the buyer is about to pay, before picking a rail. */}
+          {(() => {
+            const p = paymentPopup.plan;
+            const rails = p.paymentMethods?.length
+              ? (["IDR", "CREDITS", "USD"] as const).filter(r => p.paymentMethods.includes(r) && !(r === "CREDITS" && p.price <= 0))
+              : ["IDR"];
+            return <div style={{ background: "rgba(23,117,107,.06)", border: "1px solid rgba(23,117,107,.15)", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+              <span className="admin-subfield-label">Price package</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                <strong style={{ fontSize: "var(--fs-h5)", fontFamily: "var(--display)" }}>{p.price.toLocaleString("id-ID")}</strong>
+                <small style={{ color: "var(--muted)" }}>pay with any of these</small>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                {rails.map(r => <span key={r} className="plan-tag">{r}</span>)}
+              </div>
+              {paymentPopup.usdRate && paymentPopup.usdRate > 0 && (
+                <small style={{ display: "block", marginTop: 6, color: "var(--muted)" }}>
+                  1 USD = IDR {Math.round(paymentPopup.usdRate).toLocaleString("id-ID")}
+                  {paymentPopup.usdRateUpdatedAt && <> · Last updated {new Date(paymentPopup.usdRateUpdatedAt).toLocaleString("id-ID")}</>}
+                </small>
+              )}
+            </div>;
+          })()}
+          <div className="payment-method-list">
           {(["credits", "idr", "usd"] as const).map(cat => {
             const catMethods = paymentPopup.methods.filter(m => m.category === cat);
             if (catMethods.length === 0) return null;
@@ -1356,12 +1639,24 @@ export default function BillingPage() {
               <div key={cat} className="payment-method-group">
                 <small className="payment-method-cat">{catLabel}</small>
                 {catMethods.map(m => {
-                  const price = cat === "credits"
-                    ? `${paymentPopup.plan.priceCredits} credits`
-                    : cat === "idr"
-                      ? `Rp ${paymentPopup.plan.priceIdr.toLocaleString("id-ID")}`
-                      : `$${(paymentPopup.plan.priceIdr / 15000).toFixed(2)}`;
-                  const insufficientCredits = m.category === "credits" && Number(credits) < Number(paymentPopup.plan.priceCredits);
+                  // One base price, rendered per rail. IDR reads it directly; USD converts
+                  // at the live rate the backend served with the methods (no hardcoded
+                  // divisor), and CREDITS converts through IDR→CREDITS from the same table.
+                  const price = paymentPopup.plan.price;
+                  const usdRate = paymentPopup.usdRate;
+                  const idrToCredits = paymentPopup.rates?.idrToCredits ?? 0;
+                  const creditsEquivalent = idrToCredits > 0 ? Math.round(price / idrToCredits) : 0;
+                  let priceLabel: string;
+                  if (cat === "credits") {
+                    priceLabel = creditsEquivalent > 0 ? `${creditsEquivalent.toLocaleString("id-ID")} credits` : "—";
+                  } else if (cat === "idr") {
+                    priceLabel = `IDR ${price.toLocaleString("id-ID")}`;
+                  } else {
+                    priceLabel = usdRate && usdRate > 0 ? `USD ${(price / usdRate).toFixed(2)}` : "—";
+                  }
+                  const insufficientCredits = m.category === "credits"
+                    && creditsEquivalent > 0
+                    && Number(credits) < creditsEquivalent;
                   const isDisabled = insufficientCredits || !(m.visibility === "active" || m.visibility === "private" || m.isActive);
                   const disabledReason = !(m.visibility === "active" || m.visibility === "private" || m.isActive) ? " · Unavailable" : insufficientCredits ? " · Insufficient credits" : "";
                   return (
@@ -1371,7 +1666,7 @@ export default function BillingPage() {
                         <strong>{m.name}{isDisabled && <span className="payment-insufficient">{disabledReason}</span>}</strong>
                         {m.description && <small>{m.description}</small>}
                       </div>
-                      <span className="payment-method-price">{price}</span>
+                      <span className="payment-method-price">{priceLabel}</span>
                     </label>
                   );
                 })}
@@ -1379,6 +1674,7 @@ export default function BillingPage() {
             );
           })}
         </div>
+        </>
       )}
     </Modal>
 

@@ -10,3 +10,4 @@ out
 .trash/
 *.bak
 *.orig
+.next.old/

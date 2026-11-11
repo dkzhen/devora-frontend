@@ -158,16 +158,30 @@ export function AdminPaymentPage() {
   const [usdRate, setUsdRate] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [liveUsdRate, setLiveUsdRate] = useState<number | null>(null);
+  const [liveUsdMarket, setLiveUsdMarket] = useState<number | null>(null);
+  const [liveUsdMarkup, setLiveUsdMarkup] = useState<number>(0);
+  const [fetchingLive, setFetchingLive] = useState(false);
+  const [updatingUsd, setUpdatingUsd] = useState(false);
+  const [usdUpdatedAt, setUsdUpdatedAt] = useState<string | null>(null);
 
   const loadRates = useCallback(async () => {
     setRatesStatus("loading");
     try {
       const res = await fetch("/backend/api/v1/admin/payment/rates", { headers: await authHeaders(), cache: "no-store" });
       if (!res.ok) { setRatesStatus("error"); return; }
-      const data = await res.json() as { rates?: ExchangeRates };
-      setRates(data.rates ?? null);
-      setIdrRate(data.rates?.idrToCredits ?? "");
-      setUsdRate(data.rates?.usdToCredits ?? "");
+      const data = await res.json() as { rates?: { fromCurrency: string; toCurrency: string; rate: string; updatedAt: string }[] };
+      const rows = data.rates ?? [];
+      const idrRow = rows.find(r => r.fromCurrency === "IDR" && r.toCurrency === "CREDITS");
+      const usdRow = rows.find(r => r.fromCurrency === "USD" && r.toCurrency === "CREDITS");
+      const mapped: ExchangeRates = {
+        idrToCredits: idrRow?.rate ?? "0",
+        usdToCredits: usdRow?.rate ?? "0",
+      };
+      setRates(mapped);
+      setIdrRate(trimRate(mapped.idrToCredits));
+      setUsdRate(trimRate(mapped.usdToCredits));
+      if (usdRow) setUsdUpdatedAt(usdRow.updatedAt ?? null);
       setRatesStatus("ready");
     } catch { setRatesStatus("error"); }
   }, [authHeaders]);
@@ -188,12 +202,61 @@ export function AdminPaymentPage() {
         setRateNotice({ kind: "error", text: body?.error?.message ?? "Could not save rates." });
         return;
       }
-      const data = await res.json() as { rates?: ExchangeRates };
-      if (data.rates) { setRates(data.rates); setIdrRate(data.rates.idrToCredits); setUsdRate(data.rates.usdToCredits); }
+      // The endpoint returns the full row array, not a flat object — map it through the
+      // same path as loadRates so the panel reflects what was actually persisted.
+      const data = await res.json() as { rates?: { fromCurrency: string; toCurrency: string; rate: string; updatedAt: string }[] };
+      if (data.rates) {
+        const rows = data.rates;
+        const usdRow = rows.find(r => r.fromCurrency === "USD" && r.toCurrency === "CREDITS");
+        const idrRow = rows.find(r => r.fromCurrency === "IDR" && r.toCurrency === "CREDITS");
+        setRates({ idrToCredits: idrRow?.rate ?? idrRate, usdToCredits: usdRow?.rate ?? usdRate });
+        setIdrRate(trimRate(idrRow?.rate ?? idrRate));
+        setUsdRate(trimRate(usdRow?.rate ?? usdRate));
+        if (usdRow) setUsdUpdatedAt(usdRow.updatedAt ?? null);
+      }
       setRateNotice({ kind: "ok", text: "Exchange rates updated." });
     } catch {
       setRateNotice({ kind: "error", text: "Could not reach the server." });
     } finally { setSavingRates(false); }
+  };
+
+  const fetchLiveUsd = async () => {
+    setFetchingLive(true);
+    try {
+      const res = await fetch("/backend/api/v1/admin/payment/usd-rate", { headers: await authHeaders() });
+      if (!res.ok) throw new Error("API error");
+      // `effectiveUsdToIdr` already has the crypto markup applied server-side (market − markup).
+      // Recomputing from `usdToIdr` here would drop the markup and show a rate that disagrees
+      // with what crypto buyers are actually charged.
+      const data = await res.json() as { usdToIdr: number; effectiveUsdToIdr?: number; markupIdr?: number };
+      const idrRateNum = Number(rates?.idrToCredits ?? "1");
+      // `effectiveUsdToIdr` already has the crypto markup applied server-side (market − markup).
+      // Recomputing from `usdToIdr` here would drop the markup and show a rate that disagrees
+      // with what crypto buyers are actually charged.
+      setLiveUsdMarket(Math.round(data.usdToIdr * idrRateNum));
+      setLiveUsdMarkup(data.markupIdr ?? 0);
+      const effective = data.effectiveUsdToIdr ?? Math.round(data.usdToIdr * idrRateNum);
+      setLiveUsdRate(Math.round(effective * idrRateNum));
+    } catch {
+      setLiveUsdRate(null);
+    } finally { setFetchingLive(false); }
+  };
+
+  const updateUsdRate = async () => {
+    if (!liveUsdRate) return;
+    setUpdatingUsd(true);
+    try {
+      const res = await fetch("/backend/api/v1/admin/payment/rates", {
+        method: "PUT",
+        headers: await authHeaders(),
+        body: JSON.stringify({ usdToCredits: liveUsdRate }),
+      });
+      if (res.ok) {
+        void loadRates();
+        setLiveUsdRate(null);
+      }
+    } catch { /* ignore */ }
+    finally { setUpdatingUsd(false); }
   };
 
   // ---------------------------------------------------------------------------
@@ -406,101 +469,30 @@ export function AdminPaymentPage() {
       )}
     </section>
 
-    {status === "ready" && <section className="console-section">
+    {rates && <section className="console-section">
       <div className="section-title-row">
-        <div><span className="section-index">02</span><div><h2>The rate</h2><p>One credit is worth this much.</p></div></div>
-         {settings && <span className="admin-editing-note">
-          {settings.updatedAt === ""
-            ? "Never set — showing the default."
-            : <>Last set {new Date(settings.updatedAt).toLocaleString("id-ID")}{settings.updatedBy ? ` by ${settings.updatedBy}` : ""}.</>}
-        </span>}
+        <div><span className="section-index">02</span><div><h2>USD Rate</h2><p>Live from frankfurter.app → DB.</p></div></div>
       </div>
-
-      <div className="admin-form">
-        <label className="admin-field">
-          <span>Rupiah per credit</span>
-          <input value={idr} inputMode="decimal" placeholder="1"
-            onChange={e => setIdr(e.target.value)} />
-          <small>The rate everything else follows. 1 means 1 credit = Rp 1.</small>
-        </label>
+      <div className="model-table-wrap">
+        <table className="model-table">
+          <tbody>
+            <tr><td><strong>USD → IDR (market)</strong></td><td className="cell-num">{liveUsdMarket ? `Rp ${(liveUsdMarket / Number(rates.idrToCredits || "1")).toLocaleString("id-ID")}` : "—"}</td></tr>
+            <tr><td><strong>Crypto markup</strong></td><td className="cell-num">{liveUsdMarkup ? `− Rp ${liveUsdMarkup.toLocaleString("id-ID")} / USD` : "None"}</td></tr>
+            <tr><td><strong>USD → Credits (computed)</strong></td><td className="cell-num">{liveUsdRate ? liveUsdRate.toLocaleString("id-ID") : "—"}</td></tr>
+            <tr><td><strong>USD → Credits (DB)</strong></td><td className="cell-num">{Number(rates.usdToCredits).toLocaleString("id-ID", { maximumFractionDigits: 2 })}</td></tr>
+            {usdUpdatedAt && <tr><td><strong>Last updated</strong></td><td className="cell-num">{new Date(usdUpdatedAt).toLocaleString("id-ID")}</td></tr>}
+          </tbody>
+        </table>
       </div>
-
-      {/* Raw digits above, the reading below — the operator should not have to count zeroes. */}
-      <p className="admin-scale-note" aria-live="polite">
-        {draftValid
-          ? <><strong>{formatRupiah(draftIdr)}</strong> per credit</>
-          : <><strong>—</strong> Enter a positive number of rupiah per credit.</>}
-      </p>
-
-      <div className="admin-subfield">
-        <span className="admin-subfield-label">QRIS gateway fee</span>
-        <p className="admin-subfield-hint">Who pays the payment gateway&apos;s cut when someone tops up.</p>
-        <div className="kind-tiles">
-          <button type="button"
-            className={feeBearer === "buyer" ? "kind-tile kind-tile-on" : "kind-tile"}
-            aria-pressed={feeBearer === "buyer"}
-            onClick={() => setFeeBearer("buyer")}>
-            <span className="kind-tile-flag">{feeBearer === "buyer" ? "SELECTED" : ""}</span>
-            <strong>Buyer pays</strong>
-            <small>Charged on top of the credit price. The account receives the full credits it asked for.</small>
-          </button>
-          <button type="button"
-            className={feeBearer === "merchant" ? "kind-tile kind-tile-on" : "kind-tile"}
-            aria-pressed={feeBearer === "merchant"}
-            onClick={() => setFeeBearer("merchant")}>
-            <span className="kind-tile-flag">{feeBearer === "merchant" ? "SELECTED" : ""}</span>
-            <strong>You absorb it</strong>
-            <small>Deducted from what the account pays, so fewer credits land than the amount transferred.</small>
-          </button>
-        </div>
-      </div>
-
       <div className="admin-actions">
-        <button className="button button-ink" type="button" onClick={() => void submit()} disabled={saving || !dirty}>
-          {saving ? <><Loader2 size={15} className="row-spinner"/> Saving…</> : <>Save rate <Save size={16}/></>}
+        <button className="button button-ink" type="button" onClick={() => void fetchLiveUsd()} disabled={fetchingLive}>
+          {fetchingLive ? <><Loader2 size={15} className="row-spinner"/> Fetching…</> : <><RefreshCw size={16}/> Fetch live rate</>}
         </button>
-        {!dirty && settings !== null && !notice && <span className="admin-editing-note">No changes to save.</span>}
-        {notice && <p className={notice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
-          {notice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{notice.text}
-        </p>}
-      </div>
-    </section>}
-
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">04</span><div><h2>What this buys</h2><p>The rate as a customer sees it, before the gateway fee.</p></div></div>
-      </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <thead><tr><th style={{ whiteSpace: "nowrap" }}>PAY</th><th style={{ whiteSpace: "nowrap" }}>CREDITS</th></tr></thead>
-          <tbody>
-            {QUICK_AMOUNTS.map(amount => {
-              const credits = draftValid ? moneyToCredits(amount, String(draftIdr)) : 0;
-              return <tr key={amount}>
-                <td className="cell-num">{formatRupiah(amount)}</td>
-                <td className="cell-num"><strong>{credits.toLocaleString("id-ID", { maximumFractionDigits: 6 })}</strong></td>
-              </tr>;
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="table-note"><AlertTriangle size={14}/> A rate change reprices future top-ups and how balances read. Orders already placed keep the rate they were created with.</div>
-    </section>}
-
-    {status === "ready" && <section className="console-section">
-      <div className="section-title-row">
-        <div><span className="section-index">05</span><div><h2>Current state</h2><p>What the database holds right now.</p></div></div>
-      </div>
-      <div className="model-table-wrap">
-        <table className="model-table">
-          <tbody>
-            <tr><td><strong>Rupiah per credit</strong></td><td className="cell-num">{settings ? formatRupiah(Number(settings.idrPerCredit)) : "—"}</td></tr>
-            <tr><td><strong>QRIS fee paid by</strong></td><td className="cell-num">{settings?.feeBearer === "merchant" ? "you (absorbed)" : "the buyer"}</td></tr>
-            <tr><td><strong>Last changed</strong></td><td className="cell-num">{settings && settings.updatedAt !== ""
-              ? new Date(settings.updatedAt).toLocaleString("id-ID")
-              : "never"}</td></tr>
-          </tbody>
-        </table>
+        {liveUsdRate && (
+          <button className="button button-ink" type="button" onClick={() => void updateUsdRate()} disabled={updatingUsd}>
+            {updatingUsd ? <><Loader2 size={15} className="row-spinner"/> Updating…</> : <><Save size={16}/> Update DB</>}
+          </button>
+        )}
       </div>
     </section>}
 

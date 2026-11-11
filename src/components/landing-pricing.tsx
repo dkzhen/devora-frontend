@@ -17,13 +17,35 @@ type PricingPlan = {
   displayName: string;
   displayDescription: string;
   features: string[];
-  priceIdr: number;
+  price: number;
   priceCredits: string;
+  /** Rails this card accepts: IDR / CREDITS / USD. */
+  paymentMethods: string[];
   package: PlanPackage;
 };
 
 function formatIdr(n: number): string {
   return "Rp " + n.toLocaleString("id-ID");
+}
+
+/**
+ * Which rails a card advertises, in a stable order.
+ *
+ * Reads the plan's own `paymentMethods`; a legacy card with no list falls back to IDR,
+ * the rail every pre-multi-select card was sold on. The old `priceCredits > 0` test
+ * is gone — a card states its rails instead of inferring them from a second price column.
+ */
+function railsOf(plan: PricingPlan): string[] {
+  const rails = plan.paymentMethods?.length ? plan.paymentMethods : ["IDR"];
+  const order = ["IDR", "CREDITS", "USD"];
+  return order.filter(r => rails.includes(r));
+}
+
+/** "via IDR", "via IDR or credits", "via IDR, credits or USD". */
+function railsLabel(rails: string[]): string {
+  const labels = rails.map(r => (r === "IDR" ? "IDR" : r === "CREDITS" ? "credits" : "USD"));
+  if (labels.length <= 1) return `via ${labels[0] ?? "IDR"}`;
+  return `via ${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
 }
 
 /** Truncate a description to ~100 chars for the compact landing card. */
@@ -124,25 +146,15 @@ export function LandingPricing() {
                 )}
 
                 <div className="pkg-price">
-                  {plan.priceIdr > 0 && (
-                    <div><span className="pkg-price-idr">{plan.priceIdr.toLocaleString("id-ID")}</span></div>
+                  {plan.price > 0 && (
+                    <div><span className="pkg-price-idr">{plan.price.toLocaleString("id-ID")}</span></div>
                   )}
-                  {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
-                    <div><span className="pkg-price-credits">{plan.priceCredits}</span></div>
+                  {plan.price > 0 && (
+                    <div><span className="pkg-price-method">{railsLabel(railsOf(plan))}</span></div>
                   )}
-                  {plan.priceIdr > 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
-                    <div><span className="pkg-price-method">via IDR or credits</span></div>
+                  {plan.price === 0 && (
+                    <span className="pkg-price-free">Free</span>
                   )}
-                  {plan.priceIdr > 0 && (plan.priceCredits === "0" || plan.priceCredits === "") && (
-                    <div><span className="pkg-price-method">via IDR</span></div>
-                  )}
-                  {plan.priceIdr === 0 && plan.priceCredits !== "0" && plan.priceCredits !== "" && (
-                    <div><span className="pkg-price-method">via credits</span></div>
-                  )}
-                  {plan.priceIdr === 0 &&
-                    (plan.priceCredits === "0" || plan.priceCredits === "") && (
-                      <span className="pkg-price-free">Free</span>
-                    )}
                 </div>
 
                 <div className="pkg-card-foot">

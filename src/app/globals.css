@@ -1341,6 +1341,24 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pkg-price-or::before,.pkg-price-or::after{content:"";flex:1;height:1.5px;background:#e0dbce}
 .pkg-price-free{font:800 var(--fs-h4) var(--display);letter-spacing:-.4px;color:var(--mint)}
 
+/* Info button on plan cards — replaces the old plan-tag badge. */
+.pkg-info-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);cursor:pointer;transition:background .12s,color .12s;flex:none}
+.pkg-info-btn:hover{background:var(--ink);color:var(--paper)}
+
+/* Package detail popup — EN/ID toggle + info grid. */
+.detail-lang-toggle{display:flex;gap:6px;margin-bottom:14px}
+.detail-info-grid{display:flex;flex-direction:column;gap:0;margin-bottom:16px}
+.detail-info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eae4d8}
+.detail-info-row span{font:700 var(--fs-micro) var(--display);letter-spacing:.4px;text-transform:uppercase;color:#8b8579}
+.detail-info-row strong{font:700 var(--fs-small) var(--display);color:var(--ink);text-align:right}
+.detail-section-label{font:700 var(--fs-micro) var(--display);letter-spacing:.6px;text-transform:uppercase;color:#8b8579;display:block;margin-bottom:8px}
+.detail-features{margin-bottom:16px}
+.detail-desc{margin-bottom:16px}
+.detail-desc p{font-size:var(--fs-small);line-height:1.6;color:#6f695d;margin:0}
+.detail-models{margin-bottom:16px}
+.detail-outcome{margin:0;font-size:var(--fs-note);line-height:1.6;color:#6f695d;padding:11px 12px;background:#f4f0e8;border-left:3px solid var(--ink)}
+.detail-outcome strong{color:var(--ink)}
+
 /* Admin: pricing plan feature chips (tag editor). */
 .plan-features-list{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
 .plan-feature-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1.5px solid var(--ink);background:var(--mint);font:600 var(--fs-note) var(--display);color:var(--ink);box-shadow:2px 2px 0 var(--ink)}
@@ -1788,6 +1806,10 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topup-fact small{font:700 var(--fs-micro) var(--display);letter-spacing:.6px;color:#8b857a}
 .topup-fact strong{font:700 var(--fs-h5) var(--display);letter-spacing:-.4px;color:var(--ink)}
 .topup-fact strong span{font:400 var(--fs-note) var(--body);letter-spacing:0;color:#8b857a}
+/* Copyable value row (crypto amount): value + inline icon copy button. */
+.topup-fact-copyable{display:inline-flex;align-items:center;gap:7px}
+.topup-fact-copy{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:1px solid rgba(23,20,13,.15);border-radius:4px;background:var(--paper);color:var(--ink);cursor:pointer;transition:background .12s ease}
+.topup-fact-copy:hover{background:var(--cream)}
 /* Spans both columns: the breakdown is a sentence, not a third figure. */
 .topup-fact-sub{grid-column:1/-1;border-bottom:0;padding-bottom:0}
 .topup-fact-sub strong{font-size:var(--fs-small);font-weight:600;color:#6f695d}
@@ -1830,6 +1852,12 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A negative amount is coral, as the dot already is. The positive was the only one coloured,
    which left a charge reading as neutral — the same colour as a top-up that added credits. */
 .credit-amount:not(.credit-positive){color:var(--coral)}
+/* Activity column: label, uppercase, text-only. */
+.cell-activity-copy{display:flex;align-items:center;gap:6px}
+.cell-activity-copy strong{font:700 var(--fs-micro) var(--display);letter-spacing:.5px}
+/* Activity label colours: green = credits came in, orange = subscription granted. */
+.activity-topup{color:#22876d!important}
+.activity-subscription{color:#c47a17!important}
 
 /* Dead QR: the code can no longer be paid. Uses the house's existing coral trio
  (.modal-danger-note's border/bg/text) rather than a new shade, so every "this did not work"
