@@ -11,6 +11,9 @@ export const metadata: Metadata = {
     icon: "/favicon.ico",
     apple: "/favicon-180x180.png",
   },
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Devora — one platform, more ways to build",
     description: "Your AI stack, billing, and workspace tools. All in one place, so your ideas can move a little faster.",
@@ -25,6 +28,16 @@ export const metadata: Metadata = {
     title: "Devora — one platform, more ways to build",
     description: "Your AI stack, billing, and workspace tools. All in one place.",
     images: ["/favicon-512x512.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
 };
 

@@ -448,7 +448,7 @@
 .modal-panel:focus-visible{outline:none}
 .modal-panel-danger{box-shadow:7px 7px 0 var(--coral)}
 .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:17px 18px 13px;border-bottom:1px solid #e5e0d6}
-.modal-head h2{font:700 var(--fs-subhead-lg)/1.15 var(--display);letter-spacing:-.3px;margin:0}
+.modal-head h2{font:700 var(--fs-subhead-lg)/1.15 var(--display);letter-spacing:-.3px;margin:0;overflow-wrap:anywhere;word-break:break-word}
 .modal-head p{font-size:var(--fs-note);color:#7d766a;margin:6px 0 0;line-height:1.5}
 .modal-head .icon-button{flex-shrink:0;border:1px solid transparent}
 .modal-head .icon-button:hover{border-color:var(--ink);background:var(--cream)}
@@ -788,7 +788,7 @@
 .modal-panel:focus-visible{outline:none}
 .modal-panel-danger{box-shadow:7px 7px 0 var(--coral)}
 .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:17px 18px 13px;border-bottom:1px solid #e5e0d6}
-.modal-head h2{font:700 var(--fs-subhead-lg)/1.15 var(--display);letter-spacing:-.3px;margin:0}
+.modal-head h2{font:700 var(--fs-subhead-lg)/1.15 var(--display);letter-spacing:-.3px;margin:0;overflow-wrap:anywhere;word-break:break-word}
 .modal-head p{font-size:var(--fs-note);color:#7d766a;margin:6px 0 0;line-height:1.5}
 .modal-head .icon-button{flex-shrink:0;border:1px solid transparent}
 .modal-head .icon-button:hover{border-color:var(--ink);background:var(--cream)}
@@ -851,7 +851,7 @@
    the three views read as one block. Subsections stay ruled bands (border-top),
    never nested panels, and every new rule is scoped to .risk-intel. */
 .risk-intel .risk-tabs{display:flex;flex-wrap:wrap;gap:2px;margin:2px 0 0 26px;border-bottom:1px solid #e5e0d6}
-.risk-intel .risk-tabs.button{border-radius:4px;display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:10px 12px 9px;color:#797367;font:700 var(--fs-small) var(--body);border-bottom:2px solid transparent;cursor:pointer}
+.risk-intel .risk-tabs button{border-radius:4px;display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:10px 12px 9px;color:#797367;font:700 var(--fs-small) var(--body);border-bottom:2px solid transparent;cursor:pointer}
 .risk-intel .risk-tabs button:hover{color:var(--ink)}
 .risk-intel .risk-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--mint)}
 .risk-intel .risk-tabs button:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
@@ -930,6 +930,14 @@
 .risk-intel .risk-ip-count{font:700 var(--fs-small) var(--display);background:none;border:0;color:var(--ink);cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;text-decoration-color:#c8c2b5}
 .risk-intel .risk-ip-count:hover{color:var(--mint)}
 .risk-intel .risk-ip-count.risk-ip-shared{color:var(--coral)}
+
+/* Global popup styles — modals render outside .risk-intel via portal */
+.risk-reason-popup{display:flex;flex-direction:column;gap:8px}
+.risk-reason-popup-item{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#faf8f2;border:1px solid #e0d9cc;border-radius:4px}
+.risk-reason-popup-reason{font:500 14px/1.5 var(--body);color:var(--ink);flex:1;min-width:0}
+.risk-ip-count{font:700 var(--fs-small) var(--display);background:none;border:0;color:var(--ink);cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;text-decoration-color:#c8c2b5}
+.risk-ip-count:hover{color:var(--mint)}
+.risk-ip-count.risk-ip-shared{color:var(--coral)}
 .risk-intel .risk-ip-popup{display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto}
 .risk-intel .risk-ip-row{padding:6px 10px;background:#f4f1e9;border:1px solid #e0d9cc;border-radius:3px}
 .risk-intel .risk-ip-row code{font:600 13px ui-monospace,monospace;color:var(--ink)}
@@ -2291,8 +2299,8 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Avatar stack. Each circle overlaps the one before it, so the row reads as a group rather
  than as a list — and the count of providers is legible at a glance without reading names.
  The overlap is small on purpose: enough to interlock, not enough to hide a mark. */
-.model-chips-mini{gap:0}
-.model-chips-mini .model-chip-mini + .model-chip-mini{margin-left:var(--stack, -9px)}
+.model-chips-mini{gap:6px}
+.model-chips-mini .model-chip-mini + .model-chip-mini{margin-left:0}
 /* Expanded form: the mark and its name. */
 .model-chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-micro);font-weight:600;padding:3px 8px 3px 5px;border:1px solid var(--line);background:var(--paper);color:#4f4a41;white-space:nowrap}
 .model-chip img,.model-chip .provider-fallback{flex-shrink:0;border-radius:3px}
@@ -2440,3 +2448,85 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .payment-success-close{border:none;background:none;font-size:20px;cursor:pointer;padding:0 4px;color:var(--graphite);line-height:1}
 .payment-success-close:hover{color:var(--ink)}
 @keyframes slideInRight{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Token Live Usage — receipt-style chart card */
+.live-usage-section{max-width:1240px;margin:0 auto;padding:40px 7.5% 0}
+.lu-card{background:#fff;position:relative;box-shadow:0 2px 8px rgba(23,20,13,.06),0 12px 32px rgba(23,20,13,.08)}
+.lu-tear{display:block}
+.lu-tear-bottom{transform:rotate(180deg)}
+.lu-inner{padding:4px 28px 20px}
+
+/* Header */
+.lu-head{display:flex;align-items:center;justify-content:space-between;padding:12px 0 10px}
+.lu-brand{font:800 14px var(--display,ui-sans-serif,system-ui,sans-serif);letter-spacing:2px;color:#17140d}
+.lu-live{display:inline-flex;align-items:center;gap:5px;font:700 10px/1 var(--body,ui-sans-serif,system-ui,sans-serif);letter-spacing:.8px;color:#17756b;background:#e3f6f3;padding:4px 10px;border-radius:20px}
+.lu-live-dot{width:6px;height:6px;border-radius:50%;background:#1a9d8e;animation:luPulse 1.8s ease-in-out infinite;box-shadow:0 0 6px #1a9d8e}
+@keyframes luPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.lu-divider{height:1px;background:repeating-linear-gradient(90deg,#e5e0d6 0,#e5e0d6 4px,transparent 4px,transparent 8px);margin-bottom:16px}
+
+/* Odometer total */
+.lu-total-block{text-align:left;margin-bottom:20px}
+.lu-total-cap{font:600 11px var(--body,ui-sans-serif,system-ui,sans-serif);letter-spacing:1px;color:#9c958a;text-transform:uppercase;margin-bottom:6px}
+.lu-total-num{font:800 36px/1 var(--display,ui-sans-serif,system-ui,sans-serif);letter-spacing:-.5px;color:#17140d;min-height:36px;display:flex;align-items:center;justify-content:flex-start;overflow:hidden}
+/* Count-up number */
+.countup-num{display:inline-block;font:inherit;color:inherit;letter-spacing:inherit;font-variant-numeric:tabular-nums}
+.odo-placeholder{color:#c4bdb1}
+.odo-static{display:inline-block}
+
+/* Sub stats */
+.lu-sub-row{display:flex;align-items:stretch;justify-content:center;gap:0;margin-bottom:20px}
+.lu-sub-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:0 8px}
+.lu-sub-cap{font:600 10px var(--body,ui-sans-serif,system-ui,sans-serif);letter-spacing:.5px;color:#9c958a;text-transform:uppercase}
+.lu-sub-val{font:800 20px/1 var(--display,ui-sans-serif,system-ui,sans-serif);letter-spacing:-.3px;color:#17140d}
+.lu-sub-today{color:#17756b}
+.lu-sub-unit{font:500 10px var(--body,ui-sans-serif,system-ui,sans-serif);color:#bfb8ac}
+.lu-sub-sep{width:1px;background:#f0ede5;align-self:stretch}
+
+/* Top models today */
+.lu-top-models{margin-top:4px}
+.lu-top-models-cap{font:700 10px var(--body,ui-sans-serif,system-ui,sans-serif);letter-spacing:1px;color:#9c958a;margin-bottom:10px}
+.lu-models-list{display:flex;flex-direction:column;gap:2px}
+.lu-model-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f5f2ec}
+.lu-model-row:last-child{border-bottom:0}
+.lu-model-rank{font:700 12px var(--display,ui-sans-serif,system-ui,sans-serif);color:#c4bdb1;min-width:18px;text-align:right}
+.lu-model-name{font:500 13px var(--body,ui-sans-serif,system-ui,sans-serif);color:#17140d;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lu-model-tokens{font:700 13px var(--display,ui-sans-serif,system-ui,sans-serif);color:#17756b;white-space:nowrap}
+.lu-model-more{font:500 11px var(--body,ui-sans-serif,system-ui,sans-serif);color:#17756b;padding:6px 0 0;text-align:center;text-decoration:none;display:block}
+.lu-model-more:hover{color:#147060;text-decoration:underline}
+
+/* Chart */
+.lu-chart-area{margin:0 -8px}
+.lu-chart-area .recharts-wrapper,.lu-chart-area .recharts-surface,.lu-chart-area svg{outline:none!important;border:none!important;-webkit-tap-highlight-color:transparent}
+.lu-chart-area .recharts-surface{tab-index:-1}
+.lu-chart-area .recharts-bar-rectangle,.lu-chart-area .recharts-bar-rectangle path,.lu-chart-area rect,.lu-chart-area .recharts-cartesian-axis-line,.lu-chart-area .recharts-cartesian-axis-tick line,.lu-chart-area .recharts-cartesian-axis-tick-value{stroke:none!important;outline:none!important;-webkit-tap-highlight-color:transparent}
+.lu-chart-area *:focus,.lu-chart-area *:focus-visible,.lu-chart-area *:active{outline:none!important;box-shadow:none!important;-webkit-tap-highlight-color:transparent}
+.lu-chart-area .recharts-bar *:focus,.lu-chart-area .recharts-bar *:focus-visible{outline:none!important;stroke:none!important}
+
+/* Tooltip */
+.lu-tooltip{background:#fff;border:1px solid #e5e0d6;border-radius:4px;padding:6px 10px;box-shadow:0 2px 8px rgba(23,20,13,.12);font-family:var(--body,ui-sans-serif,system-ui,sans-serif)}
+.lu-tooltip-date{font:600 10px var(--body,ui-sans-serif,system-ui,sans-serif);color:#8b8579;margin-bottom:1px}
+.lu-tooltip-value{font:700 14px var(--display,ui-sans-serif,system-ui,sans-serif);color:#17140d}
+.lu-tooltip-value span{font:400 11px var(--body,ui-sans-serif,system-ui,sans-serif);color:#9c958a}
+
+/* Footer */
+.lu-foot{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px dashed #e5e0d6}
+.lu-legend{display:flex;align-items:center;gap:8px;font:500 11px var(--body,ui-sans-serif,system-ui,sans-serif);color:#8b8579}
+.lu-leg-dot{width:8px;height:8px;border-radius:2px}
+.lu-leg-today{background:linear-gradient(180deg,#1a9d8e,#147060)}
+.lu-leg-past{background:#c5ded9}
+.lu-foot-updated{font:500 10px var(--body,ui-sans-serif,system-ui,sans-serif);color:#c4bdb1}
+
+@media(max-width:640px){
+  .live-usage-section{padding:28px 12px 0;max-width:100%}
+  .lu-inner{padding:4px 18px 16px}
+  .lu-total-num{font-size:26px}
+  .lu-sub-val{font-size:17px}
+  .lu-chart-area{margin:0 -4px}
+}
+
+.not-found-page{display:flex;align-items:center;justify-content:center;min-height:calc(100dvh - 64px);padding:60px 20px}
+.not-found-card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;max-width:420px;padding:48px 36px;background:var(--paper,#fff);border:2px solid var(--ink,#17140d);border-radius:8px;box-shadow:5px 5px 0 var(--ink,#17140d)}
+.not-found-code{font:800 72px/1 var(--display,ui-sans-serif,system-ui,sans-serif);letter-spacing:-2px;color:var(--ink,#17140d)}
+.not-found-card h1{font:700 22px/1.3 var(--display,ui-sans-serif,system-ui,sans-serif);letter-spacing:-.3px;color:var(--ink,#17140d);margin:8px 0 4px}
+.not-found-card p{font:400 15px/1.6 var(--body,ui-sans-serif,system-ui,sans-serif);color:#7d766a;margin:0 0 16px}
+.not-found-card .button{margin-top:4px}

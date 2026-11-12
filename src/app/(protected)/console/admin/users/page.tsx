@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Check, Coins, Flag, Loader2, RefreshCw, Search, ShieldCheck, Trash2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
+  AlertTriangle, Check, Coins, Flag, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Undo2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
+import { Pager } from "@/components/pager";
 import { AdminRiskIntelligenceSection } from "@/components/admin-risk-intelligence-section";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
@@ -34,8 +35,42 @@ type AccountRow = {
 
 type Status = "loading" | "ready" | "error";
 
-/** Thousands separators, because these figures are read at a glance. */
+/** One row from GET /admin/users/reputation — gateway IP usage per account. */
+type GatewayReputationRow = {
+  userId: string;
+  email: string;
+  plan: string;
+  status: string;
+  reputationScore: number;
+  reputationTier: string;
+  distinctIpCount: number;
+  sharedIpCount: number;
+  apiKeyCount: number;
+  requestCount: number;
+  signupIp: string | null;
+  lastIp: string | null;
+  lastSeenAt: string | null;
+  allIps: string[];
+  reasons: string[];
+  unifiedDecision?: { signup?: { category?: string; score?: number } } | null;
+};
+
+  /** Thousands separators, because these figures are read at a glance. */
 const formatCount = (n: number): string => n.toLocaleString("en-US");
+
+
+/** One row from GET /admin/users/risk/flagged — accounts flagged at signup or manually. */
+type FlaggedUserRow = {
+  userId: string;
+  email: string;
+  plan: string | null;
+  flagSource: string | null;
+  reason: string | null;
+  freeTokensUsed: number;
+  penaltyStatus: string | null;
+  status: string | null;
+  credits: string | null;
+};
 
 
 const shortDate = (iso: string): string => {
@@ -77,7 +112,7 @@ export default function AdminUsersPage() {
   // Its own pager state. Filters reset it because a narrowed list has fewer pages, and
   // staying on page 7 of a 1-page result would render an empty table.
   const [page, setPage] = useState(1);
-  const [pager, setPager] = useState({ total: 0, perPage: 25, totalPages: 1 });
+  const [pager, setPager] = useState({ total: 0, perPage: 20, totalPages: 1 });
 
   const authHeaders = useCallback(async () => {
     const token = await getToken();
@@ -87,7 +122,7 @@ export default function AdminUsersPage() {
   const load = useCallback(async (term: string, plan: Plan | "", pageNo = 1, sort: "created" | "credits" = "created", flagged = false) => {
     setStatus("loading");
     try {
-      const params = new URLSearchParams({ page: String(pageNo), limit: "50" });
+      const params = new URLSearchParams({ page: String(pageNo), limit: "20" });
       if (term.trim()) params.set("search", term.trim());
       if (plan) params.set("plan", plan);
       if (sort === "credits") params.set("sort", "credits");
@@ -334,6 +369,158 @@ function deltaPreview(raw: string, current: string): string {
     }
   };
 
+  // ---- gateway activity (section 03) ----
+  const [gatewayUsers, setGatewayUsers] = useState<GatewayReputationRow[]>([]);
+  const [gatewayStatus, setGatewayStatus] = useState<Status>("loading");
+  const [gatewayError, setGatewayError] = useState("");
+  const [gatewayPage, setGatewayPage] = useState(1);
+  const [gatewayPager, setGatewayPager] = useState({ total: 0, perPage: 20, totalPages: 1 });
+  const [gatewayTier, setGatewayTier] = useState<"" | "good" | "warning" | "bad">("");
+  const [gatewaySearch, setGatewaySearch] = useState("");
+  const [gatewaySortBy, setGatewaySortBy] = useState<"requests" | "shared" | "keys">("requests");
+  const [gatewayReasonPopup, setGatewayReasonPopup] = useState<{ email: string; reasons: string[] } | null>(null);
+  const [gatewayIpPopup, setGatewayIpPopup] = useState<{ email: string; title: string; ips: string[] } | null>(null);
+
+  const GATEWAY_PAGE_SIZE = 20;
+
+  const loadGateway = useCallback(async (pageNo: number, tier: "" | "good" | "warning" | "bad", search: string) => {
+    setGatewayStatus("loading");
+    try {
+      const params = new URLSearchParams({ page: String(pageNo), limit: String(GATEWAY_PAGE_SIZE) });
+      if (tier) params.set("tier", tier);
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/backend/api/v1/admin/users/reputation?${params.toString()}`, { headers: await authHeaders() });
+      if (!res.ok) { setGatewayError("Could not load gateway activity."); setGatewayStatus("error"); return; }
+      const data = await res.json() as {
+        rows?: unknown; users?: unknown; accounts?: unknown;
+        page?: number; perPage?: number; total?: number; totalPages?: number;
+      };
+      const raw = Array.isArray(data.accounts) ? data.accounts : Array.isArray(data.rows) ? data.rows : Array.isArray(data.users) ? data.users : [];
+      const rows = (raw as Partial<GatewayReputationRow>[]).map(r => ({
+        userId: String(r.userId ?? ""),
+        email: String(r.email ?? ""),
+        plan: String(r.plan ?? ""),
+        status: String(r.status ?? ""),
+        reputationScore: Number(r.reputationScore ?? 0),
+        reputationTier: String(r.reputationTier ?? "not_assessed"),
+        distinctIpCount: Number(r.distinctIpCount ?? 0),
+        sharedIpCount: Number(r.sharedIpCount ?? 0),
+        apiKeyCount: Number(r.apiKeyCount ?? 0),
+        requestCount: Number(r.requestCount ?? 0),
+        signupIp: r.signupIp ?? null,
+        lastIp: r.lastIp ?? null,
+        lastSeenAt: r.lastSeenAt ?? null,
+        allIps: Array.isArray(r.allIps) ? r.allIps : [],
+        reasons: Array.isArray(r.reasons) ? r.reasons as string[] : [],
+        unifiedDecision: r.unifiedDecision ?? null,
+      }));
+      setGatewayUsers(rows);
+      const total = Number(data.total ?? 0);
+      const perPage = Number(data.perPage ?? GATEWAY_PAGE_SIZE);
+      const totalPages = Number(data.totalPages ?? 1);
+      setGatewayPager({ total, perPage, totalPages });
+      setGatewayPage(Number(data.page ?? pageNo));
+      // Step back if we landed past the end (e.g. after a tier filter narrowed results).
+      if (rows.length === 0 && total > 0 && pageNo > totalPages) {
+        setGatewayPage(totalPages);
+        void loadGateway(totalPages, tier, search);
+        return;
+      }
+      setGatewayStatus("ready");
+    } catch {
+      setGatewayError("Could not reach the gateway.");
+      setGatewayStatus("error");
+    }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadGateway(1, gatewayTier, gatewaySearch); }, [loadGateway, gatewayTier, gatewaySearch]);
+
+  /** Apply client-side sort to the current page's rows. */
+  const gatewayDisplayRows = (() => {
+    const sorted = [...gatewayUsers];
+    if (gatewaySortBy === "requests") sorted.sort((a, b) => b.requestCount - a.requestCount);
+    else if (gatewaySortBy === "shared") sorted.sort((a, b) => b.sharedIpCount - a.sharedIpCount);
+    else if (gatewaySortBy === "keys") sorted.sort((a, b) => b.apiKeyCount - a.apiKeyCount);
+    return sorted;
+  })();
+
+  const tierBadgeClass = (tier: string): string => {
+    switch (tier) {
+      case "good": return "outcome-pill outcome-ok";
+      case "warning": return "outcome-pill outcome-warn";
+      case "bad": return "outcome-pill outcome-bad";
+      default: return "outcome-pill";
+    }
+  };
+
+  // ---- flagged accounts (section 05) ----
+  const FLAGGED_PAGE_SIZE = 20;
+  const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUserRow[]>([]);
+  const [flaggedStatus, setFlaggedStatus] = useState<Status>("loading");
+  const [flaggedPage, setFlaggedPage] = useState(1);
+  const [flaggedPager, setFlaggedPager] = useState({ total: 0, perPage: FLAGGED_PAGE_SIZE, totalPages: 1 });
+  const [flaggedBusyId, setFlaggedBusyId] = useState<string | null>(null);
+  const [flaggedNotice, setFlaggedNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [flaggedReasonPopup, setFlaggedReasonPopup] = useState<{ email: string; reason: string } | null>(null);
+  const [flaggedSearch, setFlaggedSearch] = useState("");
+
+  const loadFlagged = useCallback(async (pageNo: number, search: string = "") => {
+    setFlaggedStatus("loading");
+    try {
+      const params = new URLSearchParams({ page: String(pageNo), limit: String(FLAGGED_PAGE_SIZE) });
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/backend/api/v1/admin/users/risk/flagged?${params.toString()}`, { headers: await authHeaders() });
+      if (!res.ok) { setFlaggedStatus("error"); return; }
+      const data = await res.json() as {
+        users?: unknown; rows?: unknown; accounts?: unknown;
+        page?: number; perPage?: number; total?: number; totalPages?: number;
+      };
+      const raw = Array.isArray(data.accounts) ? data.accounts : Array.isArray(data.rows) ? data.rows : Array.isArray(data.users) ? data.users : [];
+      const rows = (raw as Partial<FlaggedUserRow>[]).map(r => ({
+        userId: String(r.userId ?? ""),
+        email: String(r.email ?? ""),
+        plan: r.plan ?? null,
+        flagSource: r.flagSource ?? null,
+        reason: r.reason ?? null,
+        freeTokensUsed: Number(r.freeTokensUsed ?? 0),
+        penaltyStatus: r.penaltyStatus ?? null,
+        status: r.status ?? null,
+        credits: r.credits != null ? String(r.credits) : null,
+      }));
+      setFlaggedUsers(rows);
+      setFlaggedPager({ total: Number(data.total ?? 0), perPage: Number(data.perPage ?? FLAGGED_PAGE_SIZE), totalPages: Number(data.totalPages ?? 1) });
+      setFlaggedPage(Number(data.page ?? pageNo));
+      setFlaggedStatus("ready");
+    } catch {
+      setFlaggedStatus("error");
+    }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadFlagged(1, flaggedSearch); }, [loadFlagged, flaggedSearch]);
+
+  const unflagUser = async (row: FlaggedUserRow) => {
+    setFlaggedNotice(null);
+    setFlaggedBusyId(row.userId);
+    try {
+      const res = await fetch("/backend/api/v1/admin/users/risk/flagged/clear", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ userId: row.userId }),
+      });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setFlaggedNotice({ kind: "error", text: body?.error?.message ?? "Could not clear the flag." }); return; }
+      setFlaggedNotice({ kind: "ok", text: `${row.email} unflagged. Free-token roll restored.` });
+      await loadFlagged(flaggedPage, flaggedSearch);
+    } catch {
+      setFlaggedNotice({ kind: "error", text: "Could not reach the backend." });
+    } finally {
+      setFlaggedBusyId(null);
+    }
+  };
+
+  /** Format free tokens as "X.XM / 20M". */
+  const formatFreeTokens = (used: number): string => `${(used / 1_000_000).toFixed(1)}M / 20M`;
+
   return <div className="page-stack">
     <div className="page-heading"><div>
       <div className="eyebrow small-eyebrow"><Users size={14}/> ADMIN / USERS</div>
@@ -544,14 +731,183 @@ function deltaPreview(raw: string, current: string): string {
       </div>
     </section>
 
+    {/* Gateway activity — IP usage, key counts, and request volume per account from
+        the reputation endpoint. Server-side paginated; sort and email search are
+        applied client-side on the current page since the BE endpoint does not
+        support those params. */}
+    <section className="console-section risk-intel">
+      <div className="section-title-row">
+        <div><span className="section-index">03</span><div><h2>Gateway activity</h2><p>Per-account gateway IP usage, API keys, and request volume from the reputation ledger.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadGateway(gatewayPage, gatewayTier, gatewaySearch)} disabled={gatewayStatus === "loading"}><RefreshCw size={15}/> Refresh</button>
+      </div>
+
+      <div className="users-toolbar users-toolbar-stacked">
+        <label className="search-field">
+          <Search size={14}/>
+          <input
+            value={gatewaySearch}
+            onChange={e => setGatewaySearch(e.target.value)}
+            placeholder="Search email…"
+            aria-label="Search gateway activity by email"
+          />
+        </label>
+        <div className="plan-pills">
+          <button type="button" className={gatewayTier === "" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setGatewayTier(""); setGatewayPage(1); }}>All</button>
+          <button type="button" className={gatewayTier === "warning" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setGatewayTier("warning"); setGatewayPage(1); }}>Warning</button>
+          <button type="button" className={gatewayTier === "bad" ? "plan-pill plan-pill-on" : "plan-pill"} onClick={() => { setGatewayTier("bad"); setGatewayPage(1); }}>Bad</button>
+        </div>
+        <Select
+          label="Sort gateway activity"
+          value={gatewaySortBy}
+          onChange={v => setGatewaySortBy(v as "requests" | "shared" | "keys")}
+          width={160}
+          options={[
+            { value: "requests", label: "Most requests" },
+            { value: "shared", label: "Most shared IPs" },
+            { value: "keys", label: "Most keys" },
+          ]}
+        />
+      </div>
+
+      <div className="model-table-wrap">
+        {gatewayStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading gateway activity…</strong><p>Reading the reputation ledger.</p></div>}
+        {gatewayStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load gateway activity</strong><p>{gatewayError}</p><button type="button" className="button button-outline compact-button" onClick={() => void loadGateway(1, gatewayTier, gatewaySearch)}>Retry</button></div>}
+        {gatewayStatus === "ready" && (gatewayDisplayRows.length === 0
+          ? <div className="table-empty"><Users size={19}/><strong>No accounts found</strong><p>Try a different tier filter or search.</p></div>
+          : <table className="model-table">
+              <thead><tr>
+                <th style={{whiteSpace:"nowrap",minWidth:"100px"}}>ACCOUNT</th><th style={{whiteSpace:"nowrap"}}>PLAN</th><th style={{whiteSpace:"nowrap"}}>KEYS</th><th style={{whiteSpace:"nowrap"}}>DISTINCT IPS</th><th style={{whiteSpace:"nowrap"}}>SHARED IPS</th><th style={{whiteSpace:"nowrap"}}>REQUESTS</th><th style={{whiteSpace:"nowrap"}}>LAST IP</th><th style={{whiteSpace:"nowrap"}}>LAST SEEN</th><th style={{whiteSpace:"nowrap"}}>TIER</th><th style={{whiteSpace:"nowrap"}}>REASONS</th>
+              </tr></thead>
+              <tbody>{gatewayDisplayRows.map(u => <tr key={u.userId}>
+                <td>
+                  <strong>{u.email}</strong>
+                  <small className="cell-sub">{u.signupIp ?? "—"}</small>
+                </td>
+                <td><span className="plan-tag">{u.plan || "—"}</span></td>
+                <td className="cell-num">{u.apiKeyCount}</td>
+                <td className="cell-num">
+                  {u.distinctIpCount > 0
+                    ? <button className="risk-ip-count" type="button" onClick={() => setGatewayIpPopup({ email: u.email, title: "Distinct IPs", ips: u.allIps })}>{u.distinctIpCount}</button>
+                    : <span className="cell-muted">—</span>}
+                </td>
+                <td className="cell-num">
+                  {u.sharedIpCount > 0
+                    ? <button className="risk-ip-count risk-ip-shared" type="button" onClick={() => setGatewayIpPopup({ email: u.email, title: "Shared IPs", ips: u.allIps.slice(0, u.sharedIpCount) })}>{u.sharedIpCount}</button>
+                    : <span className="cell-muted">0</span>}
+                </td>
+                <td className="cell-num">{formatCount(u.requestCount)}</td>
+                <td className="cell-muted">{u.lastIp ?? "—"}</td>
+                <td className="cell-muted">{u.lastSeenAt ? relativeAge(u.lastSeenAt) : "—"}</td>
+                <td><span className={tierBadgeClass(u.reputationTier)}>{u.reputationTier}</span></td>
+                <td style={{textAlign:"center"}}>
+                  {u.reasons.length > 0
+                    ? <button className="risk-icon-btn" type="button" title={`${u.reasons.length} reason(s)`} onClick={() => setGatewayReasonPopup({ email: u.email, reasons: u.reasons })}>
+                        <AlertTriangle size={15}/>
+                      </button>
+                    : <span className="cell-muted">—</span>}
+                </td>
+              </tr>)}</tbody>
+            </table>)}
+      </div>
+
+      {gatewayStatus === "ready" && (
+        <Pager
+          page={gatewayPage}
+          perPage={gatewayPager.perPage}
+          total={gatewayPager.total}
+          totalPages={gatewayPager.totalPages}
+          onPage={pageNo => { setGatewayPage(pageNo); void loadGateway(pageNo, gatewayTier, gatewaySearch); }}
+          busy={false}
+        />
+      )}
+    </section>
+
     {/* Signup assessments, gateway usage reputation and the evidence ledger are one
         question asked at three moments, so they share one numbered section with tabs
         rather than three stacked cards. The old per-feature components and their
         endpoints still exist; they are simply not rendered twice on this page. */}
     <AdminRiskIntelligenceSection />
 
+    {/* Flagged accounts — accounts flagged at signup or manually. Unflagging
+        restores their free-token roll. */}
     <section className="console-section">
-      <div className="section-title-row"><div><span className="section-index">04</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
+      <div className="section-title-row">
+        <div><span className="section-index">05</span><div><h2>Flagged accounts</h2><p>Accounts flagged at signup or manually. Unflag to restore their free-token roll.</p></div></div>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadFlagged(flaggedPage, flaggedSearch)} disabled={flaggedStatus === "loading"}><RefreshCw size={15}/> Refresh</button>
+      </div>
+
+      <div className="users-toolbar">
+        <label className="search-field">
+          <Search size={14}/>
+          <input
+            value={flaggedSearch}
+            onChange={e => setFlaggedSearch(e.target.value)}
+            placeholder="Search email…"
+            aria-label="Search flagged accounts"
+          />
+        </label>
+      </div>
+
+      {flaggedNotice && <p className={flaggedNotice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">
+        {flaggedNotice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{flaggedNotice.text}
+      </p>}
+
+      <div className="model-table-wrap">
+        {flaggedStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading flagged accounts…</strong></div>}
+        {flaggedStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load flagged accounts</strong><button type="button" className="button button-outline compact-button" onClick={() => void loadFlagged(1, flaggedSearch)}>Retry</button></div>}
+        {flaggedStatus === "ready" && (flaggedUsers.length === 0
+          ? <div className="table-empty"><Flag size={19}/><strong>No flagged accounts</strong><p>All accounts are in good standing.</p></div>
+          : <table className="model-table">
+              <thead><tr>
+                <th style={{whiteSpace:"nowrap",minWidth:"100px"}}>ACCOUNT</th><th style={{whiteSpace:"nowrap"}}>PLAN</th><th style={{whiteSpace:"nowrap"}}>FLAG SOURCE</th><th style={{whiteSpace:"nowrap"}}>REASON</th><th style={{whiteSpace:"nowrap"}}>FREE TOKENS</th><th style={{whiteSpace:"nowrap"}}>PENALTY</th><th style={{whiteSpace:"nowrap"}}>ACTION</th>
+              </tr></thead>
+              <tbody>{flaggedUsers.map(u => <tr key={u.userId}>
+                <td><strong>{u.email}</strong></td>
+                <td><span className="plan-tag">{u.plan ?? "—"}</span></td>
+                <td className="cell-muted">{u.flagSource ?? "—"}</td>
+                <td style={{textAlign:"center"}}>
+                  {u.reason
+                    ? <button className="risk-icon-btn" type="button" title="View reason" onClick={() => setFlaggedReasonPopup({ email: u.email, reason: u.reason ?? "" })}>
+                        <AlertTriangle size={15}/>
+                      </button>
+                    : <span className="cell-muted">—</span>}
+                </td>
+                <td className="cell-num">
+                  <span style={u.freeTokensUsed >= 19_000_000 ? { color: "var(--danger, #c0392b)", fontWeight: 600 } : undefined}>
+                    {formatFreeTokens(u.freeTokensUsed)}
+                  </span>
+                </td>
+                <td><span className={`outcome-pill ${u.penaltyStatus === "active" ? "outcome-error" : "outcome-ok"}`}>{u.penaltyStatus ?? "—"}</span></td>
+                <td>
+                  <button
+                    className="row-action"
+                    type="button"
+                    title="Unflag this account"
+                    aria-label={`Unflag ${u.email}`}
+                    onClick={() => void unflagUser(u)}
+                    disabled={flaggedBusyId === u.userId}
+                  >
+                    {flaggedBusyId === u.userId ? <Loader2 size={14} className="row-spinner"/> : <Undo2 size={14}/>}
+                  </button>
+                </td>
+              </tr>)}</tbody>
+            </table>)}
+      </div>
+
+      {flaggedStatus === "ready" && (
+        <Pager
+          page={flaggedPage}
+          perPage={flaggedPager.perPage}
+          total={flaggedPager.total}
+          totalPages={flaggedPager.totalPages}
+          onPage={pageNo => { setFlaggedPage(pageNo); void loadFlagged(pageNo, flaggedSearch); }}
+          busy={false}
+        />
+      )}
+    </section>
+
+    <section className="console-section">
+      <div className="section-title-row"><div><span className="section-index">06</span><div><h2>Operator rules</h2><p>What this page will and will not do.</p></div></div><ShieldCheck size={16}/></div>
       <ul className="rules-list">
         <li>You cannot change your own plan — that would let the last operator lock itself out irrecoverably.</li>
         <li>You cannot delete your own account, for the same reason.</li>
@@ -665,6 +1021,49 @@ function deltaPreview(raw: string, current: string): string {
           <span>Deleting also removes, permanently: <strong>{dialog.row.keyCount}</strong> gateway key(s) and everything in this account&apos;s usage history.</span>
         </div>
       </>}
+    </Modal>
+
+    <Modal
+      open={gatewayReasonPopup !== null}
+      title={gatewayReasonPopup ? `Reputation reasons — ${gatewayReasonPopup.email}` : "Reputation reasons"}
+      onClose={() => setGatewayReasonPopup(null)}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setGatewayReasonPopup(null)}>Close</button>}
+    >
+      {gatewayReasonPopup && <div className="risk-reason-popup">
+        {gatewayReasonPopup.reasons.length === 0
+          ? <p className="modal-note">No specific reasons recorded — tier based on aggregate score.</p>
+          : gatewayReasonPopup.reasons.map((reason, i) => <div key={i} className="risk-reason-popup-item">
+            <div className="risk-reason-popup-reason">{reason}</div>
+          </div>)}
+      </div>}
+    </Modal>
+
+    <Modal
+      open={gatewayIpPopup !== null}
+      title={gatewayIpPopup ? `${gatewayIpPopup.title} — ${gatewayIpPopup.email}` : "IPs"}
+      onClose={() => setGatewayIpPopup(null)}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setGatewayIpPopup(null)}>Close</button>}
+    >
+      {gatewayIpPopup && <div className="risk-reason-popup">
+        {gatewayIpPopup.ips.length === 0
+          ? <p className="modal-note">No IPs recorded.</p>
+          : gatewayIpPopup.ips.map((ip, i) => <div key={i} className="risk-reason-popup-item">
+            <code style={{font:"600 13px/1.4 monospace",color:"var(--ink)"}}>{ip}</code>
+          </div>)}
+      </div>}
+    </Modal>
+
+    <Modal
+      open={flaggedReasonPopup !== null}
+      title={flaggedReasonPopup ? `Flag reason — ${flaggedReasonPopup.email}` : "Flag reason"}
+      onClose={() => setFlaggedReasonPopup(null)}
+      footer={<button className="button button-ink compact-button" type="button" onClick={() => setFlaggedReasonPopup(null)}>Close</button>}
+    >
+      {flaggedReasonPopup && <div className="risk-reason-popup">
+        <div className="risk-reason-popup-item">
+          <div className="risk-reason-popup-reason">{flaggedReasonPopup.reason}</div>
+        </div>
+      </div>}
     </Modal>
   </div>;
 }

@@ -3,6 +3,7 @@ import { EventsPage } from "@/components/events-page";
 export const metadata = {
   title: "Events — Devora",
   description: "Limited-time offers on models in the Devora catalogue.",
+  alternates: { canonical: "/events" },
 };
 
 /**

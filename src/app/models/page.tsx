@@ -3,6 +3,7 @@ import { ModelsPage } from "@/components/models-page";
 export const metadata = {
   title: "Models — Devora",
   description: "Every model in the Devora catalogue, with live pricing and context.",
+  alternates: { canonical: "/models" },
 };
 
 /**

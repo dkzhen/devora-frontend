@@ -3,6 +3,7 @@ import { StatsPage } from "@/components/stats-page";
 export const metadata = {
   title: "Stats — Devora",
   description: "What the Devora gateway has served: requests, tokens, models and providers.",
+  alternates: { canonical: "/stats" },
 };
 
 /**

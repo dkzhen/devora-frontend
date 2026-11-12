@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { GatewayStats } from "@/components/gateway-stats";
+import { UsageChart } from "@/components/usage-chart";
 import { FeatureCards, productCards } from "@/components/feature-cards";
 import { FeaturedEvents } from "@/components/featured-events";
 import { HowItWorks } from "@/components/how-it-works";
@@ -36,6 +37,7 @@ export default function Home() {
         </div>
       </div></div>
     </section>
+        <UsageChart/>
         <GatewayStats/>
     <ModelSpotlights/>
     <FeatureCards
