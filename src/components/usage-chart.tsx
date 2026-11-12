@@ -134,7 +134,8 @@ export function UsageChart() {
     return () => { alive = false; };
   }, []);
 
-  // Live polling — fetch total tokens every 5s, animate on change
+  // Live polling — fetch total tokens every 3s once visible.
+  // Stable interval: no dependency on totalTokens so it doesn't reset each tick.
   useEffect(() => {
     if (!visible) return;
     const interval = setInterval(() => {
@@ -142,14 +143,20 @@ export function UsageChart() {
         .then(r => r.ok ? r.json() : null)
         .then((stats: { totalTokens?: number; requests?: number } | null) => {
           if (!stats) return;
-          setPrevTokens(totalTokens);
-          setTotalTokens(stats.totalTokens ?? null);
-          setTotalRequests(stats.requests ?? null);
+          setTotalTokens(prev => {
+            // Only update if BE returned a different value — avoids needless re-render
+            const next = stats.totalTokens ?? null;
+            return next !== prev ? next : prev;
+          });
+          setTotalRequests(prev => {
+            const next = stats.requests ?? null;
+            return next !== prev ? next : prev;
+          });
         })
         .catch(() => {});
-    }, 5000);
+    }, 3000);
     return () => clearInterval(interval);
-  }, [visible, totalTokens]);
+  }, [visible]);
 
   // Animate odometer when section scrolls into view
   useEffect(() => {
