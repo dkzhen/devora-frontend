@@ -134,24 +134,17 @@ export function UsageChart() {
     return () => { alive = false; };
   }, []);
 
-  // Live polling — fetch total tokens every 3s once visible.
-  // Stable interval: no dependency on totalTokens so it doesn't reset each tick.
+  // Live polling — fetch real total from BE every 3s once visible.
+  // Cache-busting timestamp prevents stale responses at any layer.
   useEffect(() => {
     if (!visible) return;
     const interval = setInterval(() => {
-      fetch("/backend/api/v1/stats", { cache: "no-store" })
+      fetch(`/backend/api/v1/stats?_t=${Date.now()}`, { cache: "no-store" })
         .then(r => r.ok ? r.json() : null)
         .then((stats: { totalTokens?: number; requests?: number } | null) => {
           if (!stats) return;
-          setTotalTokens(prev => {
-            // Only update if BE returned a different value — avoids needless re-render
-            const next = stats.totalTokens ?? null;
-            return next !== prev ? next : prev;
-          });
-          setTotalRequests(prev => {
-            const next = stats.requests ?? null;
-            return next !== prev ? next : prev;
-          });
+          setTotalTokens(stats.totalTokens ?? null);
+          setTotalRequests(stats.requests ?? null);
         })
         .catch(() => {});
     }, 3000);
