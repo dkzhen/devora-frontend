@@ -119,16 +119,23 @@ function Countdown({ left }: { left: number | null }) {
 const stamp = (iso: string | null): string => {
   if (iso === null) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+    + ", " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
 };
 
 function daysLeft(iso: string | null): string {
   if (iso === null) return "no expiry";
   const ms = new Date(iso).getTime() - Date.now();
   if (Number.isNaN(ms)) return "";
-  const d = Math.ceil(ms / 86_400_000);
-  if (d <= 0) return "expired";
-  return d === 1 ? "1 day left" : `${d} days left`;
+  if (ms <= 0) return "expired";
+  const days = Math.floor(ms / 86_400_000);
+  if (days >= 1) return days === 1 ? "1 day left" : `${days} days left`;
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours >= 1) return hours === 1 ? "1 hour left" : `${hours} hours left`;
+  const mins = Math.floor(ms / 60_000);
+  if (mins >= 1) return `${mins} min left`;
+  return "< 1 min left";
 }
 
 /** Payment method as returned by /api/v1/payment/methods */

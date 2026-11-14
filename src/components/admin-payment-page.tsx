@@ -50,6 +50,13 @@ type ExchangeRates = {
   usdToCredits: string;
 };
 
+type CoinRail = {
+  coinId: string;
+  symbol: string;
+  name: string;
+  isEnabled: boolean;
+};
+
 export function AdminPaymentPage() {
   const { getToken } = useAuth();
   const [settings, setSettings] = useState<BillingSettings | null>(null);
@@ -279,6 +286,44 @@ export function AdminPaymentPage() {
 
   const catLabel = (cat: string) => cat === "credits" ? "Credits" : cat === "idr" ? "IDR" : "USD";
 
+  // ---------------------------------------------------------------------------
+  // Section 03: Coin rails — toggle which crypto networks are available for payment.
+  // ---------------------------------------------------------------------------
+  const [coinRails, setCoinRails] = useState<CoinRail[] | null>(null);
+  const [coinRailsStatus, setCoinRailsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [togglingCoinId, setTogglingCoinId] = useState<string | null>(null);
+
+  const loadCoinRails = useCallback(async () => {
+    setCoinRailsStatus("loading");
+    try {
+      const res = await fetch("/backend/api/v1/admin/payment/coin-rails", { headers: await authHeaders(), cache: "no-store" });
+      if (!res.ok) { setCoinRailsStatus("error"); return; }
+      const data = await res.json() as { rails?: CoinRail[] };
+      setCoinRails(data.rails ?? []);
+      setCoinRailsStatus("ready");
+    } catch { setCoinRailsStatus("error"); }
+  }, [authHeaders]);
+
+  useEffect(() => { void loadCoinRails(); }, [loadCoinRails]);
+
+  const toggleCoinRail = async (coinId: string, current: boolean) => {
+    setTogglingCoinId(coinId);
+    try {
+      const res = await fetch(`/backend/api/v1/admin/payment/coin-rails/${encodeURIComponent(coinId)}`, {
+        method: "PUT",
+        headers: await authHeaders(),
+        body: JSON.stringify({ isEnabled: !current }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { rail?: CoinRail };
+        if (data.rail) {
+          setCoinRails(prev => prev?.map(r => r.coinId === coinId ? data.rail! : r) ?? null);
+        }
+      }
+    } catch { /* ignore */ }
+    finally { setTogglingCoinId(null); }
+  };
+
   return <div className="page-stack">
     <div className="page-heading">
       <div>
@@ -495,6 +540,69 @@ export function AdminPaymentPage() {
         )}
       </div>
     </section>}
+
+    {/* Section 03: Coin rails — toggle crypto networks on/off. */}
+    <section className="console-section">
+      <div className="section-title-row">
+        <div><span className="section-index">03</span><div><h2>Coin payments</h2><p>Toggle which crypto networks are available for payment.</p></div></div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 5 }}>
+        <button className="button button-outline compact-button" type="button" onClick={() => void loadCoinRails()} disabled={coinRailsStatus === "loading"}>
+          <RefreshCw size={14}/> Refresh
+        </button>
+      </div>
+
+      {coinRailsStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading coin rails…</span></div>}
+      {coinRailsStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load coin rails.</span></div>}
+
+      {coinRailsStatus === "ready" && coinRails && (() => {
+        // Group by symbol so the admin sees USDT, USDC, SOL, BNB as clusters.
+        const symbols = [...new Set(coinRails.map(r => r.symbol))].sort();
+        return (
+          <div>
+            {symbols.map(sym => {
+              const coins = coinRails.filter(r => r.symbol === sym);
+              return (
+                <div key={sym} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: "var(--fs-note)", fontWeight: 700, opacity: 0.6, marginTop: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <img src={`/coins/${sym.toLowerCase()}.${sym === "USDT" || sym === "USDC" ? "svg" : "png"}`} alt={sym} width={18} height={18} style={{ borderRadius: "50%", objectFit: "cover" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    {sym}
+                  </div>
+                  <div className="plan-pills" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {coins.map(coin => {
+                      const toggling = togglingCoinId === coin.coinId;
+                      const on = coin.isEnabled;
+                      return (
+                        <button
+                          key={coin.coinId}
+                          type="button"
+                          className={`plan-pill ${on ? "plan-pill-on" : ""}`}
+                          onClick={() => void toggleCoinRail(coin.coinId, on)}
+                          disabled={toggling}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 6,
+                            cursor: toggling ? "wait" : "pointer",
+                            opacity: toggling ? 0.6 : 1,
+                          }}
+                        >
+                          {toggling ? <Loader2 size={14} className="row-spinner"/> : null}
+                          {coin.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {coinRails.length === 0 && (
+              <div style={{ padding: "24px 16px", textAlign: "center", border: "1.5px dashed #d8d1c5", borderRadius: 8 }}>
+                <p style={{ opacity: 0.6, margin: 0 }}>No coin rails configured.</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+    </section>
 
     {/* Gateway detail modal: shows health info for the selected gateway. */}
     <Modal

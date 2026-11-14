@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
-import { AlertTriangle, Brain, Check, Eye, Layers, Loader2, Pencil, PenLine, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import { AlertTriangle, Brain, Check, Eye, FlaskConical, Layers, Loader2, Pencil, PenLine, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
 type Plan = (typeof ALL_PLANS)[number];
@@ -27,6 +27,8 @@ type ModelRow = {
   supportsVision: boolean;
   supportsReasoning: boolean;
   supportsTools: boolean;
+  lastTestAt: string | null;
+  lastTestStatus: string | null;
 };
 
 type Capability = "supportsVision" | "supportsReasoning" | "supportsTools";
@@ -131,6 +133,9 @@ export default function AdminModelsPage() {
   // Non-null while an existing entry is loaded into the form. Save then PATCHes it.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testingAll, setTestingAll] = useState(false);
+  const [testNotice, setTestNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   /** The model awaiting deletion, or null. Cleared by the dialog. */
   const [confirmRemove, setConfirmRemove] = useState<ModelRow | null>(null);
 
@@ -216,6 +221,62 @@ export default function AdminModelsPage() {
       supportsTools: row.supportsTools,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const testModel = async (row: ModelRow) => {
+    setTestingId(row.id);
+    setTestNotice(null);
+    try {
+      const res = await fetch(`/backend/api/v1/admin/models/${encodeURIComponent(row.id)}/test`, {
+        method: "POST",
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setTestNotice({ kind: "error", text: `${row.displayName}: ${body?.error?.message ?? "Test failed."}` });
+      } else {
+        const data = await res.json() as { status: string; latency_ms: number; error?: string };
+        setTestNotice({
+          kind: data.status === "ok" ? "ok" : "error",
+          text: data.status === "ok"
+            ? `${row.displayName}: OK (${data.latency_ms}ms)`
+            : `${row.displayName}: ${data.error ?? "failed"}`,
+        });
+      }
+      await loadModels();
+    } catch {
+      setTestNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const testAllModels = async () => {
+    setTestingAll(true);
+    setTestNotice(null);
+    let ok = 0;
+    let fail = 0;
+    for (const m of models) {
+      if (m.status === "inactive") continue;
+      setTestingId(m.id);
+      try {
+        const res = await fetch(`/backend/api/v1/admin/models/${encodeURIComponent(m.id)}/test`, {
+          method: "POST",
+          headers: await authHeaders(),
+        });
+        const data = await res.json().catch(() => null) as { status?: string } | null;
+        if (res.ok && data?.status === "ok") ok++; else fail++;
+      } catch {
+        fail++;
+      }
+    }
+    setTestingId(null);
+    setTestingAll(false);
+    setTestNotice({
+      kind: fail === 0 ? "ok" : "error",
+      text: `Tested ${ok + fail} models — ${ok} OK, ${fail} failed.`,
+    });
+    await loadModels();
   };
 
   const remove = async (row: ModelRow) => {
@@ -445,7 +506,8 @@ export default function AdminModelsPage() {
       </div>
     </section>
 
-    <section className="console-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Models</h2><p>Active entries are live; inactive ones are hidden and return 404.</p></div></div><button className="button button-outline compact-button" type="button" onClick={() => void loadModels()}><RefreshCw size={15}/> Refresh</button></div>
+    <section className="console-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Models</h2><p>Active entries are live; inactive ones are hidden and return 404.</p></div></div><div className="row-action-group"><button className="button button-outline compact-button" type="button" onClick={() => void testAllModels()} disabled={testingAll || status === "loading"}>{testingAll ? <><Loader2 size={15} className="row-spinner"/> Testing…</> : <><FlaskConical size={15}/> Test all</>}</button><button className="button button-outline compact-button" type="button" onClick={() => void loadModels()} disabled={testingAll}><RefreshCw size={15}/> Refresh</button></div></div>
+      {testNotice && <p className={testNotice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status">{testNotice.kind === "ok" ? <Check size={14}/> : <X size={14}/>}{testNotice.text}</p>}
       <div className="model-table-wrap">
         {status === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading models…</strong><p>Reading the catalogue.</p></div>}
         {status === "error" && <div className="table-empty"><X size={19}/><strong>Could not load models</strong><p>The catalogue is unavailable right now.</p></div>}
@@ -476,12 +538,14 @@ export default function AdminModelsPage() {
                 <td><code>{m.upstreamModelId}</code></td>
                 <td>{m.contextLength ? formatContext(m.contextLength) : "—"}</td>
                 <td><span className="row-actions">
+                  {m.lastTestStatus && <span title={`Last test: ${m.lastTestStatus === "ok" ? "OK" : "Failed"}${m.lastTestAt ? " · " + m.lastTestAt : ""}`} className={m.lastTestStatus === "ok" ? "test-status test-ok" : "test-status test-fail"}>{m.lastTestStatus === "ok" ? "✓" : "✗"}</span>}
+                  <button className="row-action" type="button" title="Test model" aria-label={`Test ${m.displayName}`} onClick={() => void testModel(m)} disabled={testingId === m.id || busyId === m.id}>{testingId === m.id ? <Loader2 size={14} className="row-spinner"/> : <FlaskConical size={14}/>}</button>
                   <button className="row-action" type="button" title="Edit" aria-label={`Edit ${m.displayName}`} onClick={() => startEdit(m)} disabled={busyId === m.id}><Pencil size={14}/></button>
                   <button className="row-action row-action-danger" type="button" title="Delete" aria-label={`Delete ${m.displayName}`} onClick={() => setConfirmRemove(m)} disabled={busyId === m.id}>{busyId === m.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}</button>
                 </span></td>
               </tr>;
               return <table className="model-table">
-                <thead><tr><th>PROVIDER</th><th>MODEL</th><th>NODE</th><th>STATUS</th><th>PLANS</th><th>CAPABILITIES</th><th>PRICING /1M</th><th>UPSTREAM ID</th><th>CONTEXT</th><th></th></tr></thead>
+                <thead><tr><th style={{whiteSpace:"nowrap"}}>PROVIDER</th><th style={{whiteSpace:"nowrap"}}>MODEL</th><th style={{whiteSpace:"nowrap"}}>NODE</th><th style={{whiteSpace:"nowrap"}}>STATUS</th><th style={{whiteSpace:"nowrap"}}>PLANS</th><th style={{whiteSpace:"nowrap"}}>CAPABILITIES</th><th style={{whiteSpace:"nowrap"}}>PRICING /1M</th><th style={{whiteSpace:"nowrap"}}>UPSTREAM ID</th><th style={{whiteSpace:"nowrap"}}>CONTEXT</th><th style={{whiteSpace:"nowrap"}}></th></tr></thead>
                 <tbody>
                   <tr className="model-group-head"><td colSpan={10}>Active · {active.length}</td></tr>
                   {active.length === 0

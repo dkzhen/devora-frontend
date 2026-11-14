@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Ban, Check, Coins, Gift, Loader2, Package, Plus, RefreshCw, Tag, Ticket, X,
+  AlertTriangle, Ban, Check, Coins, Copy, Gift, Loader2, Package, Plus, RefreshCw, Tag, Ticket, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { Select } from "@/components/select";
@@ -395,7 +395,23 @@ export default function VouchersPage() {
               <thead><tr><th>CODE</th><th>LABEL</th><th>PER USER</th><th>USES</th><th>REMAINING</th><th>EXPIRES</th><th>STATE</th><th></th></tr></thead>
               <tbody>
                 {vouchers.map(v => <tr key={v.id}>
-                  <td><code className="ref-chip">{v.code}</code></td>
+                  <td>
+                  <code
+                    title="Click to copy"
+                    style={{ cursor: "pointer", fontFamily: "var(--display)", fontSize: "var(--fs-note)", color: "var(--ink)" }}
+                    onClick={async (e) => {
+                      try { await navigator.clipboard.writeText(v.code); } catch {
+                        const ta = document.createElement("textarea"); ta.value = v.code;
+                        ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+                        ta.select(); document.execCommand("copy"); ta.remove();
+                      }
+                      const el = e.currentTarget as HTMLElement;
+                      el.style.opacity = "0.5"; setTimeout(() => { el.style.opacity = "1"; }, 400);
+                    }}
+                  >
+                    {v.code}
+                  </code>
+                </td>
                   <td>{v.label}<small className="cell-sub">by {v.createdBy}</small></td>
                   <td className="cell-num">{v.kind === "subscription"
                     ? <><span className="plan-tag">SUBSCRIPTION</span><small className="cell-sub">{v.packageName ?? v.packageId}</small></>

@@ -82,8 +82,14 @@ function daysLeft(iso: string | null): string {
   if (iso === null) return "lifetime";
   const ms = new Date(iso).getTime() - Date.now();
   if (Number.isNaN(ms)) return "";
-  const d = Math.ceil(ms / 86_400_000);
-  return d <= 0 ? "expired" : d === 1 ? "1 day left" : `${d} days left`;
+  if (ms <= 0) return "expired";
+  const days = Math.floor(ms / 86_400_000);
+  if (days >= 1) return days === 1 ? "1 day left" : `${days} days left`;
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours >= 1) return hours === 1 ? "1 hour left" : `${hours} hours left`;
+  const mins = Math.floor(ms / 60_000);
+  if (mins >= 1) return `${mins} min left`;
+  return "< 1 min left";
 }
 
 /**

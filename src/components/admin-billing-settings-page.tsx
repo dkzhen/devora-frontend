@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, Settings, X, Eye, Check, Copy } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, Coins, Loader2, RefreshCw, Search, Settings, X, Eye, Check, Copy } from "lucide-react";
 import { formatUsd, formatIdr } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
 import { Modal } from "@/components/modal";
+import { Select } from "@/components/select";
 
 /**
  * Which page buttons to render: a window around the current page, plus the first and last.
@@ -240,6 +241,43 @@ export function AdminBillingSettingsPage() {
     } finally { setSweeping(false); }
   };
 
+  // Extend active subscriptions
+  const [extendModal, setExtendModal] = useState(false);
+  const [extendDuration, setExtendDuration] = useState("");
+  const [extendUnit, setExtendUnit] = useState<"hours" | "days">("hours");
+  const [extending, setExtending] = useState(false);
+  const [extendError, setExtendError] = useState("");
+  const activeCount = subResult?.stats?.active ?? 0;
+
+  const doExtend = async () => {
+    const dur = Number(extendDuration);
+    if (dur <= 0 || !Number.isFinite(dur)) {
+      setExtendError("Enter a valid number.");
+      return;
+    }
+    setExtending(true);
+    setExtendError("");
+    try {
+      const res = await fetch("/backend/api/v1/admin/extend-subscriptions", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ duration: dur, unit: extendUnit }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+        setExtendError(body?.error?.message ?? "Could not extend subscriptions.");
+        return;
+      }
+      const data = await res.json() as { extended?: number };
+      setNotice({ kind: "ok", text: `Extended ${data.extended ?? 0} active subscriptions by ${dur} ${extendUnit}.` });
+      setExtendModal(false);
+      setExtendDuration("");
+      setSubRefreshKey(k => k + 1);
+    } catch {
+      setExtendError("Could not reach the server.");
+    } finally { setExtending(false); }
+  };
+
   const doOverride = async () => {
     if (!overrideTarget) return;
     setOverriding(true);
@@ -397,14 +435,64 @@ export function AdminBillingSettingsPage() {
       <div className="section-title-row">
         <div><span className="section-index">01</span><div><h2>Package subscriptions</h2><p>All active and past package subscriptions, newest first.</p></div></div>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 5 }}>
-        <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
-          {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
-        </button>
+      {notice && <p className={notice.kind === "ok" ? "voucher-message voucher-ok" : "voucher-message voucher-error"} role="status" style={{ marginBottom: 8 }}>
+        {notice.kind === "ok" ? "✓" : "✕"}{notice.text}
+      </p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", marginTop: 5 }}>
         <button className="button button-outline compact-button" type="button" onClick={() => setSubRefreshKey(k => k + 1)} disabled={subStatus === "loading"}>
           <RefreshCw size={15}/> Refresh
         </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="button button-outline compact-button" type="button" onClick={() => void doSweep()} disabled={sweeping}>
+            {sweeping ? <><Loader2 size={15} className="row-spinner"/> Sweeping…</> : <><AlertTriangle size={15}/> Sweep expired</>}
+          </button>
+          <button className="button button-outline compact-button" type="button" onClick={() => { setExtendError(""); setExtendModal(true); }}>
+            <Clock size={15}/> Extend active
+          </button>
+        </div>
       </div>
+
+      {/* Extend active subscriptions modal */}
+      <Modal
+        open={extendModal}
+        title="Extend active subscriptions"
+        subtitle="Adds time to the expires_at of every subscription currently marked active."
+        onClose={() => { setExtendModal(false); setExtendError(""); }}
+        footer={
+          <>
+            <button className="button button-outline" type="button" onClick={() => setExtendModal(false)}>Cancel</button>
+            <button className="button" type="button" onClick={() => void doExtend()} disabled={extending || !extendDuration}>
+              {extending ? <><Loader2 size={15} className="row-spinner"/> Extending…</> : "Extend"}
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {extendError && <p style={{ color: "var(--coral)", margin: 0 }}>{extendError}</p>}
+          <p style={{ margin: 0 }}>
+            <strong>{activeCount}</strong> active subscription{activeCount !== 1 ? "s" : ""} will be extended.
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="number"
+              min="1"
+              value={extendDuration}
+              placeholder="Duration"
+              onChange={e => setExtendDuration(e.target.value)}
+              className="modal-input"
+              style={{ width: 100 }}
+              onKeyDown={e => { if (e.key === "Enter") void doExtend(); }}
+            />
+            <Select
+              value={extendUnit}
+              options={[{ value: "hours", label: "hours" }, { value: "days", label: "days" }]}
+              onChange={v => setExtendUnit(v as "hours" | "days")}
+              label="Duration unit"
+              width={110}
+            />
+          </div>
+        </div>
+      </Modal>
 
       {subStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>Could not load subscriptions.</span></div>}
 

@@ -328,6 +328,42 @@ export default function AIPage() {
 
   useEffect(() => { void loadUsage(); }, [loadUsage]);
 
+  // Recent requests — last 20 from usage_log for this account.
+  type RecentRequest = {
+    model: string; endpoint: string; isStream: boolean;
+    promptTokens: number; completionTokens: number; totalTokens: number;
+    statusCode: number; interrupted: boolean; ttftMs: number | null; occurredAt: string;
+  };
+  const [recent, setRecent] = useState<RecentRequest[]>([]);
+  const [recentStatus, setRecentStatus] = useState<Status>("loading");
+  const [recentError, setRecentError] = useState("");
+
+  const [allRecent, setAllRecent] = useState(false);
+  const RECENT_PREVIEW = 7;
+
+  const loadRecent = useCallback(async () => {
+    setRecentStatus("loading");
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/ai/recent-requests", {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      if (!res.ok) {
+        setRecentError(reasonFor(res.status));
+        setRecentStatus("error");
+        return;
+      }
+      const data = await res.json() as { requests?: RecentRequest[] };
+      setRecent(data.requests ?? []);
+      setRecentStatus("ready");
+    } catch {
+      setRecentError("Could not reach the gateway.");
+      setRecentStatus("error");
+    }
+  }, [getToken]);
+
+  useEffect(() => { void loadRecent(); }, [loadRecent]);
+
   /**
    * Filter across the fields a person actually searches by: the name they read and
    * the id they copy into a client. Capabilities are searched by keyword too, so
@@ -402,11 +438,71 @@ export default function AIPage() {
     </div>
     </section>
 
-    <section className="console-section usage-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>Usage</h2><p>All-time request activity for this account.</p></div></div></div>{usageStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading usage…</span></div>}{usageStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{usageError}</span></div>}{usageStatus === "ready" && usage && <><div className="usage-grid"><article className="usage-stat"><div className="stat-top"><span>Requests</span><Activity size={16}/></div><strong>{formatCount(usage.requests)}</strong><small><TrendingUp size={13}/> <span>{usage.requests === 0 ? "no requests yet" : `${plural(usage.errors, "error")}${usage.interrupted > 0 ? `, ${plural(usage.interrupted, "interrupted")}` : ""}`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Tokens</span><Zap size={16}/></div><strong>{formatTokens(usage.totalTokens)}</strong><small><TrendingUp size={13}/> <span>{`${formatTokens(usage.promptTokens)} in · ${formatTokens(usage.completionTokens)} out`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Credits used</span><span className="cost-icon">◈</span></div><strong>{trimCredits(usage.chargedCredits)}</strong><small><Timer size={13}/> {usage.lastRequestAt ? `last used ${new Date(usage.lastRequestAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "never used"}</small></article></div>{usage.models.length > 0 && <div className="usage-breakdown"><div className="breakdown-head"><span>Model</span><span>Requests</span><span>Tokens</span><span>Credits</span></div>{(allModels ? usage.models : usage.models.slice(0, MODELS_PREVIEW)).map(m => <div className="breakdown-row" key={m.model}><span className="breakdown-model" title={m.model}>{shortModel(m.model)}</span><span data-label="Requests">{formatCount(m.requests)}{m.errors > 0 && <em className="breakdown-errors">{m.errors} failed</em>}</span><span data-label="Tokens">{formatTokens(m.totalTokens)}</span><span data-label="Credits">{trimCredits(m.chargedCredits)}</span></div>)}{usage.models.length > MODELS_PREVIEW && <button className="breakdown-more" onClick={() => setAllModels(v => !v)}>{allModels ? `Show fewer` : `Show all ${formatCount(usage.models.length)} models`}</button>}</div>}</>}</section>
+    <section className="console-section keys-section"><div className="section-title-row"><div><span className="section-index">02</span><div><h2>API Keys</h2><p>Manage the keys your clients use to authenticate.</p></div></div></div><div className="key-card"><div className="key-card-info"><div className="key-icon"><KeyRound size={17}/></div><div><strong>Devora gateway key</strong><small>One key per account</small></div></div><div className="key-value">{credStatus === "ready" && credentials ? <><code>{visible ? credentials.apiKey : `${credentials.apiKey.slice(0, 10)}${"•".repeat(24)}`}</code><button className="icon-button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide key" : "Reveal key"}>{visible ? <EyeOff size={16}/> : <Eye size={16}/>}</button></> : <RowState status={credStatus} message={credError} onRetry={() => void loadCredentials()}/>}</div><div className="key-rotate"><button className="button button-outline" type="button" onClick={() => { setRotateError(""); setRotateOpen(true); }} disabled={credStatus !== "ready" || !credentials}><RefreshCw size={14}/> Rotate key</button>{credentials && <CopyButton text={credentials.apiKey} label="Copy key"/>}<small>Issues a new key and revokes this one immediately.</small></div></div>{rotated && <p className="key-rotated-note"><Check size={14}/> New key issued. Anything still using the old one now gets 401.</p>}</section>
 
-    <section className="console-section keys-section"><div className="section-title-row"><div><span className="section-index">03</span><div><h2>API Keys</h2><p>Manage the keys your clients use to authenticate.</p></div></div></div><div className="key-card"><div className="key-card-info"><div className="key-icon"><KeyRound size={17}/></div><div><strong>Devora gateway key</strong><small>One key per account</small></div></div><div className="key-value">{credStatus === "ready" && credentials ? <><code>{visible ? credentials.apiKey : `${credentials.apiKey.slice(0, 10)}${"•".repeat(24)}`}</code><button className="icon-button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide key" : "Reveal key"}>{visible ? <EyeOff size={16}/> : <Eye size={16}/>}</button></> : <RowState status={credStatus} message={credError} onRetry={() => void loadCredentials()}/>}</div><div className="key-rotate"><button className="button button-outline" type="button" onClick={() => { setRotateError(""); setRotateOpen(true); }} disabled={credStatus !== "ready" || !credentials}><RefreshCw size={14}/> Rotate key</button>{credentials && <CopyButton text={credentials.apiKey} label="Copy key"/>}<small>Issues a new key and revokes this one immediately.</small></div></div>{rotated && <p className="key-rotated-note"><Check size={14}/> New key issued. Anything still using the old one now gets 401.</p>}</section>
+    <section className="console-section usage-section"><div className="section-title-row"><div><span className="section-index">03</span><div><h2>Usage</h2><p>All-time request activity for this account.</p></div></div></div>{usageStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading usage…</span></div>}{usageStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{usageError}</span></div>}{usageStatus === "ready" && usage && <><div className="usage-grid"><article className="usage-stat"><div className="stat-top"><span>Requests</span><Activity size={16}/></div><strong>{formatCount(usage.requests)}</strong><small><TrendingUp size={13}/> <span>{usage.requests === 0 ? "no requests yet" : `${plural(usage.errors, "error")}${usage.interrupted > 0 ? `, ${plural(usage.interrupted, "interrupted")}` : ""}`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Tokens</span><Zap size={16}/></div><strong>{formatTokens(usage.totalTokens)}</strong><small><TrendingUp size={13}/> <span>{`${formatTokens(usage.promptTokens)} in · ${formatTokens(usage.completionTokens)} out`}</span></small></article><article className="usage-stat"><div className="stat-top"><span>Credits used</span><span className="cost-icon">◈</span></div><strong>{trimCredits(usage.chargedCredits)}</strong><small><Timer size={13}/> {usage.lastRequestAt ? `last used ${new Date(usage.lastRequestAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "never used"}</small></article></div>{usage.models.length > 0 && <div className="usage-breakdown"><div className="breakdown-head"><span>Model</span><span>Requests</span><span>Tokens</span><span>Credits</span></div>{(allModels ? usage.models : usage.models.slice(0, MODELS_PREVIEW)).map(m => <div className="breakdown-row" key={m.model}><span className="breakdown-model" title={m.model}>{shortModel(m.model)}</span><span data-label="Requests">{formatCount(m.requests)}{m.errors > 0 && <em className="breakdown-errors">{m.errors} failed</em>}</span><span data-label="Tokens">{formatTokens(m.totalTokens)}</span><span data-label="Credits">{trimCredits(m.chargedCredits)}</span></div>)}{usage.models.length > MODELS_PREVIEW && <button className="breakdown-more" onClick={() => setAllModels(v => !v)}>{allModels ? `Show fewer` : `Show all ${formatCount(usage.models.length)} models`}</button>}</div>}</>}</section>
 
-    <section className="console-section models-section"><div className="section-title-row models-heading"><div><span className="section-index">04</span><div><h2>Models</h2><p>Models available to your workspace.</p></div></div><div className="models-toolbar"><label className="search-field"><Search size={14}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search models…" aria-label="Search models"/></label>{modelsStatus === "ready" && <span className="model-count">{visibleModels.length} of {models.length}</span>}</div></div>
+    <section className="console-section recent-section">
+      <div className="section-title-row" style={{ flexDirection: "column", alignItems: "flex-start" }}>
+        <div><span className="section-index">03</span><div><h2>Recent requests</h2></div></div>
+        <p style={{ margin: "2px 0 0 0" }}>Your last 20 API calls. Logs older than 7 days are cleared by the admin.</p>
+        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%", marginTop: 6 }}>
+          <button className="button button-outline compact-button" type="button" onClick={() => void loadRecent()} disabled={recentStatus === "loading"}>
+            <RefreshCw size={15}/> Refresh
+          </button>
+        </div>
+      </div>
+      {recentStatus === "loading" && <div className="usage-loading-centered"><Loader2 size={24} className="spin"/> <span>Loading recent requests…</span></div>}
+      {recentStatus === "error" && <div className="usage-loading-centered"><AlertTriangle size={24}/> <span>{recentError}</span></div>}
+      {recentStatus === "ready" && (
+        recent.length === 0
+          ? <div className="table-empty"><Activity size={19}/><strong>No recent requests</strong><p>Requests from the last 7 days will appear here.</p></div>
+          : <div className="model-table-wrap">
+            <table className="model-table">
+              <thead><tr>
+                <th style={{ whiteSpace: "nowrap" }}>TIME</th>
+                <th style={{ whiteSpace: "nowrap" }}>MODEL</th>
+                <th style={{ whiteSpace: "nowrap" }}>STATUS</th>
+                <th style={{ whiteSpace: "nowrap" }}>IN</th>
+                <th style={{ whiteSpace: "nowrap" }}>OUT</th>
+                <th style={{ whiteSpace: "nowrap" }}>STREAM</th>
+                <th style={{ whiteSpace: "nowrap" }}>TTFT</th>
+              </tr></thead>
+              <tbody>
+                {(allRecent ? recent : recent.slice(0, RECENT_PREVIEW)).map((r, i) => {
+                  const ok = r.statusCode >= 200 && r.statusCode < 300;
+                  const time = new Date(r.occurredAt);
+                  const diffMs = Date.now() - time.getTime();
+                  const ago = diffMs < 60_000 ? `${Math.max(1, Math.floor(diffMs / 1000))}s ago`
+                    : diffMs < 3_600_000 ? `${Math.floor(diffMs / 60_000)}m ago`
+                    : diffMs < 86_400_000 ? `${Math.floor(diffMs / 3_600_000)}h ago`
+                    : `${Math.floor(diffMs / 86_400_000)}d ago`;
+                  const fullTime = time.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + time.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+                  return (
+                    <tr key={i}>
+                      <td style={{ whiteSpace: "nowrap" }} title={fullTime}>{ago}</td>
+                      <td><code className="ref-chip" title={r.model}>{shortModel(r.model)}</code></td>
+                      <td>
+                        <span style={{ fontWeight: 700, color: ok ? "var(--mint-strong, #2d7a3e)" : "var(--coral)" }}>
+                          {ok ? "✓" : "✕"} {r.statusCode}
+                        </span>
+                        {r.interrupted && <span style={{ marginLeft: 4, fontSize: "var(--fs-micro)", color: "var(--muted)" }}>interrupted</span>}
+                      </td>
+                      <td className="cell-num">{formatCount(r.promptTokens)}</td>
+                      <td className="cell-num">{formatCount(r.completionTokens)}</td>
+                      <td>{r.isStream ? "stream" : "sync"}</td>
+                      <td className="cell-num">{r.ttftMs !== null ? (r.ttftMs >= 1000 ? `${(r.ttftMs / 1000).toFixed(1)}s` : `${r.ttftMs}ms`) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {recent.length > RECENT_PREVIEW && <button className="breakdown-more" onClick={() => setAllRecent(v => !v)}>{allRecent ? "Show fewer" : `Show all ${formatCount(recent.length)} requests`}</button>}
+          </div>
+      )}
+    </section>
+
+    <section className="console-section models-section"><div className="section-title-row models-heading"><div><span className="section-index">05</span><div><h2>Models</h2><p>Models available to your workspace.</p></div></div><div className="models-toolbar"><label className="search-field"><Search size={14}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search models…" aria-label="Search models"/></label>{modelsStatus === "ready" && <span className="model-count">{visibleModels.length} of {models.length}</span>}</div></div>
         {modelsStatus === "loading" && <div className="table-empty"><Loader2 size={19} className="row-spinner"/><strong>Loading models…</strong><p>Reading the catalogue.</p></div>}
         {modelsStatus === "error" && <div className="table-empty"><X size={19}/><strong>Could not load models</strong><p>{modelsError}</p><button type="button" className="button button-outline compact-button" onClick={() => void loadModels()}>Retry</button></div>}
         {modelsStatus === "ready" && (models.length === 0
