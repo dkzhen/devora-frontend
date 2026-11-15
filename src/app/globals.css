@@ -2483,7 +2483,12 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .landing-activity .lu-model-more:hover{text-decoration:underline;text-underline-offset:3px}
 .landing-activity .lu-model-more:focus-visible{outline:2px solid var(--activity-accent);outline-offset:4px;border-radius:2px}
 .landing-activity .lu-chart-area{min-width:0;padding-top:8px;border-top:1px solid var(--activity-line)}
-.landing-activity .lu-chart-area .recharts-surface{outline:none}
+/* Recharts z-index groups receive pointer focus even with tabindex=-1.
+   Suppress their native black box; retain a themed keyboard focus indicator. */
+.landing-activity .lu-chart-area .recharts-surface:focus,
+.landing-activity .lu-chart-area .recharts-surface g[tabindex="-1"]:focus{outline:none}
+.landing-activity .lu-chart-area .recharts-surface:focus-visible,
+.landing-activity .lu-chart-area .recharts-surface g[tabindex="-1"]:focus-visible{outline:2px solid var(--activity-accent);outline-offset:2px}
 .landing-activity .lu-chart-caption{font:400 11px/1.5 var(--body);color:var(--muted);margin-top:4px}
 .landing-activity .lu-tooltip{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 4px 12px #17140d0a}
 .landing-activity .lu-tooltip-date{font:500 11px/1.5 var(--body);color:var(--muted);margin-bottom:3px}

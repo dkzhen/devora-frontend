@@ -163,17 +163,6 @@ export function UsageChart() {
     return () => obs.disconnect();
   }, []);
 
-  // Kill recharts default focus ring — the SVG surface gets tabindex=0 which
-  // creates a black outline when clicked. Remove it after render.
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    const surface = el.querySelector(".recharts-surface");
-    if (surface) surface.removeAttribute("tabindex");
-    const wrapper = el.querySelector(".recharts-wrapper");
-    if (wrapper) wrapper.removeAttribute("tabindex");
-  });
-
   if (!data || data.length === 0) return null;
 
   const todayStr = new Date().toISOString().slice(0, 10);
