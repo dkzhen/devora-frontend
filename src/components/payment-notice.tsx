@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-type Notice = { id: string; label: string; message: string };
+type Severity = "warning" | "info";
+type Notice = { id: string; label: string; message: string; severity: Severity };
 const PIXELS_PER_SECOND = 48;
 
 function ScrollingNotice({ notice, onComplete }: { notice: Notice; onComplete: () => void }) {
@@ -39,7 +40,7 @@ function ScrollingNotice({ notice, onComplete }: { notice: Notice; onComplete: (
   }, []);
 
   return <aside className="payment-notice" role="status" aria-live="polite" aria-atomic="true" tabIndex={0}>
-    <span className="payment-notice-label" aria-hidden="true"><span className="payment-notice-dot"/>{notice.label}</span>
+    <span className="payment-notice-label" aria-hidden="true"><span className={`payment-notice-dot ${notice.severity === "info" ? "payment-notice-dot-info" : ""}`}/>{notice.label}</span>
     <span className="payment-notice-divider" aria-hidden="true"/>
     <span ref={viewport} className="payment-notice-viewport" aria-hidden="true">
       <span ref={track} className="payment-notice-track" onAnimationEnd={event => {
@@ -77,7 +78,7 @@ export function PaymentNotice() {
   if (!notices.length) return null;
   if (reducedMotion) return <aside className="payment-notice payment-notice-static" aria-label="Announcements">
     {notices.map(notice => <div className="payment-notice-row" key={notice.id}>
-      <span className="payment-notice-label"><span className="payment-notice-dot" aria-hidden="true"/>{notice.label}</span>
+      <span className="payment-notice-label"><span className={`payment-notice-dot ${notice.severity === "info" ? "payment-notice-dot-info" : ""}`} aria-hidden="true"/>{notice.label}</span>
       <span className="payment-notice-divider" aria-hidden="true"/>
       <span className="payment-notice-copy">{notice.message}</span>
     </div>)}

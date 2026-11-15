@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, Loader2, Layers, Lock, Search, Server, ShieldCheck, Timer, TrendingUp, Wrench, X, Zap, RefreshCw } from "lucide-react";
+import { Activity, AlertTriangle, AudioLines, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, Loader2, Layers, Lock, Search, Server, ShieldCheck, Timer, TrendingUp, Wrench, X, Zap, RefreshCw } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
@@ -24,6 +24,8 @@ type CatalogueModel = {
   supportsVision: boolean;
   supportsReasoning: boolean;
   supportsTools: boolean;
+  supportsStreaming: boolean;
+  maxOutputTokens: number | null;
   accessPlans: string[];
   /** True when a running event covers this model — price becomes zero. */
   free?: boolean;
@@ -295,6 +297,8 @@ export default function AIPage() {
         supportsVision: row.supportsVision === true,
         supportsReasoning: row.supportsReasoning === true,
         supportsTools: row.supportsTools === true,
+        supportsStreaming: row.supportsStreaming === true,
+        maxOutputTokens: typeof row.maxOutputTokens === "number" ? row.maxOutputTokens : null,
         accessPlans: Array.isArray(row.accessPlans) ? row.accessPlans : [],
       })));
       setModelsStatus("ready");
@@ -546,13 +550,14 @@ export default function AIPage() {
                   </span>
                 </span>
               </div>
-              <div className="model-card-ctx">Context: {m.contextLength ? formatCount(m.contextLength) : "—"} tokens</div>
+              <div className="model-card-ctx">Context: {m.contextLength ? formatCount(m.contextLength) : "—"} tokens · Output: {m.maxOutputTokens ? formatCount(m.maxOutputTokens) : "—"}</div>
               <div className="model-card-foot">
                 <span className="cap-list model-card-caps">
                   {m.supportsVision && <span className="cap-badge" title="Vision"><Eye size={12}/></span>}
                   {m.supportsReasoning && <span className="cap-badge" title="Reasoning"><Brain size={12}/></span>}
                   {m.supportsTools && <span className="cap-badge" title="Tool call"><Wrench size={12}/></span>}
-                  {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && <span className="cap-none">—</span>}
+                  {m.supportsStreaming && <span className="cap-badge" title="Streaming"><AudioLines size={12}/></span>}
+                  {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && !m.supportsStreaming && <span className="cap-none">—</span>}
                 </span>
                 {m.node && <small className="model-card-node">node: {m.node}</small>}
                 {isLocked ? <span className="model-card-lock-note"><Lock size={12}/> Subscription</span> : <CopyButton text={m.id} label="Copy ID"/>}

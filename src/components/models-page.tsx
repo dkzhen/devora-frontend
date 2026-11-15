@@ -3,7 +3,7 @@
 import { LandingNav } from "@/components/landing-nav";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDownToLine, ArrowUpFromLine, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Wrench, X, Zap } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, AudioLines, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Wrench, X, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { PublicFooter } from "@/components/public-footer";
 import { ProviderMark } from "@/components/provider-mark";
@@ -25,9 +25,10 @@ type PublicModel = {
   name: string;
   provider: string | null;
   contextLength: number | null;
+  maxOutputTokens: number | null;
   accessPlans: string[];
   free: boolean;
-  capabilities: { vision: boolean; reasoning: boolean; tools: boolean };
+  capabilities: { vision: boolean; reasoning: boolean; tools: boolean; streaming: boolean };
   pricing: { unit: string; input: string; output: string; originalInput: string | null; originalOutput: string | null };
 };
 
@@ -68,6 +69,7 @@ function capabilityChips(m: PublicModel): string[] {
   if (m.capabilities.vision) out.push("vision");
   if (m.capabilities.reasoning) out.push("reasoning");
   if (m.capabilities.tools) out.push("tools");
+  if (m.capabilities.streaming) out.push("streaming");
   return out;
 }
 
@@ -223,6 +225,10 @@ export function ModelsPage() {
               <dt><Ruler size={13}/> Context</dt>
               <dd>{m.contextLength ? <>{formatContext(m.contextLength)}<small>tokens</small></> : "—"}</dd>
             </div>
+            <div>
+              <dt><ArrowDownToLine size={13}/> Output</dt>
+              <dd>{m.maxOutputTokens ? <>{formatContext(m.maxOutputTokens)}<small>tokens</small></> : "—"}</dd>
+            </div>
 
             {/* Capabilities take the third slot when the model is open to every plan, and the
                 fourth when it is not — so the row of facts is filled either way and nothing is
@@ -234,6 +240,7 @@ export function ModelsPage() {
                   {m.capabilities.vision && <span className="mp-cap" role="img" aria-label="Vision" title="Vision"><Eye size={12}/></span>}
                   {m.capabilities.reasoning && <span className="mp-cap" role="img" aria-label="Reasoning" title="Reasoning"><Brain size={12}/></span>}
                   {m.capabilities.tools && <span className="mp-cap" role="img" aria-label="Tools" title="Tools"><Wrench size={12}/></span>}
+                  {m.capabilities.streaming && <span className="mp-cap" role="img" aria-label="Streaming" title="Streaming"><AudioLines size={12}/></span>}
                 </span>
               </dd>
             </div>}
@@ -257,11 +264,13 @@ export function ModelsPage() {
                   {m.capabilities.vision && <span className="mp-cap" role="img" aria-label="Vision" title="Vision"><Eye size={12}/></span>}
                   {m.capabilities.reasoning && <span className="mp-cap" role="img" aria-label="Reasoning" title="Reasoning"><Brain size={12}/></span>}
                   {m.capabilities.tools && <span className="mp-cap" role="img" aria-label="Tools" title="Tools"><Wrench size={12}/></span>}
+                  {m.capabilities.streaming && <span className="mp-cap" role="img" aria-label="Streaming" title="Streaming"><AudioLines size={12}/></span>}
                 </span>
               </dd>
             </div>}
 
-          </dl>        </article>;
+          </dl>
+        </article>;
         })}
       </div>}
 

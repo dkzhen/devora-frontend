@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
+import { BarChart3, Bell, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
 import { CLERK_ENABLED } from "@/lib/clerk-config";
+import { Modal } from "@/components/modal";
 
 const nav = [
   { group: "MAIN", items: [{ href: "/console/billing", label: "Billing", icon: ReceiptText }, { href: "/console/credits", label: "Credits", icon: Coins }, { href: "/console/vouchers", label: "Vouchers", icon: Tag }] },
@@ -132,6 +133,24 @@ function SubscriptionBadge({ subs }: { subs: SubscriptionInfo[] }) {
   </div>;
 }
 
+type Notification = {
+  id: string; title: string; message: string;
+  severity: "info" | "warning" | "error"; createdAt: string; read: boolean;
+};
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return "";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname(); const [open, setOpen] = useState(false);
   // Resolved once for the whole shell so the nav and the account card agree, and
@@ -163,6 +182,44 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [getToken]);
 
+  // In-app notifications — poll every 30s for unread count.
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const fetchNotifications = async () => {
+    if (!CLERK_ENABLED) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch("/backend/api/v1/notifications", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json() as { notifications: Notification[]; unreadCount: number };
+      setNotifications(data.notifications ?? []);
+      setUnreadCount(data.unreadCount ?? 0);
+    } catch { /* non-fatal */ }
+  };
+
+  useEffect(() => {
+    if (!CLERK_ENABLED) return;
+    void fetchNotifications();
+    const timer = setInterval(fetchNotifications, 30_000);
+    return () => clearInterval(timer);
+  }, [getToken]);
+
+  const markAllRead = async () => {
+    setMarkingAll(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await fetch("/backend/api/v1/notifications/mark-all", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
+    } catch { /* non-fatal */ }
+    finally { setMarkingAll(false); }
+  };
+
   const groups = account.plan === "SUPERUSER" ? [...nav, adminNav] : nav;
 
   return <div className="console-wrap">
@@ -177,6 +234,31 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         <ConsoleSignOutButton/>
       </div>
     </aside>
-    <main className="console-main"><header className="console-topbar"><button className="icon-button menu-toggle" aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={20}/></button><div className="breadcrumbs"><span>Console</span><span>/</span><strong>{pathname.split("/").at(-1)?.replace("-"," ")}</strong></div><div className="topbar-right"></div></header><div className="console-content">{children}<footer className="console-footer"></footer></div></main>
+    <main className="console-main"><header className="console-topbar"><button className="icon-button menu-toggle" aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={20}/></button><div className="breadcrumbs"><span>Console</span><span>/</span><strong>{pathname.split("/").at(-1)?.replace("-"," ")}</strong></div><div className="topbar-right">
+          <button className="icon-button" aria-label="Notifications" style={{ position: "relative" }} onClick={() => setNotifOpen(true)}>
+            <Bell size={19}/>
+            {unreadCount > 0 && <span style={{ position: "absolute", top: -2, right: -2, background: "var(--mustard)", color: "var(--ink)", fontSize: 10, fontWeight: 700, minWidth: 16, height: 16, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{unreadCount > 99 ? "99+" : unreadCount}</span>}
+          </button>
+        </div></header><div className="console-content">{children}<footer className="console-footer"></footer></div></main>
+    <Modal open={notifOpen} title="Notifications" busy={markingAll} onClose={() => setNotifOpen(false)} footer={<>
+      <button type="button" className="button button-outline" onClick={() => setNotifOpen(false)}>Close</button>
+      <button type="button" className="button button-ink" disabled={markingAll || unreadCount === 0} onClick={() => void markAllRead()}>{markingAll ? "Marking…" : "Mark all as read"}</button>
+    </>}>
+      {notifications.length === 0
+        ? <p style={{ color: "var(--muted)", textAlign: "center", padding: "24px 0" }}>No notifications.</p>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {notifications.map(n => (
+              <div key={n.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--border)", opacity: n.read ? 0.6 : 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: n.severity === "error" ? "#c0392b" : n.severity === "warning" ? "var(--mustard)" : "#1a9d8e", boxShadow: n.severity === "error" ? "0 0 0 3px rgba(192,57,43,.18)" : n.severity === "warning" ? "0 0 0 3px rgba(255,197,49,.18)" : "0 0 0 3px rgba(26,157,142,.18)" }} />
+                  <strong style={{ fontSize: "var(--fs-small)" }}>{n.title}</strong>
+                  {!n.read && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ink)", background: "var(--mustard)", padding: "1px 6px", borderRadius: 4 }}>NEW</span>}
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>{timeAgo(n.createdAt)}</span>
+                </div>
+                <p style={{ fontSize: "var(--fs-small)", color: "var(--muted)", margin: 0, lineHeight: 1.5 }}>{n.message}</p>
+              </div>
+            ))}
+          </div>}
+    </Modal>
   </div>;
 }

@@ -85,6 +85,118 @@
   overflow-wrap: anywhere;
 }
 
+.severityPicker {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.severityBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1.5px solid #d8d1c5;
+  background: #fffdf8;
+  color: #6f695d;
+  font: 600 13px/1 var(--body);
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+
+.severityBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.severityBtn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.severityActive {
+  border-color: var(--ink);
+  background: var(--cream);
+  color: var(--ink);
+}
+
+.severityDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotWarning {
+  background: var(--mustard);
+  box-shadow: 0 0 0 3px rgba(255, 197, 49, .18);
+}
+
+.dotInfo {
+  background: #1a9d8e;
+  box-shadow: 0 0 0 3px rgba(26, 157, 142, .18);
+}
+
+.dotError {
+  background: #c0392b;
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, .18);
+}
+
+.severityBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font: 600 11px/1.35 var(--body);
+  white-space: nowrap;
+}
+
+.badgeWarning {
+  background: #fff8df;
+  color: #675520;
+  border: 1px solid #e5cf8b;
+}
+
+.badgeInfo {
+  background: #d4eee3;
+  color: #185c4e;
+  border: 1px solid #9dcac0;
+}
+
+.badgeError {
+  background: #fce0e0;
+  color: #99281c;
+  border: 1px solid #e6a8a0;
+}
+
+.templateRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.templateBtn {
+  padding: 7px 12px;
+  border: 1.5px solid #d8d1c5;
+  background: #fffdf8;
+  color: #6f695d;
+  font: 600 12px/1.3 var(--body);
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s;
+}
+
+.templateBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--cream);
+  color: var(--ink);
+}
+
+.templateBtn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 760px) {
   .createForm {
     margin-left: 0;

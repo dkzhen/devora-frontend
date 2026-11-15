@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
-import { AlertTriangle, Brain, Check, Eye, FlaskConical, Layers, Loader2, Pencil, PenLine, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Brain, Check, Eye, FlaskConical, Layers, Loader2, Pencil, PenLine, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
 type Plan = (typeof ALL_PLANS)[number];
@@ -27,11 +27,13 @@ type ModelRow = {
   supportsVision: boolean;
   supportsReasoning: boolean;
   supportsTools: boolean;
+  maxOutputTokens: number | null;
+  supportsStreaming: boolean;
   lastTestAt: string | null;
   lastTestStatus: string | null;
 };
 
-type Capability = "supportsVision" | "supportsReasoning" | "supportsTools";
+type Capability = "supportsVision" | "supportsReasoning" | "supportsTools" | "supportsStreaming";
 type Status = "loading" | "ready" | "error";
 
 const EMPTY_FORM = {
@@ -49,6 +51,8 @@ const EMPTY_FORM = {
   supportsVision: false,
   supportsReasoning: false,
   supportsTools: false,
+  maxOutputTokens: "",
+  supportsStreaming: false,
 };
 
 /** The three capability flags, each with the icon the operator asked for. */
@@ -75,6 +79,7 @@ const CAPABILITIES: { key: Capability; label: string; hint: string; Icon: typeof
   { key: "supportsVision", label: "Vision", hint: "Accepts image input", Icon: Eye },
   { key: "supportsReasoning", label: "Reasoning", hint: "Extended thinking", Icon: Brain },
   { key: "supportsTools", label: "Tool call", hint: "Function calling", Icon: Wrench },
+  { key: "supportsStreaming", label: "Streaming", hint: "Server-sent events", Icon: AudioLines },
 ];
 
 /**
@@ -160,6 +165,7 @@ export default function AdminModelsPage() {
         supportsVision: row.supportsVision === true,
         supportsReasoning: row.supportsReasoning === true,
         supportsTools: row.supportsTools === true,
+        supportsStreaming: row.supportsStreaming === true,
       })));
       setStatus("ready");
     } catch {
@@ -219,6 +225,8 @@ export default function AdminModelsPage() {
       supportsVision: row.supportsVision,
       supportsReasoning: row.supportsReasoning,
       supportsTools: row.supportsTools,
+      supportsStreaming: row.supportsStreaming,
+      maxOutputTokens: row.maxOutputTokens === null ? "" : String(row.maxOutputTokens),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -371,6 +379,8 @@ export default function AdminModelsPage() {
           supportsVision: form.supportsVision,
           supportsReasoning: form.supportsReasoning,
           supportsTools: form.supportsTools,
+          maxOutputTokens: form.maxOutputTokens.trim() === "" ? null : Number(form.maxOutputTokens.trim()),
+          supportsStreaming: form.supportsStreaming,
         }),
       });
       if (!res.ok) {
@@ -394,7 +404,7 @@ export default function AdminModelsPage() {
 
   const field = (
     label: string,
-    key: "id" | "upstreamModelId" | "displayName" | "provider" | "contextLength"
+    key: "id" | "upstreamModelId" | "displayName" | "provider" | "contextLength" | "maxOutputTokens"
        | "priceInputCredits" | "priceOutputCredits" | "priceOriginalInput" | "priceOriginalOutput",
     placeholder: string,
     hint?: string,
@@ -418,6 +428,7 @@ export default function AdminModelsPage() {
         {field("Display name", "displayName", "DeepSeek V4.1 Flash")}
         {field("Provider", "provider", "OpenRouter")}
         {field("Context length", "contextLength", "262144", contextHint())}
+        {field("Max output tokens", "maxOutputTokens", "4096", "Optional. Leave empty if unknown.")}
       </div>
 
       <div className="admin-subfield">
@@ -526,7 +537,8 @@ export default function AdminModelsPage() {
                   {m.supportsVision && <span className="cap-badge" title="Vision"><Eye size={14}/></span>}
                   {m.supportsReasoning && <span className="cap-badge" title="Reasoning"><Brain size={14}/></span>}
                   {m.supportsTools && <span className="cap-badge" title="Tool call"><Wrench size={14}/></span>}
-                  {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && <span className="cap-none">—</span>}
+                  {m.supportsStreaming && <span className="cap-badge" title="Streaming"><AudioLines size={14}/></span>}
+                  {!m.supportsVision && !m.supportsReasoning && !m.supportsTools && !m.supportsStreaming && <span className="cap-none">—</span>}
                 </span></td>
                 <td>
                   <span className="price-pair">

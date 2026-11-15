@@ -2546,6 +2546,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .payment-notice:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 .payment-notice-label{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;color:var(--ink);font-family:var(--display);font-size:var(--fs-note);font-weight:700;letter-spacing:.2px;white-space:nowrap}
 .payment-notice-dot{width:7px;height:7px;border-radius:50%;background:var(--mustard);box-shadow:0 0 0 3px rgba(255,197,49,.18)}
+.payment-notice-dot-info{background:#1a9d8e;box-shadow:0 0 0 3px rgba(26,157,142,.18)}
 .payment-notice-divider{width:1px;height:20px;flex:0 0 auto;background:var(--line)}
 .payment-notice-viewport{position:relative;min-width:0;flex:1;overflow:hidden;container-type:inline-size}
 .payment-notice-viewport::before,.payment-notice-viewport::after{content:"";position:absolute;z-index:1;top:0;bottom:0;width:34px;pointer-events:none}
