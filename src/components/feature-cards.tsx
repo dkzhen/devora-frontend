@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SectionHead } from "@/components/section-head";
+import styles from "./landing-sections.module.css";
 
 type Feature = {
   /** Small mark beside the card's tag. */
@@ -65,7 +66,7 @@ export function FeatureCards({
   browseHref?: string;
   browseLabel?: string;
 }) {
-  return <section className="features-section" id={id}>
+  return <section className={`features-section ${styles.section}`} id={id}>
     <SectionHead tag={tag} heading={heading} accent={headAccent} href={browseHref} linkLabel={browseLabel}/>
     <div className="feature-grid">
       {cards.map((f, i) => {

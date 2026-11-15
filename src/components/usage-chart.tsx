@@ -193,24 +193,14 @@ export function UsageChart() {
   return (
     <section className="live-usage-section" ref={sectionRef}>
       <div className="lu-card">
-        {/* Receipt-style top tear */}
-        <svg className="lu-tear" width="100%" height="8" aria-hidden="true" focusable="false">
-          <defs>
-            <pattern id="tear-devora" width="14" height="8" patternUnits="userSpaceOnUse">
-              <path d="M0 8 L7 0 L14 8 Z" fill="#f5f1e8" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="8" fill="url(#tear-devora)" />
-        </svg>
-
         <div className="lu-inner">
           {/* Header */}
           <div className="lu-head">
-            <span className="lu-brand">DEVORA</span>
+            <div><span className="lu-brand">DEVORA</span><h2 className="lu-title">Token activity</h2></div>
             <span className="lu-live"><span className="lu-live-dot" />LIVE</span>
           </div>
-          <div className="lu-divider" />
-
+          <div className="lu-body">
+          <div className="lu-overview">
           {/* Total tokens — odometer */}
           <div className="lu-total-block">
             <div className="lu-total-cap">tokens processed</div>
@@ -223,19 +213,9 @@ export function UsageChart() {
           <div className="lu-chart-area" role="img" aria-label="7-day token usage chart">
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={chartData} margin={{ top: 8, right: 0, bottom: 0, left: 0 }} barCategoryGap="22%">
-                <defs>
-                  <linearGradient id="barToday" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1a9d8e" />
-                    <stop offset="100%" stopColor="#147060" />
-                  </linearGradient>
-                  <linearGradient id="barNormal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#d4ebe7" />
-                    <stop offset="100%" stopColor="#c0d8d3" />
-                  </linearGradient>
-                </defs>
                 <XAxis
                   dataKey="label"
-                  tick={{ fontSize: 11, fill: "#a09a8e", fontFamily: "var(--body)" }}
+                  tick={{ fontSize: 11, fill: "var(--muted)", fontFamily: "var(--body)" }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -243,20 +223,21 @@ export function UsageChart() {
                 <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(23,117,107,0.05)" }} />
                 <Bar dataKey="tokens" radius={[4, 4, 0, 0]} maxBarSize={48} animationDuration={900}>
                   {chartData.map((entry, i) => (
-                    <Cell key={i} fill={entry.isToday ? "url(#barToday)" : "url(#barNormal)"} />
+                    <Cell key={i} fill={entry.isToday ? "var(--activity-accent)" : "var(--activity-bar)"} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Divider */}
-          <div className="lu-divider" />
+          <div className="lu-chart-caption">Last 7 days</div>
+          </div>
 
           {/* Top models today */}
           <div className="lu-top-models">
             <div className="lu-top-models-cap">TOP MODELS TODAY</div>
             <TopModelsToday />
+          </div>
           </div>
 
           {/* Footer */}
@@ -269,10 +250,7 @@ export function UsageChart() {
           </div>
         </div>
 
-        {/* Receipt-style bottom tear */}
-        <svg className="lu-tear lu-tear-bottom" width="100%" height="8" aria-hidden="true" focusable="false">
-          <rect width="100%" height="8" fill="url(#tear-devora)" />
-        </svg>
+
       </div>
     </section>
   );

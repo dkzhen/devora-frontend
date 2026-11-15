@@ -1,0 +1,92 @@
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.createForm {
+  margin: 20px 0 0 26px;
+  min-width: 0;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.field textarea {
+  height: auto;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.submit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.tableWrap {
+  min-width: 0;
+  margin-top: 16px;
+}
+
+.table th,
+.table td {
+  padding: 14px 12px;
+  vertical-align: top;
+}
+
+.table td:first-child {
+  min-width: 120px;
+  max-width: 200px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.table .message {
+  min-width: 240px;
+  max-width: 600px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.feedback {
+  margin: 16px 0 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .createForm {
+    margin-left: 0;
+  }
+}

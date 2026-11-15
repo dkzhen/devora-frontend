@@ -1,0 +1,122 @@
+[
+  {
+    "width": 1440,
+    "metrics": {
+      "viewport": 1440,
+      "scrollWidth": 1440,
+      "chart": {
+        "background": "rgb(221, 241, 231)",
+        "columns": "none",
+        "width": 589.015625,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "stats": {
+        "background": "rgba(0, 0, 0, 0)",
+        "columns": "161px 161px 161px 161px 161px 161px",
+        "width": 966,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "statsSurface": {
+        "background": "rgb(230, 241, 231)",
+        "columns": "none",
+        "width": 1022,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "free": {
+        "background": "rgb(230, 247, 241)",
+        "columns": "none",
+        "width": 502,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "discount": {
+        "background": "rgb(255, 239, 233)",
+        "columns": "none",
+        "width": 502,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "cells": 6,
+      "rows": 6
+    },
+    "pageErrors": []
+  },
+  {
+    "width": 390,
+    "metrics": {
+      "viewport": 390,
+      "scrollWidth": 390,
+      "chart": {
+        "background": "rgb(221, 241, 231)",
+        "columns": "none",
+        "width": 310,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "stats": {
+        "background": "rgba(0, 0, 0, 0)",
+        "columns": "151px 151px",
+        "width": 302,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "statsSurface": {
+        "background": "rgb(230, 241, 231)",
+        "columns": "none",
+        "width": 342,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "free": {
+        "background": "rgb(230, 247, 241)",
+        "columns": "none",
+        "width": 344,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "discount": {
+        "background": "rgb(255, 239, 233)",
+        "columns": "none",
+        "width": 344,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "cells": 6,
+      "rows": 6
+    },
+    "pageErrors": []
+  },
+  {
+    "width": 320,
+    "metrics": {
+      "viewport": 320,
+      "scrollWidth": 320,
+      "chart": {
+        "background": "rgb(221, 241, 231)",
+        "columns": "none",
+        "width": 240,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "stats": {
+        "background": "rgba(0, 0, 0, 0)",
+        "columns": "116px 116px",
+        "width": 232,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "statsSurface": {
+        "background": "rgb(230, 241, 231)",
+        "columns": "none",
+        "width": 272,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "free": {
+        "background": "rgb(230, 247, 241)",
+        "columns": "none",
+        "width": 274,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "discount": {
+        "background": "rgb(255, 239, 233)",
+        "columns": "none",
+        "width": 274,
+        "font": "\"DM Sans\", sans-serif"
+      },
+      "cells": 6,
+      "rows": 6
+    },
+    "pageErrors": []
+  }
+]

@@ -1,0 +1,57 @@
+{
+  "responsive": [
+    {
+      "width": 1440,
+      "cells": 6,
+      "panelWidth": 1024,
+      "chartWidth": 1022,
+      "statsWidth": 1022,
+      "columns": "159.656px 159.672px 159.672px 159.656px 159.672px 159.672px",
+      "overflow": false,
+      "outsidePanel": [],
+      "tears": 0,
+      "gradients": 0
+    },
+    {
+      "width": 1024,
+      "cells": 6,
+      "panelWidth": 870.40625,
+      "chartWidth": 868.40625,
+      "statsWidth": 868.40625,
+      "columns": "268.125px 268.141px 268.125px",
+      "overflow": false,
+      "outsidePanel": [],
+      "tears": 0,
+      "gradients": 0
+    },
+    {
+      "width": 768,
+      "cells": 6,
+      "panelWidth": 652.8125,
+      "chartWidth": 650.8125,
+      "statsWidth": 650.8125,
+      "columns": "195.594px 195.609px 195.609px",
+      "overflow": false,
+      "outsidePanel": [],
+      "tears": 0,
+      "gradients": 0
+    },
+    {
+      "width": 375,
+      "cells": 6,
+      "panelWidth": 329,
+      "chartWidth": 327,
+      "statsWidth": 327,
+      "columns": "143.5px 143.5px",
+      "overflow": false,
+      "outsidePanel": [],
+      "tears": 0,
+      "gradients": 0
+    }
+  ],
+  "empty": {
+    "display": "none",
+    "height": 0
+  },
+  "pageErrors": []
+}

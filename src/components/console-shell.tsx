@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
+import { BarChart3, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
@@ -24,6 +24,7 @@ const adminNav = { group: "ADMIN", items: [
   { href: "/console/admin/models", label: "Models", icon: Layers },
   { href: "/console/admin/users", label: "Users", icon: Users },
   { href: "/console/admin/usage", label: "Usage", icon: BarChart3 },
+  { href: "/console/admin/settings", label: "Settings", icon: Settings },
 ] };
 
 /**

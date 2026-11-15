@@ -50,7 +50,7 @@ export function GatewayStats() {
   return <section className="gateway-stats" id="gateway" aria-label="Devora in numbers">
     {/* One tag. A rename left the previous one in place, so two were rendering stacked — that
         was the leftover, not the wording. This is the heading the operator chose. */}
-    <div className="section-tag">DEVORA IN NUMBERS</div>
+    <h2 className="gs-heading">DEVORA IN NUMBERS</h2>
     <div className="gs-grid">
       {stats.map(s => <div key={s.label} className="gs-cell">
         <strong>{s.value}</strong>

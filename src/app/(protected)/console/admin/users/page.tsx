@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  AlertTriangle, Check, Coins, Flag, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Undo2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
+  AlertTriangle, Ban, Check, Coins, Flag, Loader2, RefreshCw, Search, ShieldCheck, Trash2, Undo2, UserCog, Users, X, ChevronLeft, ChevronRight} from "lucide-react";
 import { Select } from "@/components/select";
 import { formatCredits } from "@/lib/credits";
 import { formatCounter } from "@/lib/format-counter";
@@ -31,6 +31,7 @@ type AccountRow = {
   abuseReason: string | null;
   freeTokensUsed: number;
   signupIp?: string | null;
+  isBanned?: boolean;
 };
 
 type Status = "loading" | "ready" | "error";
@@ -144,6 +145,7 @@ export default function AdminUsersPage() {
         freeTokensUsed: Number(row.freeTokensUsed ?? 0),
         credits: String(row.credits ?? "0"),
         status: String(row.status ?? "ACTIVE"),
+        isBanned: Boolean(row.isBanned),
       })));
       setActorUserId(data.actorUserId ?? null);
       const total = Number(data.total ?? 0);
@@ -247,6 +249,24 @@ export default function AdminUsersPage() {
       if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? "Could not delete the account." }); return; }
       setNotice({ kind: "ok", text: `${row.email} deleted.` });
       setDialog(null);
+      await load(appliedSearch, planFilter, page);
+    } catch {
+      setNotice({ kind: "error", text: "Could not reach the gateway." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Ban or unban a user. */
+  const toggleBan = async (row: AccountRow) => {
+    setNotice(null);
+    setBusyId(row.id);
+    try {
+      const endpoint = row.isBanned ? "unban" : "ban";
+      const res = await fetch(`/backend/api/v1/admin/users/${row.id}/${endpoint}`, { method: "POST", headers: await authHeaders() });
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!res.ok) { setNotice({ kind: "error", text: body?.error?.message ?? `Could not ${endpoint} the account.` }); return; }
+      setNotice({ kind: "ok", text: `${row.email} ${row.isBanned ? "unbanned" : "banned"}.` });
       await load(appliedSearch, planFilter, page);
     } catch {
       setNotice({ kind: "error", text: "Could not reach the gateway." });
@@ -596,7 +616,9 @@ function deltaPreview(raw: string, current: string): string {
                     options={ALL_PLANS.map(p => ({ value: p, label: p }))}
                   />
                 </td>
-                <td><span className={`status-pill status-${u.status.toLowerCase()}`}>{u.status}</span></td>
+                <td>{u.isBanned
+                  ? <span className="status-pill status-banned">BANNED</span>
+                  : <span className={`status-pill status-${u.status.toLowerCase()}`}>{u.status}</span>}</td>
                 <td>{u.abuseFlagged
                   ? <span className="flag-badge" title={u.abuseReason ?? "flagged"}><Flag size={12}/></span>
                   : <span className="cell-muted">—</span>}</td>
@@ -607,8 +629,11 @@ function deltaPreview(raw: string, current: string): string {
                 <td className="cell-muted">{u.signupIp ?? "—"}</td>
                 <td><span className="row-actions">
                   <button className="row-action" type="button" title="Adjust credits" aria-label={`Adjust credits for ${u.email}`} onClick={() => { setCreditDraft(""); setDialog({ kind: "credits", row: u }); }} disabled={busyId === u.id}><UserCog size={14}/></button>
+                  <button className={`row-action ${u.isBanned ? "" : "row-action-danger"}`} type="button" title={isSelf(u) ? "You cannot ban yourself" : u.isBanned ? "Unban account" : "Ban account"} aria-label={`${u.isBanned ? "Unban" : "Ban"} ${u.email}`} onClick={() => void toggleBan(u)} disabled={busyId === u.id || isSelf(u)}>
+                    {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : u.isBanned ? <Undo2 size={14}/> : <Ban size={14}/>}
+                  </button>
                   <button className="row-action row-action-danger" type="button" title={isSelf(u) ? "You cannot delete yourself" : "Delete account"} aria-label={`Delete ${u.email}`} onClick={() => setDialog({ kind: "delete", row: u })} disabled={busyId === u.id || isSelf(u)}>
-                    {busyId === u.id ? <Loader2 size={14} className="row-spinner"/> : <Trash2 size={14}/>}
+                    <Trash2 size={14}/>
                   </button>
                 </span></td>
               </tr>)}</tbody>

@@ -5,6 +5,7 @@ import { Layers } from "lucide-react";
 import { ProviderMark } from "@/components/provider-mark";
 import { formatCounter } from "@/lib/format-counter";
 import { SectionHead } from "@/components/section-head";
+import styles from "./landing-sections.module.css";
 
 /**
  * The three busiest models, as live data cards.
@@ -49,7 +50,7 @@ export function FeaturedModels() {
     return () => { alive = false; };
   }, []);
 
-  return <section className="features-section" id="operate" aria-label="Busiest models">
+  return <section className={`features-section ${styles.section}`} id="operate" aria-label="Busiest models">
     <SectionHead tag="FEATURED MODELS" heading="Busiest right now," accent="counted live." href="/models" linkLabel="View All"/>
 
     {data === null

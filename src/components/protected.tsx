@@ -1,6 +1,9 @@
 "use client";
 
-/** Temporary visual-review bypass requested by Zhen. Restore the demo-session gate after UI approval. */
+import { useBannedInterceptor } from "@/components/banned-interceptor";
+
+/** Wraps protected pages with the banned-account interceptor. */
 export function Protected({ children }: { children: React.ReactNode }) {
+  useBannedInterceptor();
   return <>{children}</>;
 }

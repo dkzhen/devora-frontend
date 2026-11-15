@@ -5,6 +5,7 @@ import { Flame, Layers } from "lucide-react";
 import { ProviderMark } from "@/components/provider-mark";
 import { formatCounter } from "@/lib/format-counter";
 import { SectionHead } from "@/components/section-head";
+import styles from "./landing-sections.module.css";
 
 /**
  * Whatever is running or queued up right now, as live data cards.
@@ -59,7 +60,7 @@ export function FeaturedEvents() {
     return () => { alive = false; };
   }, []);
 
-  return <section className="features-section" id="events" aria-label="Events">
+  return <section className={`features-section ${styles.section}`} id="events" aria-label="Events">
     <SectionHead tag="HAPPENING NOW" heading="Running right now," accent="free while it lasts." href="/events" linkLabel="All Events"/>
 
     {events === null
