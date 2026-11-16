@@ -61,7 +61,7 @@ type Voucher = {
   state: "active" | "disabled" | "expired" | "exhausted" | "closed";
 };
 
-type PackageOption = { id: string; name: string; category: string; tier: string };
+type PackageOption = { id: string; name: string; category: string; tier: string; isArchived?: boolean };
 
 type Status = "idle" | "loading" | "ready" | "error";
 
@@ -224,6 +224,10 @@ export default function VouchersPage() {
     { label: "", kind: "credits", credits: "", maxUses: "", expiresAt: "", packageId: "" });
   const [createError, setCreateError] = useState("");
   const [packages, setPackages] = useState<PackageOption[]>([]);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchCount, setBatchCount] = useState("5");
+  const [batchResult, setBatchResult] = useState<string[] | null>(null);
+  const [batchCopied, setBatchCopied] = useState(false);
 
   useEffect(() => {
     if (!isOperator) return;
@@ -239,8 +243,43 @@ export default function VouchersPage() {
 
   const create = async () => {
     setCreateError("");
-    const maxUses = Number(draft.maxUses);
     if (!draft.label.trim()) { setCreateError("Label is required."); return; }
+
+    // Batch mode: subscription only, N single-use codes.
+    if (batchMode && draft.kind === "subscription") {
+      const count = Number(batchCount);
+      if (!draft.packageId) { setCreateError("Pick the package this voucher grants."); return; }
+      if (!Number.isInteger(count) || count < 1 || count > 500) { setCreateError("Count must be 1-500."); return; }
+      setCreating(true);
+      try {
+        const res = await fetch("/backend/api/v1/admin/vouchers/batch", {
+          method: "POST",
+          headers: await authHeaders(),
+          body: JSON.stringify({
+            label: draft.label.trim(),
+            packageId: draft.packageId,
+            count,
+            expiresAt: draft.expiresAt.trim() === "" ? null : draft.expiresAt,
+          }),
+        });
+        const body = await res.json().catch(() => null) as
+          { vouchers?: { code: string }[]; error?: { message?: string } } | null;
+        if (!res.ok) { setCreateError(body?.error?.message ?? "Could not create the vouchers."); return; }
+        const codes = (body?.vouchers ?? []).map(v => v.code);
+        setBatchResult(codes);
+        setBatchCopied(false);
+        setNotice(`${codes.length} voucher(s) created for ${draft.packageId}.`);
+        setDraft({ label: "", kind: "credits", credits: "", maxUses: "", expiresAt: "", packageId: "" });
+        await loadVouchers();
+      } catch {
+        setCreateError("Could not reach the gateway.");
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    const maxUses = Number(draft.maxUses);
     if (!Number.isInteger(maxUses) || maxUses < 1) { setCreateError("Max users must be a whole number, at least 1."); return; }
     if (draft.kind === "subscription" && !draft.packageId) { setCreateError("Pick the package this voucher grants."); return; }
     const credits = Number(draft.credits);
@@ -357,14 +396,29 @@ export default function VouchersPage() {
                 onChange={v => setDraft(d => ({ ...d, packageId: v }))}
                 placeholder={packages.length === 0 ? "No packages yet" : "Select a package…"}
                 disabled={packages.length === 0}
-                options={packages.map(p => ({ value: p.id, label: `${p.name} (${p.id})` }))}
+                options={packages.filter(p => !p.isArchived).map(p => ({ value: p.id, label: `${p.name} (${p.id})` }))}
               />
               <small>{packages.length === 0 ? "Create one on the Packages page first." : "The allowance each redeemer receives."}</small>
             </div>
           : <label className="admin-field"><span>CREDITS TO FUND</span>
               <input value={draft.credits} onChange={e => setDraft(d => ({ ...d, credits: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100" inputMode="decimal"/></label>}
-        <label className="admin-field"><span>MAX USERS</span>
-          <input value={draft.maxUses} onChange={e => setDraft(d => ({ ...d, maxUses: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="10" inputMode="numeric"/></label>
+        {draft.kind === "subscription" && (
+          <div className="admin-field" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ whiteSpace: "nowrap" }}>BATCH MODE</span>
+            <div className="toggle-row" style={{ cursor: "pointer", marginBottom: 0 }} onClick={() => setBatchMode(b => !b)}>
+              <span className={"toggle" + (batchMode ? " toggle-on" : "")} />
+              <span className="toggle-label"><strong>{batchMode ? "On" : "Off"}</strong></span>
+            </div>
+            <small style={{ marginLeft: "auto" }}>Generate multiple single-use codes at once.</small>
+          </div>
+        )}
+        {batchMode && draft.kind === "subscription"
+          ? <label className="admin-field"><span>COUNT</span>
+              <input value={batchCount} onChange={e => setBatchCount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="5" inputMode="numeric"/>
+              <small>Number of single-use voucher codes to generate (1-500).</small>
+            </label>
+          : <label className="admin-field"><span>MAX USERS</span>
+              <input value={draft.maxUses} onChange={e => setDraft(d => ({ ...d, maxUses: e.target.value.replace(/[^0-9]/g, "") }))} placeholder="10" inputMode="numeric"/></label>}
         <label className="admin-field"><span>EXPIRES <small>optional</small></span>
           <input type="date" value={draft.expiresAt} onChange={e => setDraft(d => ({ ...d, expiresAt: e.target.value }))}/></label>
         <div className="voucher-create-actions">
@@ -380,6 +434,32 @@ export default function VouchersPage() {
         {draft.kind === "credits" && <p className="voucher-split">{splitPreview(draft.credits, draft.maxUses, balance)}</p>}
       </div>
     </section>}
+
+    {/* ---------- batch result modal ---------- */}
+    <Modal
+      open={batchResult !== null}
+      title={`${batchResult?.length ?? 0} voucher codes created`}
+      onClose={() => setBatchResult(null)}
+      footer={<>
+        <button type="button" className="button button-outline" onClick={() => setBatchResult(null)}>Close</button>
+        <button type="button" className="button button-ink" onClick={async () => {
+          const text = (batchResult ?? []).join("\n");
+          try { await navigator.clipboard.writeText(text); } catch {
+            const ta = document.createElement("textarea"); ta.value = text;
+            ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+            ta.select(); document.execCommand("copy"); ta.remove();
+          }
+          setBatchCopied(true); setTimeout(() => setBatchCopied(false), 2000);
+        }}>{batchCopied ? <><Check size={14}/> Copied!</> : "Copy all"}</button>
+      </>}
+    >
+      <p style={{ margin: "0 0 12px", fontSize: "13px", color: "var(--muted)" }}>
+        Each code is single-use. Share them with your customers.
+      </p>
+      <div style={{ background: "var(--cream)", border: "1px solid var(--line)", borderRadius: 6, padding: 14, fontFamily: "ui-monospace, monospace", fontSize: 13, lineHeight: 1.8, maxHeight: 400, overflowY: "auto" }}>
+        {(batchResult ?? []).map((code, i) => <div key={i}>{code}</div>)}
+      </div>
+    </Modal>
 
     {/* ---------- operator: list ---------- */}
     {isOperator && <section className="console-section">

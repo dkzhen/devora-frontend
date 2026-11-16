@@ -25,6 +25,7 @@ type AdminPackage = {
   baseRpm: number | null;
   throttledRpm: number | null;
   isPublic: boolean;
+  isArchived: boolean;
   activeSubscriptions: number;
   expiredSubscriptions: number;
   /** The models this package's free allowance covers. */
@@ -69,11 +70,13 @@ type ModelForm = {
   fairUseCap: string;
   baseRpm: string;
   throttledRpm: string;
+  isArchived: boolean;
 };
 
 const EMPTY: ModelForm = {
   id: "", name: "", description: "", category: "hard_cap", tier: "SUBSCRIPTION",
   durationDays: "30", tokenCap: "", fairUseCap: "", baseRpm: "", throttledRpm: "20",
+  isArchived: false,
 };
 
 /** A pricing plan: a marketing card linked to a package. */
@@ -228,6 +231,7 @@ export function AdminPackagesPage() {
       tokenCap: p.tokenCap ?? "", fairUseCap: p.fairUseCap ?? "",
       baseRpm: p.baseRpm === null ? "" : String(p.baseRpm),
       throttledRpm: p.throttledRpm === null ? "" : String(p.throttledRpm),
+      isArchived: p.isArchived ?? false,
     });
     setModelIds(Array.isArray(p.modelIds) ? p.modelIds : []);
     setEditing(true);
@@ -276,6 +280,7 @@ export function AdminPackagesPage() {
           tokenCap: form.category === "hard_cap" ? form.tokenCap.trim() : "",
           fairUseCap: form.category === "unlimited" ? form.fairUseCap.trim() : "",
           baseRpm: form.baseRpm.trim(), throttledRpm: form.throttledRpm.trim(),
+          isArchived: form.isArchived,
         }),
       });
       if (!res.ok) {
@@ -429,11 +434,11 @@ export function AdminPackagesPage() {
       pricingPlans.filter(p => p.id !== editingPlanId).map(p => p.packageId)
     );
     return packages
-      .filter(p => !usedPackageIds.has(p.id))
+      .filter(p => !usedPackageIds.has(p.id) && !p.isArchived)
       .map(p => ({ value: p.id, label: `${p.name} (${p.tier})` }));
   }, [packages, pricingPlans, editingPlanId]);
 
-  const field = (label: string, key: keyof ModelForm, placeholder: string, hint?: string) =>
+  const field = (label: string, key: Exclude<keyof ModelForm, "isArchived" | "category">, placeholder: string, hint?: string) =>
     <label className="admin-field">
       <span>{label}</span>
       <input value={form[key]} placeholder={placeholder}
@@ -550,6 +555,15 @@ export function AdminPackagesPage() {
         </div>
       </div>
 
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Archive</span>
+        <p className="admin-subfield-hint">Archived packages stay in the database but are hidden from the pricing-card linked-package dropdown.</p>
+        <div className="toggle-row" style={{ cursor: "pointer" }} onClick={() => setForm(f => ({ ...f, isArchived: !f.isArchived }))}>
+          <span className={"toggle" + (form.isArchived ? " toggle-on" : "")} />
+          <span className="toggle-label"><strong>{form.isArchived ? "Archived" : "Active"}</strong><small>Archive a package when it's no longer sold but can't be deleted.</small></span>
+        </div>
+      </div>
+
       <div className="admin-actions">
         <button className="button button-ink" type="button" onClick={() => void submit()} disabled={saving}>
           {saving ? <><Loader2 size={15} className="row-spinner"/> Saving…</> : <>{editing ? "Save package" : "Create package"} <Save size={16}/></>}
@@ -574,7 +588,7 @@ export function AdminPackagesPage() {
         </div>}
         {status === "ready" && packages.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th style={{minWidth:"90px"}}>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th>EXPIRED</th><th></th>
+            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th style={{minWidth:"90px"}}>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th>EXPIRED</th><th style={{whiteSpace:"nowrap"}}>ARCHIVE</th><th></th>
           </tr></thead>
           <tbody>{packages.map(p => <tr key={p.id}>
             <td>
@@ -603,6 +617,7 @@ export function AdminPackagesPage() {
             <td className="cell-num">{p.durationDays === null ? "lifetime" : `${p.durationDays}d`}</td>
             <td className="cell-num">{p.activeSubscriptions}</td>
             <td className="cell-num cell-muted">{p.expiredSubscriptions}</td>
+            <td className="cell-num">{p.isArchived ? <span style={{ color: "#6f695d", fontWeight: 700 }}>true</span> : <span className="cell-muted">—</span>}</td>
             <td>
               <span className="row-actions">
                 <button className="row-action" type="button" title="Edit" aria-label={`Edit ${p.name}`} onClick={() => startEdit(p)} disabled={busyId === p.id}><Save size={14}/></button>
