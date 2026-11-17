@@ -45,6 +45,10 @@ type PaymentMethod = {
   icon: string | null;
   isActive: boolean;
   visibility?: "active" | "inactive" | "private";
+  /** False when the gateway behind this method is unhealthy. Absent on older backends. */
+  available?: boolean;
+  /** Why the method is unavailable; shown next to the disabled option. */
+  unavailableReason?: string | null;
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
@@ -318,8 +322,9 @@ export function TopupDialog({
   useEffect(() => {
     if (!open || resumeTopup) return;
     let cancelled = false;
+    // Keep any methods already on screen while a fresh fetch runs — the list below renders the
+    // previous rows instead of collapsing into a spinner-only modal.
     setMethodsLoading(true);
-    setSelectedMethodId("");
     (async () => {
       try {
         const token = await getToken();
@@ -329,10 +334,19 @@ export function TopupDialog({
         if (cancelled) return;
         if (!res.ok) { setMethodsLoading(false); return; }
         const data = await res.json() as { methods?: PaymentMethod[] };
+        // Keep methods flagged `available === false` in the list — they render disabled with
+        // their reason. An absent flag (older backend) means available, so nothing regresses.
         const validMethods = (data.methods ?? []).filter(m => m.category === "idr" || m.category === "usd");
+        const methodAvailable = (m: PaymentMethod) => m.available !== false;
         setPaymentMethods(validMethods);
-        const firstActive = validMethods.find(m => m.visibility === "active" || m.visibility === "private" || m.isActive);
-        setSelectedMethodId(firstActive ? firstActive.id : "");
+        // Never auto-select a method whose gateway is down — the buyer would land on a
+        // disabled option and the Buy button would refuse to proceed. Keep a still-valid
+        // previous selection when re-fetching; otherwise pick the first active available one.
+        setSelectedMethodId(prev => {
+          const previous = validMethods.find(m => m.id === prev);
+          if (previous && methodAvailable(previous) && (previous.visibility === "active" || previous.visibility === "private" || previous.isActive)) return prev;
+          return validMethods.find(m => methodAvailable(m) && (m.visibility === "active" || m.visibility === "private" || m.isActive))?.id ?? "";
+        });
         // Fetch USD rate
         try {
           const rRes = await fetch("/backend/api/v1/payment/usd-rate");
@@ -401,6 +415,16 @@ export function TopupDialog({
     const n = Number(credits);
     if (!Number.isFinite(n) || n < minTopup) { setError(`Minimum top-up is ${minTopup.toLocaleString()} credits.`); return; }
     if (!selectedMethodId) { setError("Please select a payment method."); return; }
+    const selectedMethod = paymentMethods.find(m => m.id === selectedMethodId);
+    if (!selectedMethod) { setError("Please select a payment method."); return; }
+    if (selectedMethod.available === false) {
+      setError(selectedMethod.unavailableReason || "Payment gateway is temporarily unavailable. Please choose another method.");
+      return;
+    }
+    if (!(selectedMethod.visibility === "active" || selectedMethod.visibility === "private" || selectedMethod.isActive)) {
+      setError("This payment method is unavailable. Please choose another one.");
+      return;
+    }
     setCreating(true);
     try {
       const res = await fetch("/backend/api/v1/payment/orders", {
@@ -714,7 +738,7 @@ export function TopupDialog({
       {/* Payment method selection — radio cards like billing page. */}
       <div className="admin-subfield">
         <span className="admin-subfield-label">Payment method</span>
-        {methodsLoading
+        {methodsLoading && paymentMethods.length === 0
           ? <div className="table-empty"><Loader2 size={15} className="row-spinner"/><strong>Loading payment methods…</strong></div>
           : paymentMethods.length === 0
             ? null
@@ -728,8 +752,11 @@ export function TopupDialog({
                       <small className="payment-method-cat">{catLabel}</small>
                       {catMethods.map(m => {
                         const selected = selectedMethodId === m.id;
-                        const isDisabled = !(m.visibility === "active" || m.visibility === "private" || m.isActive);
-                        const disabledReason = isDisabled ? " · Unavailable" : "";
+                        const gatewayDown = m.available === false;
+                        const isDisabled = gatewayDown || !(m.visibility === "active" || m.visibility === "private" || m.isActive);
+                        const disabledReason = gatewayDown
+                          ? ` · ${(m.unavailableReason || "Payment gateway is temporarily unavailable").replace(/^\s*·\s*/, "")}`
+                          : isDisabled ? " · Unavailable" : "";
                         return (
                           <label key={m.id} className={`payment-method-option${selected ? " selected" : ""}${isDisabled ? " disabled" : ""}`}>
                             <input type="radio" name="topupPaymentMethod" value={m.id} checked={selected} onChange={() => !isDisabled && setSelectedMethodId(m.id)} disabled={isDisabled} />
