@@ -418,7 +418,7 @@ export function TopupDialog({
     const selectedMethod = paymentMethods.find(m => m.id === selectedMethodId);
     if (!selectedMethod) { setError("Please select a payment method."); return; }
     if (selectedMethod.available === false) {
-      setError(selectedMethod.unavailableReason || "Payment gateway is temporarily unavailable. Please choose another method.");
+      setError(selectedMethod.unavailableReason || "Temporarily unavailable. Please choose another method.");
       return;
     }
     if (!(selectedMethod.visibility === "active" || selectedMethod.visibility === "private" || selectedMethod.isActive)) {
@@ -755,7 +755,7 @@ export function TopupDialog({
                         const gatewayDown = m.available === false;
                         const isDisabled = gatewayDown || !(m.visibility === "active" || m.visibility === "private" || m.isActive);
                         const disabledReason = gatewayDown
-                          ? ` · ${(m.unavailableReason || "Payment gateway is temporarily unavailable").replace(/^\s*·\s*/, "")}`
+                          ? ` · ${(m.unavailableReason || "Temporarily unavailable").replace(/^\s*·\s*/, "")}`
                           : isDisabled ? " · Unavailable" : "";
                         return (
                           <label key={m.id} className={`payment-method-option${selected ? " selected" : ""}${isDisabled ? " disabled" : ""}`}>

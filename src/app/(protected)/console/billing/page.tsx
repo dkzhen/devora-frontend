@@ -864,7 +864,7 @@ export default function BillingPage() {
     const chosen = paymentPopup.methods.find(m => m.id === selectedMethodId);
     if (!chosen) { setPaymentPopupError("Please select a payment method."); return; }
     if (chosen.available === false) {
-      setPaymentPopupError(`${chosen.unavailableReason || "Payment gateway is temporarily unavailable."} Please choose another method.`);
+      setPaymentPopupError(`${chosen.unavailableReason || "Temporarily unavailable."} Please choose another method.`);
       return;
     }
     setPaymentPopupBusy(true);
@@ -1794,7 +1794,7 @@ export default function BillingPage() {
                   const notVisible = !(m.visibility === "active" || m.visibility === "private" || m.isActive);
                   const isDisabled = gatewayDown || insufficientCredits || notVisible;
                   const disabledReason = gatewayDown
-                    ? ` · ${(m.unavailableReason || "Payment gateway is temporarily unavailable").replace(/^\s*·\s*/, "")}`
+                    ? ` · ${(m.unavailableReason || "Temporarily unavailable").replace(/^\s*·\s*/, "")}`
                     : notVisible ? " · Unavailable" : insufficientCredits ? " · Insufficient credits" : "";
                   return (
                     <label key={m.id} className={`payment-method-option${selectedMethodId === m.id ? " selected" : ""}${isDisabled ? " disabled" : ""}`}>
