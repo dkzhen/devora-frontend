@@ -1293,18 +1293,31 @@ export default function BillingPage() {
               <div>
                 <dt>Request rate</dt>
                 <dd>
-                  {unlimited
-                                      ? (pkg.baseRpm !== null && pkg.throttledRpm !== null
-                                        ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><strong>{pkg.baseRpm}</strong> → <strong>{pkg.throttledRpm}</strong><small style={{display:"block"}}>rpm</small></span>
-                                        : pkg.baseRpm !== null
-                                          ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
-                                          : <span>Unlimited</span>
-                                      )
-                                      : (pkg.baseRpm !== null
-                                        ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
-                                        : <span>Unlimited</span>
-                                      )
-                                    }
+                  {(() => {
+                    // Request rate can be a range (base → throttled after fair use).
+                    // An unlimited base is the infinity icon, not the word "Unlimited"
+                    // when a throttled rate follows it — "∞ → 20" reads as a real range.
+                    const base = pkg.baseRpm;
+                    const throt = pkg.throttledRpm;
+                    const baseNode = base === null
+                      ? <InfinityIcon size={14} style={{ position: "relative", top: "2px" }} />
+                      : <strong>{base}</strong>;
+                    if (base !== null && throt !== null) {
+                      return <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <strong>{base}</strong> → <strong>{throt}</strong><small style={{ display: "block" }}>rpm</small>
+                      </span>;
+                    }
+                    if (throt !== null) {
+                      // base is unlimited, but rate drops to `throt` after fair use.
+                      return <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        {baseNode} → <strong>{throt}</strong><small style={{ display: "block" }}>rpm</small>
+                      </span>;
+                    }
+                    if (base !== null) {
+                      return <><strong>{base}</strong><small>rpm</small></>;
+                    }
+                    return <span>Unlimited</span>;
+                  })()}
                 </dd>
               </div>
             </dl>
