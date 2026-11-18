@@ -17,6 +17,7 @@ import { PackageActions } from "@/components/package-actions";
 import { CryptoPayOptions, type CryptoOption } from "@/components/topup-dialog";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
+import { PaymentExpiryNotice } from "@/components/payment-expiry-notice";
 
 /**
  * A live subscription, as /api/v1/users/me reports it. Shape mirrors the backend's mapping.
@@ -34,6 +35,8 @@ type Subscription = {
   fairUseCap: string | null;
   baseRpm: number | null;
   throttledRpm: number | null;
+  baseConcurrency: number | null;
+  throttledConcurrency: number | null;
   modelCount: number;
   /**
    * The covered models, each with the provider its mark is drawn from. Empty means the package
@@ -61,6 +64,8 @@ type PlanPackage = {
   fairUseCap: string | null;
   baseRpm: number | null;
   throttledRpm: number | null;
+  baseConcurrency: number | null;
+  throttledConcurrency: number | null;
   modelCount: number;
   models?: { name: string; provider: string }[];
 };
@@ -451,6 +456,15 @@ function SubscriptionCard({ sub, onChanged, price }: { sub: Subscription; onChan
           : throttled && sub.throttledRpm !== null
             ? sub.throttledRpm
             : sub.baseRpm ?? <InfinityIcon size={20} style={{position:"relative",top:"3px"}}/>}
+        </strong>
+      </div>
+      <div>
+        <small>CONCURRENT</small>
+        <strong>{sub.baseConcurrency === null && sub.throttledConcurrency === null
+          ? <InfinityIcon size={20} style={{position:"relative",top:"3px"}}/>
+          : throttled && sub.throttledConcurrency != null
+            ? sub.throttledConcurrency
+            : sub.baseConcurrency ?? <InfinityIcon size={20} style={{position:"relative",top:"3px"}}/>}
         </strong>
       </div>
       <div>
@@ -1320,6 +1334,32 @@ export default function BillingPage() {
                   })()}
                 </dd>
               </div>
+              <div>
+                <dt>Concurrent</dt>
+                <dd>
+                  {(() => {
+                    const base = pkg.baseConcurrency;
+                    const throt = pkg.throttledConcurrency;
+                    const baseNode = base === null
+                      ? <InfinityIcon size={14} style={{ position: "relative", top: "2px" }} />
+                      : <strong>{base}</strong>;
+                    if (base !== null && throt !== null) {
+                      return <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <strong>{base}</strong> → <strong>{throt}</strong><small style={{ display: "block" }}>requests</small>
+                      </span>;
+                    }
+                    if (throt !== null) {
+                      return <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        {baseNode} → <strong>{throt}</strong><small style={{ display: "block" }}>requests</small>
+                      </span>;
+                    }
+                    if (base !== null) {
+                      return <><strong>{base}</strong><small>requests</small></>;
+                    }
+                    return <span>Unlimited</span>;
+                  })()}
+                </dd>
+              </div>
             </dl>
 
             {pkg.models && pkg.models.length > 0 && <div className="pkg-models">
@@ -1617,6 +1657,7 @@ export default function BillingPage() {
           <div className="detail-info-row"><span>{t("Token allowance", "Jatah token")}</span><strong>{unlimited ? t("Unlimited", "Tak terbatas") : (granted ? formatCounter(Number(granted)) : "—")}</strong></div>
           <div className="detail-info-row"><span>{t("Duration", "Durasi")}</span><strong>{pkg.durationDays === null ? t("Lifetime", "Seumur hidup") : `${pkg.durationDays} ${t("days", "hari")}`}</strong></div>
           <div className="detail-info-row"><span>{t("Request rate", "Batas request")}</span><strong>{pkg.baseRpm === null ? t("Unlimited", "Tak terbatas") : `${pkg.baseRpm} rpm`}{unlimited && pkg.throttledRpm !== null ? ` → ${pkg.throttledRpm} rpm` : ""}</strong></div>
+          <div className="detail-info-row"><span>{t("Concurrent", "Bersamaan")}</span><strong>{pkg.baseConcurrency === null ? t("Unlimited", "Tak terbatas") : `${pkg.baseConcurrency} requests`}{unlimited && pkg.throttledConcurrency !== null ? ` → ${pkg.throttledConcurrency} requests` : ""}</strong></div>
           <div className="detail-info-row"><span>{t("Models covered", "Model tercakup")}</span><strong>{pkg.modelCount}</strong></div>
         </div>
 
@@ -1763,6 +1804,7 @@ export default function BillingPage() {
               )}
             </div>;
           })()}
+          <PaymentExpiryNotice />
           <div className="payment-method-list">
           {(["credits", "idr", "usd"] as const).map(cat => {
             const catMethods = paymentPopup.methods.filter(m => m.category === cat);

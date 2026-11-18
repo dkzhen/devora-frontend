@@ -24,6 +24,8 @@ type AdminPackage = {
   fairUseCap: string | null;
   baseRpm: number | null;
   throttledRpm: number | null;
+  baseConcurrency: number | null;
+  throttledConcurrency: number | null;
   isPublic: boolean;
   isArchived: boolean;
   activeSubscriptions: number;
@@ -70,12 +72,15 @@ type ModelForm = {
   fairUseCap: string;
   baseRpm: string;
   throttledRpm: string;
+  baseConcurrency: string;
+  throttledConcurrency: string;
   isArchived: boolean;
 };
 
 const EMPTY: ModelForm = {
   id: "", name: "", description: "", category: "hard_cap", tier: "SUBSCRIPTION",
   durationDays: "30", tokenCap: "", fairUseCap: "", baseRpm: "", throttledRpm: "20",
+  baseConcurrency: "", throttledConcurrency: "",
   isArchived: false,
 };
 
@@ -240,6 +245,8 @@ export function AdminPackagesPage() {
       tokenCap: p.tokenCap ?? "", fairUseCap: p.fairUseCap ?? "",
       baseRpm: p.baseRpm === null ? "" : String(p.baseRpm),
       throttledRpm: p.throttledRpm === null ? "" : String(p.throttledRpm),
+      baseConcurrency: p.baseConcurrency === null ? "" : String(p.baseConcurrency),
+      throttledConcurrency: p.throttledConcurrency === null ? "" : String(p.throttledConcurrency),
       isArchived: p.isArchived ?? false,
     });
     setModelIds(Array.isArray(p.modelIds) ? p.modelIds : []);
@@ -289,6 +296,7 @@ export function AdminPackagesPage() {
           tokenCap: form.category === "hard_cap" ? form.tokenCap.trim() : "",
           fairUseCap: form.category === "unlimited" ? form.fairUseCap.trim() : "",
           baseRpm: form.baseRpm.trim(), throttledRpm: form.throttledRpm.trim(),
+          baseConcurrency: form.baseConcurrency.trim(), throttledConcurrency: form.throttledConcurrency.trim(),
           isArchived: form.isArchived,
         }),
       });
@@ -553,6 +561,13 @@ export function AdminPackagesPage() {
           : <label className="admin-field"><span>Throttled RPM</span><input value="" placeholder="n/a for hard cap" disabled /><small>A hard cap ends; it has no throttled leg.</small></label>}
       </div>
 
+      <div className="admin-form">
+        {field("Base concurrent", "baseConcurrency", "empty = unlimited", "Simultaneous in-flight requests before fair use.")}
+        {form.category === "unlimited"
+          ? field("Throttled concurrent", "throttledConcurrency", "empty = unlimited", "Simultaneous in-flight requests past fair use.")
+          : <label className="admin-field"><span>Throttled concurrent</span><input value="" placeholder="n/a for hard cap" disabled /><small>A hard cap ends; it has no throttled leg.</small></label>}
+      </div>
+
       {/* Coverage. A package's free allowance applies to exactly these models — a model not
           listed falls through to credits (or an event / a zero-priced model, which stay free). */}
       <div className="admin-subfield pkg-models">
@@ -610,7 +625,7 @@ export function AdminPackagesPage() {
         </div>}
         {status === "ready" && packages.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th style={{minWidth:"90px"}}>RPM</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th>EXPIRED</th><th style={{whiteSpace:"nowrap"}}>ARCHIVE</th><th></th>
+            <th>PACKAGE</th><th>CATEGORY</th><th>TIER</th><th>ALLOWANCE</th><th style={{minWidth:"90px"}}>RPM</th><th style={{minWidth:"90px"}}>CONCURRENT</th><th>MODELS</th><th>DURATION</th><th>LIVE</th><th>EXPIRED</th><th style={{whiteSpace:"nowrap"}}>ARCHIVE</th><th></th>
           </tr></thead>
           <tbody>{packages.map(p => <tr key={p.id}>
             <td>
@@ -630,8 +645,15 @@ export function AdminPackagesPage() {
                   : p.baseRpm === null && p.throttledRpm !== null ? <><InfinityIcon size={16}/> → {p.throttledRpm}</>
                   : p.baseRpm !== null && p.throttledRpm !== null ? <>{p.baseRpm} → {p.throttledRpm}</>
                   : p.baseRpm ?? <InfinityIcon size={16}/>}
-              </span>
-            </td>
+              </span></td>
+              <td className="cell-num">
+                <span style={{display:"inline-flex",alignItems:"center",gap:"2px",whiteSpace:"nowrap"}}>
+                  {p.baseConcurrency === null && p.throttledConcurrency === null ? <InfinityIcon size={16}/>
+                    : p.baseConcurrency === null && p.throttledConcurrency !== null ? <><InfinityIcon size={16}/> → {p.throttledConcurrency}</>
+                    : p.baseConcurrency !== null && p.throttledConcurrency !== null ? <>{p.baseConcurrency} → {p.throttledConcurrency}</>
+                    : p.baseConcurrency ?? <InfinityIcon size={16}/>}
+                </span>
+              </td>
             <td className="cell-num">
               <span title={p.modelIds.join(", ")}>{p.modelIds.length}</span>
               <small className="cell-sub">{p.modelIds.length === 1 ? "model" : "models"}</small>

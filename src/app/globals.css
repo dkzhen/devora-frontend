@@ -1896,6 +1896,16 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topup-dead strong{font:700 var(--fs-small) var(--display);letter-spacing:-.1px}
 .topup-dead span{font-size:var(--fs-note);line-height:1.45}
 
+/* Compact red expiry warning — detail tucked behind an info toggle at bottom-right. */
+.payment-expiry-notice{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:14px;padding:10px 12px;border:1px solid var(--coral);border-radius:8px;background:#fff5f5;color:#7a2320}
+.payment-expiry-notice-body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.payment-expiry-notice-body strong{font:700 var(--fs-small) var(--display);letter-spacing:-.1px}
+.payment-expiry-notice-body span{font-size:var(--fs-note);line-height:1.45;color:#9a3a36}
+.payment-expiry-notice-detail{margin:6px 0 0;font-size:var(--fs-note);line-height:1.5;color:#9a3a36}
+.payment-expiry-notice-info{flex:0 0 auto;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--coral);border-radius:50%;background:transparent;color:var(--coral);cursor:pointer}
+.payment-expiry-notice-info:hover{background:var(--coral);color:#fff}
+.payment-expiry-notice-info:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
 /* A dead QR's placeholder. It occupies the SAME box the code did — 232px of content, so 258px
  with .topup-qr's 11px padding and 2px border — because otherwise the panel reflows the moment
  the countdown hits zero. (First attempt did not: a bare grid collapses to its content.) */

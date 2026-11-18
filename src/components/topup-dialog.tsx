@@ -7,6 +7,7 @@ import {
   AlertTriangle, Check, Clock, Coins, Copy, Loader2, RefreshCw, QrCode, X,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { PaymentExpiryNotice } from "@/components/payment-expiry-notice";
 import { formatCredits, formatRupiah } from "@/lib/credits";
 
 /**
@@ -734,6 +735,8 @@ export function TopupDialog({
           {usdRateUpdatedAt && <> · Last updated {new Date(usdRateUpdatedAt).toLocaleString("id-ID")}</>}
         </p>
       </div>}
+
+      <PaymentExpiryNotice />
 
       {/* Payment method selection — radio cards like billing page. */}
       <div className="admin-subfield">

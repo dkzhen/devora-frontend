@@ -25,6 +25,8 @@ type PlanPackage = {
   fairUseCap: string | null;
   baseRpm: number | null;
   throttledRpm: number | null;
+  baseConcurrency: number | null;
+  throttledConcurrency: number | null;
   modelCount: number;
   models?: { name: string; provider: string }[];
 };
@@ -154,6 +156,23 @@ export function PricingPage() {
                                       )
                                       : (pkg.baseRpm !== null
                                         ? <><strong>{pkg.baseRpm}</strong><small>rpm</small></>
+                                        : <span>Unlimited</span>
+                                      )
+                                    }
+                </dd>
+              </div>
+              <div>
+                <dt>Concurrent</dt>
+                <dd>
+                  {unlimited
+                                      ? (pkg.baseConcurrency !== null && pkg.throttledConcurrency !== null
+                                        ? <span style={{display:"inline-flex",alignItems:"center",gap:"4px"}}><strong>{pkg.baseConcurrency}</strong> → <strong>{pkg.throttledConcurrency}</strong><small style={{display:"block"}}>requests</small></span>
+                                        : pkg.baseConcurrency !== null
+                                          ? <><strong>{pkg.baseConcurrency}</strong><small>requests</small></>
+                                          : <span>Unlimited</span>
+                                      )
+                                      : (pkg.baseConcurrency !== null
+                                        ? <><strong>{pkg.baseConcurrency}</strong><small>requests</small></>
                                         : <span>Unlimited</span>
                                       )
                                     }
