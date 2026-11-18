@@ -1232,15 +1232,23 @@ export default function BillingPage() {
           return <article key={p.id} className={`billing-plan-card pkg-card pkg-card-${["mint", "coral", "violet"][i % 3]}`}>
             <div className="pkg-card-top">
               <span className="pkg-icon">{unlimited ? <InfinityIcon size={20}/> : <Package size={20}/>}</span>
-              <button
-                type="button"
-                className="pkg-info-btn"
-                title="Package details"
-                aria-label={`Details for ${p.displayName}`}
-                onClick={() => setDetailPopup({ plan: p, lang: "en" })}
-              >
-                <Info size={15}/>
-              </button>
+              <div className="pkg-card-top-right">
+                {(() => {
+                  const outOfStock = p.soldOut || soldOutIds.has(p.id);
+                  return outOfStock && !isCurrent
+                    ? <span className="billing-badge billing-badge-warn" role="status" title="No slots left">Out of stock</span>
+                    : null;
+                })()}
+                <button
+                  type="button"
+                  className="pkg-info-btn"
+                  title="Package details"
+                  aria-label={`Details for ${p.displayName}`}
+                  onClick={() => setDetailPopup({ plan: p, lang: "en" })}
+                >
+                  <Info size={15}/>
+                </button>
+              </div>
             </div>
             <h2 className="pkg-name">{p.displayName}</h2>
             {p.displayDescription && <p className="pkg-desc">{p.displayDescription}</p>}
@@ -1314,9 +1322,6 @@ export default function BillingPage() {
               {(() => {
                 const outOfStock = p.soldOut || soldOutIds.has(p.id);
                 return <>
-                  {outOfStock && !isCurrent && (
-                    <span className="billing-badge" role="status" style={{ background: "#7a2320", color: "#fff", fontWeight: 700 }}>Out of stock</span>
-                  )}
                   {isCurrent
                     ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
                     : outOfStock

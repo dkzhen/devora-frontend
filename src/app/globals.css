@@ -1338,6 +1338,7 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pkg-card-coral::before{background:var(--coral)}
 .pkg-card-violet::before{background:var(--violet)}
 .pkg-card-top{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.pkg-card-top-right{display:inline-flex;align-items:center;gap:6px}
 .pkg-icon{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:2px solid var(--ink);background:#fff;color:var(--ink)}
 .pkg-name{font:700 var(--fs-h4) var(--display);letter-spacing:-.6px;margin:0}
 .pkg-desc{margin:0;font-size:var(--fs-small);line-height:1.6;color:#6f695d;min-height:2.6em}
