@@ -92,6 +92,12 @@ type PricingPlan = {
   paymentMethods: string[];
   packageId: string;
   packageName: string;
+  /** Target capacity for live subscriptions of the linked package. null = unlimited. */
+  stock: number | null;
+  /** Live subscriptions of the linked package right now. */
+  liveCount: number;
+  /** liveCount >= stock (and stock not null). */
+  soldOut: boolean;
   sortOrder: number;
   isPublic: boolean;
   createdAt: string;
@@ -108,6 +114,9 @@ type PlanForm = {
   /** Rails this card accepts. Empty is invalid — the form refuses to save. */
   paymentMethods: string[];
   packageId: string;
+  /** Stock as string from the input. Meaningless when unlimited is true. */
+  stock: string;
+  unlimited: boolean;
   sortOrder: string;
   isPublic: boolean;
 };
@@ -121,7 +130,7 @@ const PAYMENT_METHODS: { value: string; label: string; hint: string }[] = [
 
 const EMPTY_PLAN: PlanForm = {
   displayName: "", displayDescription: "", features: [],
-  price: "0", paymentMethods: ["IDR"], packageId: "", sortOrder: "0", isPublic: true,
+  price: "0", paymentMethods: ["IDR"], packageId: "", stock: "", unlimited: true, sortOrder: "0", isPublic: true,
 };
 
 function slugifyPlan(input: string): string {
@@ -338,6 +347,8 @@ export function AdminPackagesPage() {
       // so the checkbox list matches what checkout will actually offer.
       paymentMethods: p.paymentMethods?.length ? p.paymentMethods : ["IDR"],
       packageId: p.packageId,
+      stock: p.stock === null ? "" : String(p.stock),
+      unlimited: p.stock === null,
       sortOrder: String(p.sortOrder),
       isPublic: p.isPublic,
     });
@@ -374,6 +385,16 @@ export function AdminPackagesPage() {
       setPlanNotice({ kind: "error", text: "Pick at least one payment method." });
       return;
     }
+    // Stock must be a non-negative whole number unless the card is unlimited.
+    let stockPayload: number | null = null;
+    if (!planForm.unlimited) {
+      const n = Number(planForm.stock.trim());
+      if (planForm.stock.trim() === "" || !Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+        setPlanNotice({ kind: "error", text: "Stock must be a whole number of 0 or more, or enable Unlimited." });
+        return;
+      }
+      stockPayload = n;
+    }
 
     // One price, sent as both the new and legacy field names so an older backend
     // still receives a value it understands.
@@ -384,6 +405,7 @@ export function AdminPackagesPage() {
       price: planForm.price.trim() || "0",
       paymentMethods: planForm.paymentMethods,
       packageId: planForm.packageId,
+      stock: stockPayload,
       sortOrder: planForm.sortOrder.trim() || "0",
       isPublic: planForm.isPublic,
     };
@@ -773,6 +795,44 @@ export function AdminPackagesPage() {
           <small>0 = free. Shown as IDR, Credits or USD depending on the method the buyer picks.</small>
         </label>
       </div>
+      {(() => {
+        const linked = packages.find(p => p.id === planForm.packageId);
+        const live = linked?.activeSubscriptions ?? 0;
+        const stockNum = Number(planForm.stock);
+        const stockValid = Number.isFinite(stockNum) && Number.isInteger(stockNum) && stockNum >= 0;
+        const wouldBeSoldOut = !planForm.unlimited && stockValid && live >= stockNum;
+        return <div className="admin-form">
+          <label className="admin-field">
+            <span>Stock</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                value={planForm.unlimited ? "" : planForm.stock}
+                placeholder="e.g. 10"
+                type="number"
+                min={0}
+                disabled={planForm.unlimited}
+                onChange={e => setPlanForm(f => ({ ...f, stock: e.target.value }))}
+              />
+              <label className="toggle-row" style={{ cursor: "pointer", flexShrink: 0 }}
+                onClick={() => setPlanForm(f => ({ ...f, unlimited: !f.unlimited }))}>
+                <span className={"toggle" + (planForm.unlimited ? " toggle-on" : "")} />
+                <span className="toggle-label"><strong>Unlimited</strong><small>No stock cap.</small></span>
+              </label>
+            </div>
+            <small>
+              Capacity for <strong>{linked?.name ?? "the linked package"}</strong>.
+              {" "}Live subscriptions right now: <strong>{live}</strong>.
+              {" "}Stock is not reduced by pending orders — it reflects live subscriptions.
+            </small>
+            {wouldBeSoldOut && (
+              <p className="voucher-message voucher-error" role="status" style={{ marginTop: 8 }}>
+                <AlertTriangle size={14}/>
+                This package will be <strong>out of stock immediately</strong>: {live} live subscription{live === 1 ? "" : "s"} already exceeds the stock of {stockNum}.
+              </p>
+            )}
+          </label>
+        </div>;
+      })()}
       <div className="admin-form">
         <label className="admin-field">
           <span>Linked package</span>

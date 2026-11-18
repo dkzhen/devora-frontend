@@ -75,6 +75,10 @@ type PricingPlan = {
   priceCredits: string;
   /** Rails this card accepts: IDR / CREDITS / USD. */
   paymentMethods: string[];
+  /** Target capacity for live subscriptions. null = unlimited. */
+  stock: number | null;
+  liveCount: number;
+  soldOut: boolean;
   package: PlanPackage;
 };
 
@@ -548,6 +552,8 @@ export default function BillingPage() {
   const [planError, setPlanError] = useState("");
   const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
+  /** Plan ids confirmed sold-out by the live stock check (refreshed when Buy is clicked). */
+  const [soldOutIds, setSoldOutIds] = useState<Set<string>>(new Set());
 
   // Payment method popup state
   const [paymentPopup, setPaymentPopup] = useState<{ plan: PubPlan; methods: PaymentMethodItem[]; rates: { idrToCredits: number } | null; usdRate: number | null; usdRateUpdatedAt: string | null } | null>(null);
@@ -747,8 +753,41 @@ export default function BillingPage() {
     };
   }, [planCryptoOrder, getToken, load]);
 
+  /**
+   * Live stock check at the moment the user clicks Buy. The plans list already
+   * carries a stock snapshot, but live subscriptions can change between page load
+   * and click, so re-read the authoritative value from the backend. Returns true
+   * when buying is allowed. On network failure we trust the list snapshot (fail
+   * open) — no hard block, matching the "no blocker at settlement" rule.
+   */
+  const checkPlanStock = async (planId: string, fallbackSoldOut: boolean): Promise<boolean> => {
+    try {
+      const res = await fetch(`/backend/api/v1/pricing-plans/${encodeURIComponent(planId)}/stock`, { cache: "no-store" });
+      if (!res.ok) return !fallbackSoldOut;
+      const d = await res.json() as { soldOut?: boolean; stock?: number | null; liveCount?: number };
+      const soldOut = d.soldOut === true;
+      setSoldOutIds(prev => {
+        const next = new Set(prev);
+        if (soldOut) next.add(planId); else next.delete(planId);
+        return next;
+      });
+      if (soldOut) {
+        setPlanError(`Out of stock — all ${d.stock ?? "available"} slots are taken (${d.liveCount ?? 0} active).`);
+        return false;
+      }
+      setPlanError("");
+      return true;
+    } catch {
+      return !fallbackSoldOut; // fail open; list snapshot remains the guard
+    }
+  };
+
   const openPaymentPopup = async (plan: PubPlan) => {
     setPaymentPopupError("");
+    // Re-check live stock when Buy is clicked. No decrement and no settlement
+    // blocker — this is the only place stock matters, exactly as requested.
+    const listPlan = pubPlans.find(p => p.id === plan.id);
+    if (!(await checkPlanStock(plan.id, listPlan?.soldOut ?? false))) return;
     setPlanError("");
     // The modal always opens so the user can see WHY a method is unavailable —
     // same behaviour as the credits top-up dialog. The hard guard is the
@@ -898,6 +937,18 @@ export default function BillingPage() {
   // Purchase handler: POST /api/v1/pricing-plans/:id/purchase
   const buy = useCallback(async (planId: string, method: "idr" | "credits" | "free") => {
     setPlanError("");
+    // Live stock guard for the direct (free / credits) purchase path too.
+    try {
+      const sr = await fetch(`/backend/api/v1/pricing-plans/${encodeURIComponent(planId)}/stock`, { cache: "no-store" });
+      if (sr.ok) {
+        const sd = await sr.json() as { soldOut?: boolean; stock?: number | null; liveCount?: number };
+        if (sd.soldOut === true) {
+          setSoldOutIds(prev => new Set(prev).add(planId));
+          setPlanError(`Out of stock — all ${sd.stock ?? "available"} slots are taken (${sd.liveCount ?? 0} active).`);
+          return;
+        }
+      }
+    } catch { /* fail open; no block at settlement */ }
     setPurchasing(planId);
     try {
       const token = await getToken();
@@ -1260,17 +1311,29 @@ export default function BillingPage() {
             </p>
 
             <div className="billing-plan-actions">
-              {isCurrent
-                ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
-                : <>
-                    {isFree
-                      ? <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "free")}>
-                          {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Check size={14}/> Activate</>}
-                        </button>
-                      : <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => openPaymentPopup(p)}>
-                          {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy</>}
-                        </button>}
-                  </>}
+              {(() => {
+                const outOfStock = p.soldOut || soldOutIds.has(p.id);
+                return <>
+                  {outOfStock && !isCurrent && (
+                    <span className="billing-badge" role="status" style={{ background: "#7a2320", color: "#fff", fontWeight: 700 }}>Out of stock</span>
+                  )}
+                  {isCurrent
+                    ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
+                    : outOfStock
+                    ? <button className="button button-ink compact-button" type="button" disabled title="Out of stock">
+                        <QrIcon size={14}/> Buy
+                      </button>
+                    : <>
+                        {isFree
+                          ? <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => void buy(p.id, "free")}>
+                              {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><Check size={14}/> Activate</>}
+                            </button>
+                          : <button className="button button-ink compact-button" type="button" disabled={busy} onClick={() => openPaymentPopup(p)}>
+                              {busy ? <><Loader2 size={14} className="row-spinner"/> …</> : <><QrIcon size={14}/> Buy</>}
+                            </button>}
+                      </>}
+                </>;
+              })()}
             </div>
           </article>;
         })}
