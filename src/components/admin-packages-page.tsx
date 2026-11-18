@@ -678,7 +678,7 @@ export function AdminPackagesPage() {
         </div>}
         {plansStatus === "ready" && pricingPlans.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th style={{whiteSpace:"nowrap"}}>PRICE</th><th style={{whiteSpace:"nowrap"}}>PAYMENT METHODS</th><th style={{whiteSpace:"nowrap"}}>STOCK</th><th>SORT</th><th>PUBLIC</th><th></th>
+            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th style={{whiteSpace:"nowrap"}}>PRICE</th><th style={{whiteSpace:"nowrap"}}>PAYMENT METHODS</th><th style={{whiteSpace:"nowrap", textAlign:"center"}}>STOCK</th><th>SORT</th><th>PUBLIC</th><th></th>
           </tr></thead>
           <tbody>{pricingPlans.map(p => <tr key={p.id}>
             <td>
@@ -697,7 +697,7 @@ export function AdminPackagesPage() {
                 <span key={m} className="plan-tag" style={{ marginRight: 4 }}>{m}</span>
               ))}
             </td>
-            <td className="cell-num">{(() => {
+            <td style={{ textAlign: "center" }}>{(() => {
               if (p.stock === null || p.stock === undefined) {
                 return <span title="Unlimited — no stock cap"><InfinityIcon size={14}/></span>;
               }
