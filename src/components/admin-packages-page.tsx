@@ -678,7 +678,7 @@ export function AdminPackagesPage() {
         </div>}
         {plansStatus === "ready" && pricingPlans.length > 0 && <table className="model-table table-events">
           <thead><tr>
-            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th style={{whiteSpace:"nowrap"}}>PRICE</th><th style={{whiteSpace:"nowrap"}}>PAYMENT METHODS</th><th>SORT</th><th>PUBLIC</th><th></th>
+            <th style={{whiteSpace:"nowrap"}}>DISPLAY NAME</th><th>PACKAGE</th><th style={{whiteSpace:"nowrap"}}>PRICE</th><th style={{whiteSpace:"nowrap"}}>PAYMENT METHODS</th><th style={{whiteSpace:"nowrap"}}>STOCK</th><th>SORT</th><th>PUBLIC</th><th></th>
           </tr></thead>
           <tbody>{pricingPlans.map(p => <tr key={p.id}>
             <td>
@@ -697,6 +697,18 @@ export function AdminPackagesPage() {
                 <span key={m} className="plan-tag" style={{ marginRight: 4 }}>{m}</span>
               ))}
             </td>
+            <td>{(() => {
+              if (p.stock === null || p.stock === undefined) {
+                return <span className="plan-tag" title="Unlimited — no stock cap"><InfinityIcon size={13}/> unlimited</span>;
+              }
+              const remaining = Math.max(0, p.stock - p.liveCount);
+              return <>
+                <span className={p.soldOut ? "billing-badge billing-badge-warn" : "plan-tag"} title={`${p.liveCount} live of ${p.stock} slots`}>
+                  {p.soldOut ? "Out of stock" : `${remaining} left`}
+                </span>
+                <small className="cell-sub">{p.liveCount}/{p.stock} live</small>
+              </>;
+            })()}</td>
             <td className="cell-num">{p.sortOrder}</td>
             <td>{p.isPublic ? <span className="plan-tag">public</span> : <span className="cell-muted">hidden</span>}</td>
             <td>
