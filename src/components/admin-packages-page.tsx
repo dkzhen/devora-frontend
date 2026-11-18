@@ -697,17 +697,15 @@ export function AdminPackagesPage() {
                 <span key={m} className="plan-tag" style={{ marginRight: 4 }}>{m}</span>
               ))}
             </td>
-            <td>{(() => {
+            <td className="cell-num">{(() => {
               if (p.stock === null || p.stock === undefined) {
-                return <span className="plan-tag" title="Unlimited — no stock cap"><InfinityIcon size={13}/> unlimited</span>;
+                return <span title="Unlimited — no stock cap"><InfinityIcon size={14}/></span>;
               }
               const remaining = Math.max(0, p.stock - p.liveCount);
-              return <>
-                <span className={p.soldOut ? "billing-badge billing-badge-warn" : "plan-tag"} title={`${p.liveCount} live of ${p.stock} slots`}>
-                  {p.soldOut ? "Out of stock" : `${remaining} left`}
-                </span>
-                <small className="cell-sub">{p.liveCount}/{p.stock} live</small>
-              </>;
+              return <span
+                title={`${p.liveCount} live of ${p.stock} slots`}
+                style={p.soldOut ? { color: "#7a2320", fontWeight: 700 } : undefined}
+              >{remaining}</span>;
             })()}</td>
             <td className="cell-num">{p.sortOrder}</td>
             <td>{p.isPublic ? <span className="plan-tag">public</span> : <span className="cell-muted">hidden</span>}</td>
