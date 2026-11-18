@@ -552,8 +552,11 @@ export default function BillingPage() {
   const [planError, setPlanError] = useState("");
   const [paymentReady, setPaymentReady] = useState<boolean | null>(null);
   const [paymentMessage, setPaymentMessage] = useState("");
-  /** Plan ids confirmed sold-out by the live stock check (refreshed when Buy is clicked). */
-  const [soldOutIds, setSoldOutIds] = useState<Set<string>>(new Set());
+  /**
+   * Live stock snapshot per plan id, refreshed on Buy click (and on list load).
+   * Used for the badge (remaining slots / out of stock) and the stock guard.
+   */
+  const [stockInfo, setStockInfo] = useState<Record<string, { stock: number | null; liveCount: number; soldOut: boolean }>>({});
 
   // Payment method popup state
   const [paymentPopup, setPaymentPopup] = useState<{ plan: PubPlan; methods: PaymentMethodItem[]; rates: { idrToCredits: number } | null; usdRate: number | null; usdRateUpdatedAt: string | null } | null>(null);
@@ -766,11 +769,10 @@ export default function BillingPage() {
       if (!res.ok) return !fallbackSoldOut;
       const d = await res.json() as { soldOut?: boolean; stock?: number | null; liveCount?: number };
       const soldOut = d.soldOut === true;
-      setSoldOutIds(prev => {
-        const next = new Set(prev);
-        if (soldOut) next.add(planId); else next.delete(planId);
-        return next;
-      });
+      setStockInfo(prev => ({
+        ...prev,
+        [planId]: { stock: d.stock ?? null, liveCount: d.liveCount ?? 0, soldOut },
+      }));
       if (soldOut) {
         setPlanError(`Out of stock — all ${d.stock ?? "available"} slots are taken (${d.liveCount ?? 0} active).`);
         return false;
@@ -942,8 +944,11 @@ export default function BillingPage() {
       const sr = await fetch(`/backend/api/v1/pricing-plans/${encodeURIComponent(planId)}/stock`, { cache: "no-store" });
       if (sr.ok) {
         const sd = await sr.json() as { soldOut?: boolean; stock?: number | null; liveCount?: number };
+        setStockInfo(prev => ({
+          ...prev,
+          [planId]: { stock: sd.stock ?? null, liveCount: sd.liveCount ?? 0, soldOut: sd.soldOut === true },
+        }));
         if (sd.soldOut === true) {
-          setSoldOutIds(prev => new Set(prev).add(planId));
           setPlanError(`Out of stock — all ${sd.stock ?? "available"} slots are taken (${sd.liveCount ?? 0} active).`);
           return;
         }
@@ -1234,10 +1239,20 @@ export default function BillingPage() {
               <span className="pkg-icon">{unlimited ? <InfinityIcon size={20}/> : <Package size={20}/>}</span>
               <div className="pkg-card-top-right">
                 {(() => {
-                  const outOfStock = p.soldOut || soldOutIds.has(p.id);
-                  return outOfStock && !isCurrent
-                    ? <span className="billing-badge billing-badge-warn" role="status" title="No slots left">Out of stock</span>
-                    : null;
+                  const live = stockInfo[p.id];
+                  const stock = live ? live.stock : p.stock;
+                  const count = live ? live.liveCount : p.liveCount;
+                  if (stock === null || stock === undefined) return null; // unlimited — no badge
+                  const outOfStock = (live?.soldOut ?? p.soldOut) || count >= stock;
+                  if (isCurrent) return null;
+                  const remaining = Math.max(0, stock - count);
+                  return <span
+                    className={`billing-badge ${outOfStock ? "billing-badge-warn" : "billing-badge-ok"}`}
+                    role="status"
+                    title={outOfStock ? "No slots left" : `${remaining} of ${stock} slots left`}
+                  >
+                    {outOfStock ? "Out of stock" : `${remaining} left`}
+                  </span>;
                 })()}
                 <button
                   type="button"
@@ -1320,7 +1335,10 @@ export default function BillingPage() {
 
             <div className="billing-plan-actions">
               {(() => {
-                const outOfStock = p.soldOut || soldOutIds.has(p.id);
+                const live = stockInfo[p.id];
+                const count = live ? live.liveCount : p.liveCount;
+                const stock = live ? live.stock : p.stock;
+                const outOfStock = stock !== null && stock !== undefined && ((live?.soldOut ?? p.soldOut) || count >= stock);
                 return <>
                   {isCurrent
                     ? <span className="billing-badge billing-badge-ok billing-plan-current">Current</span>
