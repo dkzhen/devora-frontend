@@ -155,49 +155,6 @@ type PaymentMethodItem = {
   unavailableReason?: string | null;
 };
 
-/**
- * Pre-flight cache for the LuvoraPay gateway health check.
- *
- * A module-level variable (not state) so rapid Buy clicks in one render pass all share the
- * same in-flight/result value. A 30s TTL keeps a burst of clicks from hammering the endpoint.
- */
-let planGatewayHealthCache: { checkedAt: number; ready: boolean | null } = { checkedAt: 0, ready: null };
-/** Shared in-flight request so a burst of Buy clicks issues a single health call. */
-let planGatewayHealthInflight: Promise<{ ready: boolean; message: string }> | null = null;
-
-/**
- * Fast pre-flight before the payment popup opens: ask the backend whether LuvoraPay is ready.
- *
- * Fail open on network errors/abort — the per-method `available` flag from
- * /payment/methods remains the hard guard once the popup is open. Only a definite non-OK
- * response with a status other than "ready" blocks the popup.
- */
-function checkPlanGatewayHealth(): Promise<{ ready: boolean; message: string }> {
-  const now = Date.now();
-  if (planGatewayHealthCache.ready !== null && now - planGatewayHealthCache.checkedAt < 30_000) {
-    return Promise.resolve({ ready: planGatewayHealthCache.ready, message: "" });
-  }
-  if (planGatewayHealthInflight) return planGatewayHealthInflight;
-  planGatewayHealthInflight = (async (): Promise<{ ready: boolean; message: string }> => {
-    try {
-      const res = await fetch("/backend/api/v1/health/luvorapay", { cache: "no-store", signal: AbortSignal.timeout(8000) });
-      let body: { status?: string; message?: string; reason?: string } | null = null;
-      try { body = await res.json() as { status?: string; message?: string; reason?: string }; } catch { /* non-JSON response */ }
-      const ready = res.ok && body?.status === "ready";
-      planGatewayHealthCache = { checkedAt: Date.now(), ready };
-      if (ready) return { ready: true, message: "" };
-      const message = body?.message || body?.reason || "Payment gateway is temporarily unavailable. Please try again shortly.";
-      return { ready: false, message };
-    } catch {
-      // Network failure / timeout: fail open. Do not cache the failure — a later click retries.
-      return { ready: true, message: "" };
-    } finally {
-      planGatewayHealthInflight = null;
-    }
-  })();
-  return planGatewayHealthInflight;
-}
-
 /** Public pricing plan — same as PlanPackage but used in the popup */
 type PubPlan = {
   id: string;
@@ -792,17 +749,11 @@ export default function BillingPage() {
 
   const openPaymentPopup = async (plan: PubPlan) => {
     setPaymentPopupError("");
-    // Pre-flight: if the gateway is definitely down, do not even open a popup full of
-    // disabled methods. Cached for 30s so rapid Buy clicks don't hammer the health endpoint.
-    const health = await checkPlanGatewayHealth();
-    if (!health.ready) {
-      setPaymentPopupError(health.message);
-      // The popup never opens, so show the error in the browse-plans section instead —
-      // otherwise setPaymentPopupError would be invisible.
-      setPlanError(health.message);
-      return;
-    }
     setPlanError("");
+    // The modal always opens so the user can see WHY a method is unavailable —
+    // same behaviour as the credits top-up dialog. The hard guard is the
+    // `available` flag on each method from /payment/methods (gateway health is
+    // checked server-side), rendered as a disabled option with its reason.
     setPaymentMethodsLoading(true);
     setSelectedMethodId("");
     setPaymentPopup({ plan, methods: [], rates: null, usdRate: null, usdRateUpdatedAt: null });
