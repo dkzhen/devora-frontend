@@ -827,6 +827,7 @@ export function TopupDialog({
           </div>}
           {!dead && !canceled && <Countdown left={timeLeft}/>}
         </div>
+        <PaymentExpiryNotice />
       </div>
 
       {/* Crypto payment options — OUTSIDE topup-pay, own bordered card */}

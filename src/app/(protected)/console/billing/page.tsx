@@ -1560,6 +1560,7 @@ export default function BillingPage() {
           </div>}
           {!qrDead && qrStatus === "pending" && <Countdown left={qrTimeLeft}/>}
         </div>
+        <PaymentExpiryNotice />
         {qrDead ? <div className="topup-dead" role="status">
           <Clock size={15}/>
           <div>
@@ -1760,6 +1761,7 @@ export default function BillingPage() {
               </div>
             )}
             {planCryptoTimeLeft !== null && <Countdown left={planCryptoTimeLeft} />}
+            <PaymentExpiryNotice />
           </div>
         </>
       )}
