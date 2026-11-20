@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Bell, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, UserCircle, Users, Wallet, Waypoints, X } from "lucide-react";
+import { BarChart3, Bell, Coins, CreditCard, Flame, Headset, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, UserCircle, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
@@ -222,7 +222,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   };
 
   const accountLabel = "My Account";
-  const groups = account.plan === "SUPERUSER" ? [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }] }, adminNav] : [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }] }];
+  const groups = account.plan === "SUPERUSER" ? [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }, { href: "/console/support", label: "Support", icon: Headset }] }, adminNav] : [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }, { href: "/console/support", label: "Support", icon: Headset }] }];
 
   return <div className="console-wrap">
     {open && <button aria-label="Close menu" className="mobile-scrim" onClick={() => setOpen(false)} />}

@@ -530,16 +530,20 @@ export function AdminBillingSettingsPage() {
           return <>
             {pkgStats.length > 0 && <div className="model-table-wrap" style={{ marginTop: 8 }}>
               <table className="model-table">
-                <thead><tr><th style={{ whiteSpace: "nowrap" }}>PACKAGE</th><th style={{ whiteSpace: "nowrap" }}>CATEGORY</th><th style={{ whiteSpace: "nowrap" }}>ACTIVE</th><th style={{ whiteSpace: "nowrap" }}>EXHAUSTED</th></tr></thead>
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>PACKAGE</th><th style={{ whiteSpace: "nowrap" }}>CATEGORY</th><th style={{ whiteSpace: "nowrap" }}>ACTIVE</th><th style={{ whiteSpace: "nowrap" }}>EXHAUSTED</th><th style={{ whiteSpace: "nowrap" }}>AVAILABLE</th></tr></thead>
                 <tbody>
-                  {pkgStats.map(p => (
+                  {pkgStats.map(p => {
+                    const available = p.count - (p.exhausted ?? 0);
+                    return (
                     <tr key={p.packageName}>
                       <td>{p.packageName}</td>
                       <td><span className="status-pill" style={{ fontSize: "0.7rem", textTransform: "capitalize" }}>{p.category === "hard_cap" ? "Hardcap" : "Fair use"}</span></td>
                       <td className="cell-num">{p.count}</td>
                       <td className="cell-num">{(p.exhausted ?? 0) > 0 ? <span style={{ color: "#c62828", fontWeight: 600 }}>{p.exhausted}</span> : <span style={{ color: "var(--muted-foreground)" }}>0</span>}</td>
+                      <td className="cell-num"><span style={{ color: available > 0 ? "#2e7d32" : "var(--muted-foreground)", fontWeight: available > 0 ? 600 : 400 }}>{available}</span></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>}
