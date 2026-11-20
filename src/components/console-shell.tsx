@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { BarChart3, Bell, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, Users, Wallet, Waypoints, X } from "lucide-react";
+import { BarChart3, Bell, Coins, CreditCard, Flame, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, UserCircle, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { formatCredits } from "@/lib/credits";
 import { ConsoleSignOutButton } from "@/components/console-sign-out";
@@ -16,7 +16,7 @@ const nav = [
   { group: "SERVICES", items: [{ href: "/console/ai", label: "AI", icon: Waypoints }] },
 ];
 
-/** Operator-only group. Mounted only for a SUPERUSER plan — the real gate is server-side. */
+/** Operator-only groups. Mounted only for a SUPERUSER plan — the real gate is server-side. */
 const adminNav = { group: "ADMIN", items: [
   { href: "/console/admin/transactions", label: "Transactions", icon: Wallet },
   { href: "/console/admin/payment", label: "Payment", icon: CreditCard },
@@ -156,6 +156,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   // Resolved once for the whole shell so the nav and the account card agree, and
   // so the ADMIN group appears in the same render as the SUPERUSER badge.
   const { getToken } = useAuth();
+  const { user } = useUser();
   const [account, setAccount] = useState<{ plan: string | null; credits: string; subs: SubscriptionInfo[]; freeTokensUsed?: number }>({ plan: null, credits: "0", subs: [] });
 
   useEffect(() => {
@@ -220,7 +221,8 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     finally { setMarkingAll(false); }
   };
 
-  const groups = account.plan === "SUPERUSER" ? [...nav, adminNav] : nav;
+  const accountLabel = "My Account";
+  const groups = account.plan === "SUPERUSER" ? [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }] }, adminNav] : [...nav, { group: "ACCOUNTS", items: [{ href: "/console/account", label: accountLabel, icon: UserCircle }] }];
 
   return <div className="console-wrap">
     {open && <button aria-label="Close menu" className="mobile-scrim" onClick={() => setOpen(false)} />}

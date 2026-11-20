@@ -332,6 +332,14 @@
 .mp-cap:hover{border-color:var(--ink);color:var(--ink)}
 .mp-cap svg{color:#8b8579}
 .mp-cap:hover svg{color:var(--ink)}
+/* Health status: right-aligned on the same row as capabilities.
+   The capabilities row uses mp-facts-wide (grid-column 1/-1) so we
+   position the health indicator absolutely at the right edge of the dl. */
+.mp-item-facts{position:relative}
+.mp-health{position:absolute;right:0;bottom:0;display:flex;align-items:center;gap:8px}
+.mp-health-pct{font:400 var(--fs-micro)/1 var(--body);letter-spacing:.2px;white-space:nowrap}
+.mp-health-segs{display:inline-flex;gap:2px;width:190px;height:16px}
+.mp-health-segs span{display:block;width:6px;height:16px;border-radius:2px;flex-shrink:0}
 /* A caption, set to recede: light and italic so it reads as an aside rather than as body
  copy competing with the list above it. The one word that carries meaning stays upright and
  bold — an italic bold would read as emphasis inside prose, which is not what it is. */

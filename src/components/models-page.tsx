@@ -30,6 +30,7 @@ type PublicModel = {
   free: boolean;
   capabilities: { vision: boolean; reasoning: boolean; tools: boolean; streaming: boolean };
   pricing: { unit: string; input: string; output: string; originalInput: string | null; originalOutput: string | null };
+  health: { total: number; errors: number; status: "healthy" | "error" } | null;
 };
 
 /** One fetch of the public catalogue, shared by both the highlight and the full table. */
@@ -269,6 +270,19 @@ export function ModelsPage() {
               </dd>
             </div>}
 
+            {/* Health status: right-aligned, same row as capabilities.
+                Always rendered — bar + label for every card.
+                Green = healthy, orange = errors, gray = no traffic. */}
+            <span className="mp-health">
+              <span className="mp-health-segs">
+                {Array.from({ length: 24 }, (_, i) => {
+                  if (!m.health) return <span key={i} style={{ background: "#d8d1c5" }} />;
+                  const errorSegs = Math.round((m.health.errors / m.health.total) * 24);
+                  const isOrange = i < errorSegs;
+                  return <span key={i} style={{ background: isOrange ? "#FE9A00" : "#00BC7D" }} />;
+                })}
+              </span>
+            </span>
           </dl>
         </article>;
         })}

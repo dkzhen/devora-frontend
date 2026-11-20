@@ -75,6 +75,7 @@ type GrandTotals = {
   models: number;
   firstRequestAt: string | null;
   lastRequestAt: string | null;
+  inflight: number;
 };
 
 type Page = {
@@ -347,6 +348,11 @@ export default function AdminUsagePage() {
             <div className="stat-top"><span>Credits used</span><Coins size={16}/></div>
             <strong>{formatCounter(Number(data.totals.chargedCredits))}</strong>
             <small>{data.totals.lastRequestAt ? `last used ${stamp(data.totals.lastRequestAt)}` : "never used"}</small>
+          </article>
+          <article className="usage-stat">
+            <div className="stat-top"><span>In-flight</span><Activity size={16}/></div>
+            <strong>{formatCount(data.totals.inflight ?? 0)}</strong>
+            <small>{(data.totals.inflight ?? 0) > 0 ? "active now" : "idle"}</small>
           </article>
           <article className="usage-stat">
             <div className="stat-top"><span>Accounts</span><Users size={16}/></div>

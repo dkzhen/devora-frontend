@@ -102,7 +102,12 @@ export function AdminBillingSettingsPage() {
   };
   type TxResult = { data: TransactionRow[]; total: number; totalPages: number; page: number; stats: TxStats | null };
   type TxStats = { completed: number; pending: number; canceled: number; paidUsd: number; paidIdr: number; paidTotalIdr: number; usdRate: number };
-  type SubResult = { data: SubscriptionRow[]; total: number; totalPages: number; page: number; stats?: { active: number; expired: number; cancelled: number } | null };
+  type SubStats = {
+    active: number; expired: number; cancelled: number;
+    hardcapExhausted?: number;
+    activeByPackage?: { packageName: string; category: string; count: number; exhausted?: number }[];
+  };
+  type SubResult = { data: SubscriptionRow[]; total: number; totalPages: number; page: number; stats?: SubStats | null };
   const [txResult, setTxResult] = useState<TxResult | null>(null);
   const [txStatus, setTxStatus] = useState<"loading" | "ready" | "error">("loading");
   const [txRefreshKey, setTxRefreshKey] = useState(0);
@@ -202,7 +207,7 @@ export function AdminBillingSettingsPage() {
           if (!controller.signal.aborted) setSubStatus("error");
           return;
         }
-        const data = await res.json() as { subscriptions?: SubscriptionRow[]; pagination?: { total: number; totalPages: number; page: number }; stats?: { active: number; expired: number; cancelled: number } };
+        const data = await res.json() as { subscriptions?: SubscriptionRow[]; pagination?: { total: number; totalPages: number; page: number }; stats?: SubStats };
         if (!controller.signal.aborted) {
           setSubResult({
             data: data.subscriptions ?? [],
@@ -502,6 +507,8 @@ export function AdminBillingSettingsPage() {
           const active = subResult?.stats?.active ?? rows.filter(s => s.status === "active").length;
           const expired = subResult?.stats?.expired ?? rows.filter(s => s.status === "expired").length;
           const cancelled = subResult?.stats?.cancelled ?? rows.filter(s => s.status === "cancelled").length;
+          const exhausted = subResult?.stats?.hardcapExhausted ?? 0;
+          const byPackage = subResult?.stats?.activeByPackage ?? [];
           return <div className="usage-grid stats-grid">
             <article className="usage-stat"><strong>{active}</strong><small><span>Active</span></small></article>
             <article className="usage-stat"><strong>{expired}</strong><small><span>Expired</span></small></article>
@@ -519,7 +526,23 @@ export function AdminBillingSettingsPage() {
           const currentPage = subResult?.page ?? 1;
           const start = total === 0 ? 0 : (currentPage - 1) * 20 + 1;
           const end = Math.min(currentPage * 20, total);
+          const pkgStats = subResult?.stats?.activeByPackage ?? [];
           return <>
+            {pkgStats.length > 0 && <div className="model-table-wrap" style={{ marginTop: 8 }}>
+              <table className="model-table">
+                <thead><tr><th style={{ whiteSpace: "nowrap" }}>PACKAGE</th><th style={{ whiteSpace: "nowrap" }}>CATEGORY</th><th style={{ whiteSpace: "nowrap" }}>ACTIVE</th><th style={{ whiteSpace: "nowrap" }}>EXHAUSTED</th></tr></thead>
+                <tbody>
+                  {pkgStats.map(p => (
+                    <tr key={p.packageName}>
+                      <td>{p.packageName}</td>
+                      <td><span className="status-pill" style={{ fontSize: "0.7rem", textTransform: "capitalize" }}>{p.category === "hard_cap" ? "Hardcap" : "Fair use"}</span></td>
+                      <td className="cell-num">{p.count}</td>
+                      <td className="cell-num">{(p.exhausted ?? 0) > 0 ? <span style={{ color: "#c62828", fontWeight: 600 }}>{p.exhausted}</span> : <span style={{ color: "var(--muted-foreground)" }}>0</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
             <label className="search-field" style={{ marginTop: 14, marginBottom: 0 }}>
               <Search size={14}/>
               <input value={subSearch} onChange={e => setSubSearch(e.target.value)} placeholder="Search by email, package, tier, status…" aria-label="Search subscriptions"/>
