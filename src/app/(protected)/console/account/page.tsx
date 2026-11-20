@@ -125,7 +125,7 @@ export default function AccountPage() {
                     </tr>
                     <tr>
                       <td style={{ whiteSpace: "nowrap" }}><strong>Credits</strong></td>
-                      <td className="cell-num">{formatCredits(Number(credits))}</td>
+                      <td className="cell-num">{formatCredits(credits)}</td>
                     </tr>
                     {plan !== "SUPERUSER" && plan !== "SUBSCRIPTION" && (
                       <tr>
