@@ -560,9 +560,10 @@ export default function AdminUsagePage() {
                     const [label, ...rest] = section.split(": ");
                     const values = rest.join(": ").split(", ");
                     const tagClass = label === "urls" ? "detail-url-tag"
-                      : label === "tools" ? "detail-tool-tag"
-                      : label === "intent" ? "detail-intent-tag"
-                      : label === "code" ? "detail-code-tag"
+                      : label === "secrets" ? "detail-secret-tag"
+                      : label === "emails" ? "detail-email-tag"
+                      : label === "ips" ? "detail-ip-tag"
+                      : label === "error" ? "detail-error-tag"
                       : "detail-url-tag";
                     return <div key={si} className="detail-summary-section">
                       <span className="detail-summary-label">{label}</span>

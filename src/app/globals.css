@@ -809,9 +809,10 @@
 .detail-url-list{display:flex;flex-wrap:wrap;gap:7px}
 .detail-url-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--tint-violet);color:var(--violet);box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:240px}
 @media(max-width:680px){.detail-url-tag{max-width:100%}}
-.detail-tool-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#d9f2e6;color:#166b52;box-shadow:2px 2px 0 var(--ink);display:inline-block}
-.detail-intent-tag{font:700 var(--fs-small) var(--body);padding:4px 10px;border:1.5px solid var(--ink);background:var(--coral);color:var(--ink);box-shadow:2px 2px 0 var(--ink);text-transform:lowercase;display:inline-block}
-.detail-code-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#fff3cd;color:#856404;box-shadow:2px 2px 0 var(--ink);display:inline-block}
+.detail-secret-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--coral);color:var(--ink);box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:100%}
+.detail-email-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#d9f2e6;color:#166b52;box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:240px}
+.detail-ip-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#fff3cd;color:#856404;box-shadow:2px 2px 0 var(--ink);display:inline-block}
+.detail-error-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--coral);color:var(--ink);box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:100%}
 .detail-summary-content{display:flex;flex-direction:column;gap:10px}
 .detail-summary-section{display:flex;flex-direction:column;gap:5px}
 .detail-summary-label{font:700 var(--fs-micro) var(--body);text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
