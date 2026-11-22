@@ -553,15 +553,27 @@ export default function AdminUsagePage() {
               </div>
             </div>
             <div className="detail-summary-card">
-              <h4 className="detail-summary-heading">URL Summary</h4>
+              <h4 className="detail-summary-heading">Request Summary</h4>
               {body.bodySummary ? (
-                <div className="detail-url-list">
-                  {body.bodySummary.replace(/^urls:\s*/, "").split(", ").map((url, i) => (
-                    <span key={i} className="detail-url-tag">{url}</span>
-                  ))}
+                <div className="detail-summary-content">
+                  {body.bodySummary.split(" | ").map((section, si) => {
+                    const [label, ...rest] = section.split(": ");
+                    const values = rest.join(": ").split(", ");
+                    const tagClass = label === "urls" ? "detail-url-tag"
+                      : label === "tools" ? "detail-tool-tag"
+                      : label === "intent" ? "detail-intent-tag"
+                      : label === "code" ? "detail-code-tag"
+                      : "detail-url-tag";
+                    return <div key={si} className="detail-summary-section">
+                      <span className="detail-summary-label">{label}</span>
+                      <div className="detail-tag-row">
+                        {values.map((v, vi) => <span key={vi} className={tagClass}>{v}</span>)}
+                      </div>
+                    </div>;
+                  })}
                 </div>
               ) : (
-                <p className="detail-summary-empty">No URLs detected in this request.</p>
+                <p className="detail-summary-empty">No notable patterns detected in this request.</p>
               )}
             </div>
           </div>
