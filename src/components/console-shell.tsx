@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { BarChart3, Bell, Coins, CreditCard, Flame, Headset, Layers, Menu, Package, ReceiptText, Settings, Sparkles, Tag, UserCircle, Users, Wallet, Waypoints, X } from "lucide-react";
 import { Brand } from "@/components/brand";
@@ -158,13 +158,17 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const { getToken } = useAuth();
   const { user } = useUser();
   const [account, setAccount] = useState<{ plan: string | null; credits: string; subs: SubscriptionInfo[]; freeTokensUsed?: number }>({ plan: null, credits: "0", subs: [] });
+  // Clerk may recreate getToken during auth-state updates. Keep the latest function
+  // in a ref so shell data effects run once per mount, not on every render.
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
   useEffect(() => {
     if (!CLERK_ENABLED) return;
     let cancelled = false;
     (async () => {
       try {
-        const token = await getToken();
+        const token = await getTokenRef.current();
         if (!token) return;
         const res = await fetch("/backend/api/v1/users/me", { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) return;
@@ -181,7 +185,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [getToken]);
+  }, []);
 
   // In-app notifications — poll every 30s for unread count.
   const [notifOpen, setNotifOpen] = useState(false);
@@ -192,7 +196,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const fetchNotifications = async () => {
     if (!CLERK_ENABLED) return;
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       if (!token) return;
       const res = await fetch("/backend/api/v1/notifications", { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
@@ -207,7 +211,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     void fetchNotifications();
     const timer = setInterval(fetchNotifications, 30_000);
     return () => clearInterval(timer);
-  }, [getToken]);
+  }, []);
 
   const markAllRead = async () => {
     setMarkingAll(true);

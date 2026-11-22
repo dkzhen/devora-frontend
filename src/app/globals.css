@@ -783,6 +783,24 @@
 .body-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;align-items:start}
 @media(max-width:820px){.body-grid{grid-template-columns:1fr}}
 .body-note{display:flex;align-items:center;gap:6px;margin:0 0 9px;font-size:var(--fs-note);color:#8a6a2a;background:#fdf3d8;border:1px solid #e6d3a0;padding:6px 8px}
+/* Request detail modal — card layout */
+.request-detail-grid{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start}
+@media(max-width:680px){.request-detail-grid{grid-template-columns:1fr}}
+.detail-status-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:90px;padding:18px 14px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink)}
+.detail-status-ok{background:#d9f2e6;color:#166b52}
+.detail-status-fail{background:var(--coral);color:var(--ink)}
+.detail-status-code{font:700 28px/1 var(--display);letter-spacing:-1px}
+.detail-status-label{font:700 var(--fs-micro) var(--body);text-transform:uppercase;letter-spacing:.8px;opacity:.8}
+.detail-info-card{border:2px solid var(--ink);background:var(--paper);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.detail-info-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.detail-info-key{font:700 var(--fs-micro) var(--body);text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+.detail-info-val{font:600 var(--fs-small) var(--body);color:var(--ink)}
+.detail-info-row code{font:600 var(--fs-small) ui-monospace,monospace;background:var(--cream);padding:3px 8px;border:1px solid var(--line)}
+.detail-summary-card{grid-column:1/-1;border:2px solid var(--ink);background:var(--paper);padding:14px 16px}
+.detail-summary-heading{margin:0 0 10px;font:700 var(--fs-small) var(--display);text-transform:uppercase;letter-spacing:.7px;color:var(--ink)}
+.detail-url-list{display:flex;flex-wrap:wrap;gap:7px}
+.detail-url-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--tint-violet);color:var(--violet);box-shadow:2px 2px 0 var(--ink)}
+.detail-summary-empty{margin:0;font:var(--fs-small) var(--body);color:var(--muted);font-style:italic}
 /* A row with a body is clickable; the affordance has to say so, since a table row
  otherwise reads as static text. */
 .usage-row-openable{cursor:pointer}
@@ -912,6 +930,19 @@
 .risk-intel .reputation-actions .compact-button{min-height:32px}
 .risk-intel .risk-summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;margin:12px 0 0;font-size:var(--fs-note);color:#817b70}
 .risk-intel .risk-summary b{font:700 var(--fs-small) var(--display);color:var(--ink)}
+/* Signup risk count cards — simple summary grid */
+.risk-count-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+@media(max-width:820px){.risk-count-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.risk-count-grid{grid-template-columns:1fr}}
+.risk-count-card{display:flex;flex-direction:column;gap:6px;padding:16px 14px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);background:var(--paper)}
+.risk-count-label{font:700 var(--fs-micro) var(--body);text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+.risk-count-value{font:700 28px/1 var(--display);letter-spacing:-1px}
+.risk-count-ok{background:#d9f2e6}.risk-count-ok .risk-count-value{color:#166b52}
+.risk-count-warn{background:#fff3cd}.risk-count-warn .risk-count-value{color:#856404}
+.risk-count-danger{background:var(--coral)}.risk-count-danger .risk-count-value{color:var(--ink)}
+.risk-count-muted{background:#f2efe8}.risk-count-muted .risk-count-value{color:#8b8579}
+.risk-count-flagged{background:var(--tint-violet)}.risk-count-flagged .risk-count-value{color:var(--violet)}
+.risk-count-total{background:var(--ink);color:#fff}.risk-count-total .risk-count-label{color:#aaa399}.risk-count-total .risk-count-value{color:#fff}
 .risk-intel .modal-note{font-size:var(--fs-note);color:#7d766a;line-height:1.5;margin:0}
 /* A static badge for a flagged account in the Users table. It is NOT a button:
    it has no hover state, no pointer, and no border that thickens. It is a small,

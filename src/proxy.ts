@@ -43,23 +43,34 @@ export default clerkMiddleware(async (auth, request) => {
   const { pathname, search } = request.nextUrl;
 
   // Clerk handshake loop guard: when the session token expires and the refresh
-  // token is gone, Clerk repeatedly redirects to /__clerk/v1/client/handshake
-  // with __clerk_hs_reason=session-token-expired-refresh-refresh_token_not_found.
-  // Intercept that before it spirals — send the user to sign in cleanly.
-  const hsReason = request.nextUrl.searchParams.get("__clerk_hs_reason");
-  if (hsReason && (hsReason.includes("refresh_token_not_found") || hsReason.includes("expired"))) {
+  // token is gone, Clerk repeatedly redirects to /__clerk/v1/client/handshake.
+  // Intercept both the explicit failure reason and Clerk's redirect counter before
+  // the browser spins. The old cookie names alone are not enough for Clerk v7;
+  // the current SDK uses __clerk_handshake*, __clerk_redirect_count, etc.
+  const hsReason = request.nextUrl.searchParams.get("__clerk_hs_reason") ?? "";
+  const redirectCount = Number(request.cookies.get("__clerk_redirect_count")?.value ?? "0");
+  const isHandshake = pathname.startsWith("/__clerk/") || pathname.includes("/handshake");
+  const handshakeFailed = hsReason.includes("refresh_token_not_found") || hsReason.includes("expired");
+  if (isHandshake && (handshakeFailed || redirectCount >= 2)) {
     const signInUrl = new URL(AUTH_PATH, request.url);
-    // Strip all Clerk params so the redirect target is clean.
-    const cleanPath = pathname.replace(/^\/__clerk\/v1\/client\/handshake/, "/console");
-    signInUrl.searchParams.set("next", cleanPath);
+    // Never carry Clerk's handshake URL into `next`. Prefer its redirect target,
+    // but keep only same-origin paths and fall back to the console home.
+    const candidate = request.nextUrl.searchParams.get("redirect_url")
+      ?? request.nextUrl.searchParams.get("__clerk_redirect_url")
+      ?? BILLING_PATH;
+    try {
+      const target = new URL(candidate, request.url);
+      signInUrl.searchParams.set("next", target.origin === request.nextUrl.origin
+        ? `${target.pathname}${target.search}${target.hash}` : BILLING_PATH);
+    } catch {
+      signInUrl.searchParams.set("next", BILLING_PATH);
+    }
     const res = NextResponse.redirect(signInUrl);
-    // Nuke the stale session cookies so the sign-in page starts fresh.
-    res.cookies.delete("__clerk_dbjs");
-    res.cookies.delete("__clerk_dbjs2");
-    res.cookies.delete("__clerk_frontend_cache");
-    res.cookies.delete("__clerk_sat");
-    res.cookies.delete("__clerk_sut");
-    res.cookies.delete("__clerk_dsu");
+    // Nuke every current Clerk state cookie, including v7 names, so the auth
+    // page starts a genuinely fresh session rather than reusing stale state.
+    for (const cookie of request.cookies.getAll()) {
+      if (cookie.name.startsWith("__clerk")) res.cookies.delete(cookie.name);
+    }
     return res;
   }
 

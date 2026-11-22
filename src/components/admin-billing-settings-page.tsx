@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { AlertTriangle, ChevronLeft, ChevronRight, Clock, Coins, Loader2, RefreshCw, Search, Settings, X, Eye, Check, Copy } from "lucide-react";
 import { formatUsd, formatIdr } from "@/lib/credits";
@@ -142,10 +142,18 @@ export function AdminBillingSettingsPage() {
     return { Authorization: `Bearer ${token ?? ""}`, "content-type": "application/json" };
   }, [getToken]);
 
+  // getToken is re-created by Clerk on every render (its identity is not stable),
+  // so it must NOT sit in a useEffect dependency array — doing that re-runs the
+  // fetch on every render, which sets `loading`, which renders again: a refresh
+  // loop. A ref keeps the latest token getter without invalidating the effects.
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
+
   // Single fetch effect for transactions (Section 00).
   // The effect owns the AbortController — cleanup aborts the in-flight request.
   // txResult is committed atomically: data + total + page always come from the same response.
-  // authHeaders is stable (useCallback with [getToken] dep), so it won't cause re-fetches.
+  // getToken is used inline rather than via a useCallback wrapper, because the
+  // wrapper's reference can change between renders and cause an infinite loop.
   useEffect(() => {
     const controller = new AbortController();
 
@@ -157,8 +165,9 @@ export function AdminBillingSettingsPage() {
       if (topupFilter !== "all") params.set("status", topupFilter);
 
       try {
+        const token = await getTokenRef.current();
         const res = await fetch(`/backend/api/v1/admin/transactions?${params}`, {
-          headers: await authHeaders(), cache: "no-store", signal: controller.signal,
+          headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store", signal: controller.signal,
         });
         if (!res.ok) {
           if (!controller.signal.aborted) setTxStatus("error");
@@ -183,12 +192,11 @@ export function AdminBillingSettingsPage() {
 
     void load();
     return () => controller.abort();
-  }, [topupPage, topupSearch, topupFilter, authHeaders, txRefreshKey]);
+  }, [topupPage, topupSearch, topupFilter, txRefreshKey]);
 
   // Single fetch effect for subscriptions (Section 01).
   // The effect owns the AbortController — cleanup aborts the in-flight request.
   // subResult is committed atomically: data + total + page always come from the same response.
-  // authHeaders is stable (useCallback with [getToken] dep), so it won't cause re-fetches.
   useEffect(() => {
     const controller = new AbortController();
 
@@ -200,8 +208,9 @@ export function AdminBillingSettingsPage() {
       if (subFilter !== "all") params.set("status", subFilter);
 
       try {
+        const token = await getTokenRef.current();
         const res = await fetch(`/backend/api/v1/admin/subscriptions?${params}`, {
-          headers: await authHeaders(), cache: "no-store", signal: controller.signal,
+          headers: { Authorization: `Bearer ${token ?? ""}` }, cache: "no-store", signal: controller.signal,
         });
         if (!res.ok) {
           if (!controller.signal.aborted) setSubStatus("error");
@@ -226,7 +235,7 @@ export function AdminBillingSettingsPage() {
 
     void load();
     return () => controller.abort();
-  }, [subPage, subSearch, subFilter, authHeaders, subRefreshKey]);
+  }, [subPage, subSearch, subFilter, subRefreshKey]);
 
   const doSweep = async () => {
     setSweeping(true);

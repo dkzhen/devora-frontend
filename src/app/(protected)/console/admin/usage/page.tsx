@@ -7,7 +7,6 @@ import {
   Activity, AlertTriangle, ChevronLeft, ChevronRight, Coins, Eye, Loader2, RefreshCw, Search, Trash2, Users, X, Zap,
 } from "lucide-react";
 import { Modal } from "@/components/modal";
-import { JsonView } from "@/components/json-view";
 import { Select } from "@/components/select";
 
 /**
@@ -36,11 +35,9 @@ type UsageRow = {
   hasBody: boolean;
 };
 
-/** One request's captured bodies, loaded when a row is opened. */
-type RequestBody = {
-  requestBody: string | null;
-  responseBody: string | null;
-  truncated: boolean;
+/** One request's detail, loaded when a row is opened. */
+type RequestDetail = {
+  bodySummary: string | null;
   endpoint: string;
   isStream: boolean;
   statusCode: number;
@@ -169,7 +166,7 @@ export default function AdminUsagePage() {
   const [notice, setNotice] = useState<string | null>(null);
   /** The row whose bodies are open, and what came back. Fetched per row, not with the list. */
   const [viewing, setViewing] = useState<UsageRow | null>(null);
-  const [body, setBody] = useState<RequestBody | null>(null);
+  const [body, setBody] = useState<RequestDetail | null>(null);
   const [bodyStatus, setBodyStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
   // Accounts table search — separate from the request-history search, because the two lists
@@ -251,7 +248,7 @@ export default function AdminUsagePage() {
         headers: { Authorization: `Bearer ${token ?? ""}` },
       });
       if (!res.ok) { setBodyStatus("error"); return; }
-      setBody(await res.json() as RequestBody);
+      setBody(await res.json() as RequestDetail);
       setBodyStatus("ready");
     } catch {
       setBodyStatus("error");
@@ -491,9 +488,9 @@ export default function AdminUsagePage() {
                     {data.rows.map(row => (
                       <tr
                         key={row.id}
-                        className={row.hasBody ? "usage-row-openable" : undefined}
-                        onClick={row.hasBody ? () => void openBody(row) : undefined}
-                        title={row.hasBody ? "View request and response" : undefined}
+                        className="usage-row-openable"
+                        onClick={() => void openBody(row)}
+                        title="View request detail"
                       >
                         <td>{stamp(row.occurredAt)}</td>
                         <td><span className="usage-email" title={row.email}>{row.email}</span></td>
@@ -508,7 +505,7 @@ export default function AdminUsagePage() {
                         <td className="cell-num">{trimCredits(row.chargedCredits)}</td>
                         <td>
                           <span className={`outcome-pill outcome-${row.outcome}`}>{row.outcome === "ok" ? `${row.statusCode}` : row.outcome === "interrupted" ? "stopped" : `${row.statusCode}`}</span>
-                          {row.hasBody && <span className="row-view-hint"><Eye size={11}/> view</span>}
+                          <span className="row-view-hint"><Eye size={11}/> view</span>
                         </td>
                       </tr>
                     ))}
@@ -537,16 +534,37 @@ export default function AdminUsagePage() {
         onClose={() => setViewing(null)}
         footer={<button className="button button-outline compact-button" type="button" onClick={() => setViewing(null)}>Close</button>}
       >
-        {bodyStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading bodies…</div>}
-        {bodyStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> Could not load the request bodies.</p>}
+        {bodyStatus === "loading" && <div className="usage-loading"><Loader2 size={16} className="spin"/> Loading detail…</div>}
+        {bodyStatus === "error" && <p className="success-line row-fail" role="status"><AlertTriangle size={14}/> Could not load the request detail.</p>}
         {bodyStatus === "ready" && body && (
-          <>
-            {body.truncated && <p className="body-note"><AlertTriangle size={13}/> Body was longer than the capture cap and is stored truncated.</p>}
-            <div className="body-grid">
-              <JsonView label={body.requestBody ? "Request" : "Request (none captured)"} source={body.requestBody ?? "{}"}/>
-              <JsonView label="Response" source={body.responseBody ?? "{}"}/>
+          <div className="request-detail-grid">
+            <div className={`detail-status-card ${body.statusCode >= 400 ? "detail-status-fail" : "detail-status-ok"}`}>
+              <span className="detail-status-code">{body.statusCode}</span>
+              <span className="detail-status-label">{body.statusCode >= 400 ? "Failed" : body.statusCode >= 300 ? "Redirect" : "Success"}</span>
             </div>
-          </>
+            <div className="detail-info-card">
+              <div className="detail-info-row">
+                <span className="detail-info-key">Endpoint</span>
+                <code className="detail-info-val">{body.endpoint}</code>
+              </div>
+              <div className="detail-info-row">
+                <span className="detail-info-key">Stream</span>
+                <strong className="detail-info-val">{body.isStream ? "Yes" : "No"}</strong>
+              </div>
+            </div>
+            <div className="detail-summary-card">
+              <h4 className="detail-summary-heading">URL Summary</h4>
+              {body.bodySummary ? (
+                <div className="detail-url-list">
+                  {body.bodySummary.replace(/^urls:\s*/, "").split(", ").map((url, i) => (
+                    <span key={i} className="detail-url-tag">{url}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="detail-summary-empty">No URLs detected in this request.</p>
+              )}
+            </div>
+          </div>
         )}
       </Modal>
 
