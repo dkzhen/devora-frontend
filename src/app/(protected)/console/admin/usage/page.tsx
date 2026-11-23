@@ -558,13 +558,17 @@ export default function AdminUsagePage() {
                 <div className="detail-summary-content">
                   {body.bodySummary.split(" | ").map((section, si) => {
                     const [label, ...rest] = section.split(": ");
-                    const values = rest.join(": ").split(", ");
+                    const content = rest.join(": ");
+                    // Error section: render as JSON code block, not tags
+                    if (label === "error") {
+                      return <div key={si} className="detail-summary-section">
+                        <span className="detail-summary-label">error</span>
+                        <pre className="detail-error-code">{content}</pre>
+                      </div>;
+                    }
+                    const values = content.split(", ");
                     const tagClass = label === "urls" ? "detail-url-tag"
-                      : label === "secrets" ? "detail-secret-tag"
-                      : label === "emails" ? "detail-email-tag"
-                      : label === "ips" ? "detail-ip-tag"
-                      : label === "error" ? "detail-error-tag"
-                      : "detail-url-tag";
+                      : "detail-secret-tag";
                     return <div key={si} className="detail-summary-section">
                       <span className="detail-summary-label">{label}</span>
                       <div className="detail-tag-row">

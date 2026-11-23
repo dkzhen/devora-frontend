@@ -22,13 +22,20 @@ export function ProviderMark({ provider, size = 22 }: { provider: string; size?:
   const [extIndex, setExtIndex] = useState(0);
   const slug = provider.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const extensions = [".svg", ".png"];
-  const initial = provider.trim().charAt(0).toUpperCase() || "?";
 
   if (extIndex >= extensions.length) {
+    // Fallback: Devora icon instead of a plain letter
     return (
-      <span className="provider-fallback" style={{ width: size, height: size }} aria-hidden="true">
-        {initial}
-      </span>
+      <img
+        className="provider-mark provider-default"
+        style={{ width: size, height: size }}
+        src="/devora-icon-red-nobg.png"
+        alt={`${provider} (default)`}
+        title={provider}
+        width={size}
+        height={size}
+        loading="lazy"
+      />
     );
   }
 

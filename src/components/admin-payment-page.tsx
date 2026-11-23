@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertTriangle, Check, Coins, Lock, LockOpen, Loader2, RefreshCw, Save, X } from "lucide-react";
+import { AlertTriangle, Archive, ArchiveRestore, Check, Coins, Lock, LockOpen, Loader2, RefreshCw, Save, X } from "lucide-react";
 import { formatRupiah, moneyToCredits } from "@/lib/credits";
 import { Modal } from "@/components/modal";
 
@@ -37,7 +37,7 @@ type PaymentMethod = {
   category: "credits" | "idr" | "usd";
   currency: string;
   isActive: boolean;
-  visibility: "active" | "inactive" | "private";
+  visibility: "active" | "inactive" | "private" | "archived";
   gatewayReady: boolean;
   mode: string;
   sortOrder: number;
@@ -163,6 +163,7 @@ export function AdminPaymentPage() {
   const [ratesStatus, setRatesStatus] = useState<"loading" | "ready" | "error">("loading");
   const [idrRate, setIdrRate] = useState("");
   const [usdRate, setUsdRate] = useState("");
+  const [markupRate, setMarkupRate] = useState("");
   const [savingRates, setSavingRates] = useState(false);
   const [rateNotice, setRateNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [liveUsdRate, setLiveUsdRate] = useState<number | null>(null);
@@ -181,6 +182,7 @@ export function AdminPaymentPage() {
       const rows = data.rates ?? [];
       const idrRow = rows.find(r => r.fromCurrency === "IDR" && r.toCurrency === "CREDITS");
       const usdRow = rows.find(r => r.fromCurrency === "USD" && r.toCurrency === "CREDITS");
+      const markupRow = rows.find(r => r.fromCurrency === "MARKUP" && r.toCurrency === "CREDITS");
       const mapped: ExchangeRates = {
         idrToCredits: idrRow?.rate ?? "0",
         usdToCredits: usdRow?.rate ?? "0",
@@ -188,6 +190,7 @@ export function AdminPaymentPage() {
       setRates(mapped);
       setIdrRate(trimRate(mapped.idrToCredits));
       setUsdRate(trimRate(mapped.usdToCredits));
+      setMarkupRate(markupRow?.rate ?? "0");
       if (usdRow) setUsdUpdatedAt(usdRow.updatedAt ?? null);
       setRatesStatus("ready");
     } catch { setRatesStatus("error"); }
@@ -202,7 +205,7 @@ export function AdminPaymentPage() {
       const res = await fetch("/backend/api/v1/admin/payment/rates", {
         method: "PUT",
         headers: await authHeaders(),
-        body: JSON.stringify({ idrToCredits: idrRate, usdToCredits: usdRate }),
+        body: JSON.stringify({ idrToCredits: idrRate, usdToCredits: usdRate, markupIdr: markupRate }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
@@ -271,7 +274,7 @@ export function AdminPaymentPage() {
   // ---------------------------------------------------------------------------
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const setVisibility = async (id: string, visibility: "active" | "inactive" | "private") => {
+  const setVisibility = async (id: string, visibility: "active" | "inactive" | "private" | "archived") => {
     setTogglingId(id);
     try {
       const res = await fetch(`/backend/api/v1/admin/payment/methods/${id}`, {
@@ -356,7 +359,7 @@ export function AdminPaymentPage() {
           const isReady = m.gatewayReady;
           const vis = m.visibility;
           const toggling = togglingId === m.id;
-          const borderColour = vis === "active" ? "#17756b" : vis === "private" ? "#f59e0b" : "#c44";
+          const borderColour = vis === "active" ? "#17756b" : vis === "private" ? "#f59e0b" : vis === "archived" ? "#666" : "#c44";
           return (
             <div
               key={m.id}
@@ -365,6 +368,7 @@ export function AdminPaymentPage() {
                 padding: "12px 16px",
                 border: `1.5px solid ${borderColour}`,
                 borderRadius: 8, marginBottom: 8, cursor: "pointer", transition: "border-color 0.15s",
+                opacity: vis === "archived" ? 0.5 : 1,
               }}
               onClick={() => setGatewayModal(m)}
             >
@@ -380,9 +384,9 @@ export function AdminPaymentPage() {
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
                   padding: "2px 10px", borderRadius: "3px", fontSize: "var(--fs-micro)", fontWeight: "700",
                   letterSpacing: ".5px", color: "#fff",
-                  background: isReady ? "#17756b" : "#c44", whiteSpace: "nowrap",
+                  background: vis === "archived" ? "#666" : isReady ? "#17756b" : "#c44", whiteSpace: "nowrap",
                 }}>
-                  {isReady ? "Ready" : "Not ready"}
+                  {vis === "archived" ? "Archived" : isReady ? "Ready" : "Not ready"}
                 </span>
                 <div style={{ display: "flex", gap: 4 }}>
                   {(vis === "active" || vis === "private") && (
@@ -393,6 +397,17 @@ export function AdminPaymentPage() {
                       disabled={toggling}
                     >
                       {toggling ? <><Loader2 size={14} className="row-spinner"/> …</> : "Disable"}
+                    </button>
+                  )}
+                  {vis === "archived" && (
+                    <button
+                      className="button button-outline compact-button"
+                      type="button"
+                      onClick={() => void setVisibility(m.id, "inactive")}
+                      disabled={toggling}
+                      title="Unarchive — set to inactive"
+                    >
+                      {toggling ? <><Loader2 size={14} className="row-spinner"/> …</> : <><ArchiveRestore size={14}/> Unarchive</>}
                     </button>
                   )}
                   {vis === "inactive" && (
@@ -406,7 +421,7 @@ export function AdminPaymentPage() {
                       {toggling ? <><Loader2 size={14} className="row-spinner"/> …</> : "Enable"}
                     </button>
                   )}
-                  {m.gatewayReady && (
+                  {m.gatewayReady && vis !== "archived" && (
                     vis === "private"
                       ? <button
                           className="button compact-button"
@@ -429,6 +444,18 @@ export function AdminPaymentPage() {
                           <Lock size={14}/>
                         </button>
                       )
+                  )}
+                  {vis === "inactive" && (
+                    <button
+                      className="button button-outline compact-button"
+                      type="button"
+                      style={{borderColor:"#666",color:"#666"}}
+                      onClick={() => void setVisibility(m.id, "archived")}
+                      disabled={toggling}
+                      title="Hide completely from billing UI"
+                    >
+                      <Archive size={14}/>
+                    </button>
                   )}
                 </div>
               </div>
@@ -499,6 +526,11 @@ export function AdminPaymentPage() {
             <span>USD → Credits</span>
             <input value={usdRate} inputMode="decimal" placeholder="1500" onChange={e => setUsdRate(e.target.value)} />
             <small>Credits per 1 USD. E.g. 1500 means $1 = 1,500 credits.</small>
+          </label>
+          <label className="admin-field">
+            <span>Crypto markup (IDR/USD)</span>
+            <input value={markupRate} inputMode="numeric" placeholder="300" onChange={e => setMarkupRate(e.target.value)} />
+            <small>Subtracted from the market USD→IDR rate so crypto prices cover network fees. E.g. 300 means the effective rate is market − Rp 300.</small>
           </label>
         </div>
       )}

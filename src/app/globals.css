@@ -812,7 +812,7 @@
 .detail-secret-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--coral);color:var(--ink);box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:100%}
 .detail-email-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#d9f2e6;color:#166b52;box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:240px}
 .detail-ip-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:#fff3cd;color:#856404;box-shadow:2px 2px 0 var(--ink);display:inline-block}
-.detail-error-tag{font:600 var(--fs-small) ui-monospace,monospace;padding:4px 10px;border:1.5px solid var(--ink);background:var(--coral);color:var(--ink);box-shadow:2px 2px 0 var(--ink);display:inline-block;overflow-wrap:anywhere;word-break:break-all;max-width:100%}
+.detail-error-code{font:600 var(--fs-small) ui-monospace,monospace;background:var(--ink);color:#ff6b6b;padding:10px 12px;border:1.5px solid var(--ink);border-radius:2px;overflow-wrap:anywhere;word-break:break-all;white-space:pre-wrap;margin:0;max-height:200px;overflow-y:auto}
 .detail-summary-content{display:flex;flex-direction:column;gap:10px}
 .detail-summary-section{display:flex;flex-direction:column;gap:5px}
 .detail-summary-label{font:700 var(--fs-micro) var(--body);text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}

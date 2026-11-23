@@ -48,7 +48,7 @@ export function LandingFaq() {
         <h2>Still have questions?</h2>
         <p>Reach out anytime — we answer quickly.</p>
         <div className="land-contact-links">
-          <a href="mailto:dani@dkzhen.org">dani@dkzhen.org</a>
+          <a href="mailto:zhen@devora.my.id">zhen@devora.my.id</a>
           <a href="https://t.me/dk_zhen2" target="_blank" rel="noopener noreferrer">Telegram @dk_zhen2</a>
         </div>
       </div>

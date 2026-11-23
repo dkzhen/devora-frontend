@@ -49,7 +49,7 @@ const GROUPS: Group[] = [
   {
     heading: "Support",
     links: [
-      { label: "dani@dkzhen.org", href: "mailto:dani@dkzhen.org" },
+      { label: "zhen@devora.my.id", href: "mailto:zhen@devora.my.id" },
       { label: "Telegram @dk_zhen2", href: "https://t.me/dk_zhen2" },
     ],
   },
