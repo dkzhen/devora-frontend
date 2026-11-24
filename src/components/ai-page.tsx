@@ -112,25 +112,32 @@ function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-/** Compact token volume for the stat tiles: 1_234_567 -> "1.2M". */
+/** Compact token volume for the stat tiles: 1_234_567 -> "1.2M", 1_500_000_000 -> "1.5B". */
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${Math.floor(n / 1000)}K`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${(n / 1_000_000_000).toFixed(1)}B`;
 }
 
 /** Drop trailing zeros from a credit string: "1.200000" -> "1.2", then compact large numbers: 192736 -> "193K". */
 function trimCredits(value: string): string {
-  if (!value.includes(".")) return compactNum(Number(value));
-  const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
-  return compactNum(Number(trimmed));
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  // Round to 2 decimals before compacting: 10.444232 -> 10.44
+  const rounded = Math.round(n * 100) / 100;
+  return compactNum(rounded);
 }
 
 /** Compact a number into K/M/B notation: 1234 -> "1.2K", 192736 -> "192.7K", 1_000_000 -> "1M". */
 function compactNum(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "0";
   const abs = Math.abs(n);
-  if (abs < 1000) return String(n);
+  if (abs < 1000) {
+    // Show up to 2 decimals, drop trailing zeros: 10.444232 -> "10.44", 10 -> "10"
+    const fixed = n.toFixed(2).replace(/\.?0+$/, "");
+    return fixed;
+  }
   if (abs < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
   if (abs < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return `${(n / 1_000_000_000).toFixed(1)}B`;
