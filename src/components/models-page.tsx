@@ -3,7 +3,7 @@
 import { LandingNav } from "@/components/landing-nav";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDownToLine, ArrowUpFromLine, AudioLines, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Wrench, X, Zap } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, AudioLines, Brain, Eye, Gauge, Key, Layers, Loader2, Ruler, Search, Shield, ShieldCheck, ShieldQuestion, Wrench, X, Zap } from "lucide-react";
 import { Brand, PrimaryLink } from "@/components/brand";
 import { PublicFooter } from "@/components/public-footer";
 import { ProviderMark } from "@/components/provider-mark";
@@ -31,6 +31,33 @@ type PublicModel = {
   capabilities: { vision: boolean; reasoning: boolean; tools: boolean; streaming: boolean };
   pricing: { unit: string; input: string; output: string; originalInput: string | null; originalOutput: string | null };
   health: { total: number; errors: number; status: "healthy" | "error" } | null;
+  /**
+   * How far the price/spec figures can be trusted. `official` = read off the vendor's own
+   * page, `trusted` = a credible third party, `unknown` = not checked. The catalogue is
+   * maintained by hand, so this is stated rather than implied.
+   */
+  source: ModelSource;
+};
+
+type ModelSource = "official" | "trusted" | "unknown";
+
+/** Icon, wording and colour for each provenance label. One source of truth for the card. */
+const SOURCE_LABEL: Record<ModelSource, { text: string; Icon: typeof Shield; hint: string }> = {
+  official: {
+    text: "Verified",
+    Icon: ShieldCheck,
+    hint: "Pricing and specs read from the model vendor's own documentation.",
+  },
+  trusted: {
+    text: "Trusted",
+    Icon: Shield,
+    hint: "Pricing and specs from a credible third party, not the vendor's own page.",
+  },
+  unknown: {
+    text: "Unverified",
+    Icon: ShieldQuestion,
+    hint: "Where these figures came from has not been recorded. Double-check before relying on them.",
+  },
 };
 
 /** One fetch of the public catalogue, shared by both the highlight and the full table. */
@@ -123,6 +150,38 @@ export function ModelsPage() {
     </section>
 
     <section className="mp-body">
+      {/* Stated before the catalogue, not after it: a visitor comparing prices should know
+          how much of each row is first-party before reading a single number. The sentence stays
+          plain prose and the three shields get their own list underneath — inline chips inside
+          a paragraph read as decoration and break the sentence apart. */}
+      <div className="mp-disclaimer" role="note">
+        <ShieldQuestion size={18}/>
+        <div className="mp-disclaimer-body">
+          <p>
+            <strong>Not every model here is priced from the vendor&apos;s own page.</strong>{" "}
+            Each card carries a shield beside its provider logo saying where its price and
+            specs came from, so an unchecked figure never looks confirmed.
+          </p>
+          <ul className="mp-legend-list">
+            <li>
+              <ShieldCheck size={14} className="mp-source-official"/>
+              <span><strong>Verified</strong> — read from the vendor&apos;s documentation</span>
+            </li>
+            <li>
+              <Shield size={14} className="mp-source-trusted"/>
+              <span><strong>Trusted</strong> — a credible third party</span>
+            </li>
+            <li>
+              <ShieldQuestion size={14} className="mp-source-unknown"/>
+              <span><strong>Unverified</strong> — not checked yet</span>
+            </li>
+          </ul>
+          <p className="mp-disclaimer-foot">
+            Hover any shield for the detail. Confirm a price with the provider before relying on it.
+          </p>
+        </div>
+      </div>
+
       {/* Toolbar: search is the primary control, so it gets the width; the two selects sit
           beside it and stack under it on a phone. */}
       <div className="mp-toolbar">
@@ -189,7 +248,26 @@ export function ModelsPage() {
           {/* Identity first: the provider mark, the name, and the id a caller copies into a
               config. Everything after this block is a property of those three. */}
           <div className="mp-item-head">
-            {m.provider ? <ProviderMark provider={m.provider} size={30}/> : <span className="provider-fallback" style={{ width: 30, height: 30 }}>?</span>}
+            {/* Provenance rides on the provider mark as a corner badge: the logo is a fixed
+                30px square, so the glyph can never be pushed onto a second line by a long
+                model name — which is exactly what happened when it sat after the name. */}
+            <span className="mp-provider-wrap">
+              {m.provider ? <ProviderMark provider={m.provider} size={30}/> : <span className="provider-fallback" style={{ width: 30, height: 30 }}>?</span>}
+              {(() => {
+                const key: ModelSource = m.source in SOURCE_LABEL ? m.source : "unknown";
+                const label = SOURCE_LABEL[key];
+                const Icon = label.Icon;
+                return (
+                  <span
+                    className={`mp-source-mark mp-source-${key}`}
+                    title={`${label.text} — ${label.hint}`}
+                    aria-label={`Source: ${label.text}`}
+                  >
+                    <Icon size={16}/>
+                  </span>
+                );
+              })()}
+            </span>
             <div className="mp-item-id">
               <strong>{m.name || m.id}</strong>
               <code>{m.id}</code>

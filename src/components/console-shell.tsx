@@ -25,6 +25,7 @@ const adminNav = { group: "ADMIN", items: [
   { href: "/console/admin/models", label: "Models", icon: Layers },
   { href: "/console/admin/users", label: "Users", icon: Users },
   { href: "/console/admin/usage", label: "Usage", icon: BarChart3 },
+  { href: "/console/admin/support", label: "Support", icon: Headset },
   { href: "/console/admin/settings", label: "Settings", icon: Settings },
 ] };
 

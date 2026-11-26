@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { AlertTriangle, Check, Headset, Loader2, Send } from "lucide-react";
+import { AlertTriangle, Check, Headset, Loader2, MessageSquare, RefreshCw, Send } from "lucide-react";
 
 type Category = "bug" | "feature" | "billing" | "account" | "stock" | "other";
 
@@ -14,6 +14,46 @@ const CATEGORIES: { value: Category; label: string; template: string }[] = [
   { value: "stock", label: "Package stock", template: "Package name:\n\nQuestion: Is this package still available? How many slots are left?" },
   { value: "other", label: "Other", template: "Message:" },
 ];
+
+/** One message in a thread: a customer follow-up or an operator answer. */
+type Reply = {
+  id: string;
+  author: "user" | "admin";
+  authorEmail: string | null;
+  message: string;
+  read: boolean;
+  createdAt: string;
+};
+
+type Ticket = {
+  id: string;
+  ticketNo: number;
+  ticketId: string;
+  category: string;
+  subject: string;
+  message: string;
+  status: "open" | "replied" | "resolved" | "closed";
+  createdAt: string;
+  updatedAt: string;
+  replies: Reply[];
+};
+
+/** Status text mapped onto the pills the rest of the console already uses. */
+const STATUS_CLASS: Record<Ticket["status"], string> = {
+  open: "status-pending",
+  replied: "status-active",
+  resolved: "status-completed",
+  closed: "status-expired",
+};
+
+/** "Nov 26, 09:47" — short enough for a thread header. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
 
 export default function SupportPage() {
   const { getToken } = useAuth();
@@ -27,7 +67,69 @@ export default function SupportPage() {
   const [status, setStatus] = useState<"idle" | "ok" | "error">("idle");
   const [ticketId, setTicketId] = useState<string | null>(null);
 
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [threadsError, setThreadsError] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+
   const activeCategory = CATEGORIES.find(c => c.value === category) ?? CATEGORIES[0];
+
+  const loadThreads = useCallback(async () => {
+    setThreadsError(false);
+    try {
+      const token = await getToken();
+      const res = await fetch("/backend/api/v1/support/mine", {
+        headers: { Authorization: `Bearer ${token ?? ""}` },
+        cache: "no-store",
+      });
+      if (!res.ok) { setThreadsError(true); return; }
+      const data = await res.json() as { tickets: Ticket[] };
+      const list = data.tickets ?? [];
+      setTickets(list);
+
+      // Clear the unread marker on the operator answers this load revealed. Best effort:
+      // failing to mark it read must not hide the thread the user came to read.
+      for (const t of list) {
+        if (t.replies.some(r => r.author === "admin" && !r.read)) {
+          void fetch(`/backend/api/v1/support/${t.id}/read`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token ?? ""}` },
+          }).catch(() => {});
+        }
+      }
+    } catch {
+      setThreadsError(true);
+    } finally {
+      setLoadingThreads(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => { void loadThreads(); }, [loadThreads]);
+
+  const sendReply = async (ticket: Ticket) => {
+    const draft = (drafts[ticket.id] ?? "").trim();
+    if (!draft) return;
+    setReplyingTo(ticket.id);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/backend/api/v1/support/${ticket.id}/reply`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token ?? ""}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: draft }),
+      });
+      if (!res.ok) return;
+      setDrafts(prev => ({ ...prev, [ticket.id]: "" }));
+      await loadThreads();
+    } catch {
+      /* the draft stays in the box so the text is not lost */
+    } finally {
+      setReplyingTo(null);
+    }
+  };
 
   const pickCategory = (c: Category) => {
     setCategory(c);
@@ -63,6 +165,8 @@ type SubmitResult = { ok: boolean; ticketId?: string };
       setSubject("");
       setMessage("");
       setCategory("bug");
+      // The new ticket belongs in the conversation card straight away.
+      await loadThreads();
     } catch {
       setStatus("error");
     } finally {
@@ -165,6 +269,104 @@ type SubmitResult = { ok: boolean; ticketId?: string };
           </div>
         </div>
       </section>
+
+      {(loadingThreads || tickets.length > 0 || threadsError) && (
+        <section className="console-section">
+          <div className="section-title-row">
+            <div>
+              <span className="section-index">01</span>
+              <div>
+                <h2>Conversations</h2>
+                <p>Every ticket you have opened, and our answers.</p>
+              </div>
+            </div>
+            <button
+              className="button button-outline compact-button"
+              type="button"
+              onClick={() => void loadThreads()}
+              disabled={loadingThreads}
+            >
+              <RefreshCw size={14} className={loadingThreads ? "row-spinner" : undefined}/> Refresh
+            </button>
+          </div>
+
+          {threadsError && !loadingThreads && (
+            <p className="voucher-message voucher-error" role="status">
+              <AlertTriangle size={14}/> Could not load your conversations.
+            </p>
+          )}
+
+          {loadingThreads && tickets.length === 0 && (
+            <p className="row-state" style={{ marginTop: 14 }}>
+              <Loader2 size={14} className="row-spinner"/> Loading conversations…
+            </p>
+          )}
+
+          <div className="support-thread-list">
+            {tickets.map(t => {
+              const unread = t.replies.filter(r => r.author === "admin" && !r.read).length;
+              return (
+                <article key={t.id} className="support-ticket">
+                  <header className="support-ticket-head">
+                    <span className="support-ticket-no">{t.ticketId}</span>
+                    <div className="support-ticket-title">
+                      <strong>{t.subject}</strong>
+                      <small>
+                        {t.category} · opened {shortDate(t.createdAt)}
+                        {unread > 0 && <span className="support-unread">{unread} new</span>}
+                      </small>
+                    </div>
+                    <span className={`status-pill ${STATUS_CLASS[t.status]}`}>{t.status}</span>
+                  </header>
+
+                  <div className="support-msgs">
+                    <div className="support-msg support-msg-user">
+                      <div className="support-msg-head">
+                        <span>You</span>
+                        <time>{shortDate(t.createdAt)}</time>
+                      </div>
+                      <p>{t.message}</p>
+                    </div>
+
+                    {t.replies.map(r => (
+                      <div key={r.id} className={`support-msg support-msg-${r.author}`}>
+                        <div className="support-msg-head">
+                          <span>{r.author === "admin" ? "Devora support" : "You"}</span>
+                          <time>{shortDate(r.createdAt)}</time>
+                        </div>
+                        <p>{r.message}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {t.status !== "closed" && (
+                    <div className="support-composer">
+                      <textarea
+                        className="modal-input"
+                        value={drafts[t.id] ?? ""}
+                        onChange={e => setDrafts(prev => ({ ...prev, [t.id]: e.target.value }))}
+                        placeholder="Add a message to this ticket…"
+                        maxLength={4000}
+                        rows={2}
+                      />
+                      <button
+                        className="button button-ink compact-button"
+                        type="button"
+                        onClick={() => void sendReply(t)}
+                        disabled={replyingTo === t.id || !(drafts[t.id] ?? "").trim()}
+                      >
+                        {replyingTo === t.id
+                          ? <><Loader2 size={14} className="row-spinner"/> Sending…</>
+                          : <><MessageSquare size={14}/> Reply</>}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { ProviderMark } from "@/components/provider-mark";
 import { Modal } from "@/components/modal";
+import { Select } from "@/components/select";
 import { AlertTriangle, AudioLines, Brain, Check, Eye, FlaskConical, Layers, Loader2, Pencil, PenLine, Plus, RefreshCw, Server, Trash2, Wrench, X } from "lucide-react";
 
 const ALL_PLANS = ["STANDARD", "SUBSCRIPTION", "SUPERUSER"] as const;
@@ -31,7 +32,18 @@ type ModelRow = {
   supportsStreaming: boolean;
   lastTestAt: string | null;
   lastTestStatus: string | null;
+  /** 'official' | 'trusted' | 'unknown' — provenance of the price/spec figures. */
+  source: string;
 };
+
+type ModelSource = "official" | "trusted" | "unknown";
+
+/** Provenance levels offered in the form. Wording matches the public card exactly. */
+const SOURCE_OPTIONS = [
+  { value: "official", label: "Official — vendor's own page" },
+  { value: "trusted", label: "Trusted — credible third party" },
+  { value: "unknown", label: "Unknown — not checked" },
+];
 
 type Capability = "supportsVision" | "supportsReasoning" | "supportsTools" | "supportsStreaming";
 type Status = "loading" | "ready" | "error";
@@ -53,6 +65,7 @@ const EMPTY_FORM = {
   supportsTools: false,
   maxOutputTokens: "",
   supportsStreaming: false,
+  source: "unknown" as ModelSource,
 };
 
 /** The three capability flags, each with the icon the operator asked for. */
@@ -166,6 +179,9 @@ export default function AdminModelsPage() {
         supportsReasoning: row.supportsReasoning === true,
         supportsTools: row.supportsTools === true,
         supportsStreaming: row.supportsStreaming === true,
+        // An older backend does not send this yet; the card renders `unknown` rather than
+        // claiming a verification that was never recorded.
+        source: row.source === "official" || row.source === "trusted" ? row.source : "unknown",
       })));
       setStatus("ready");
     } catch {
@@ -227,6 +243,9 @@ export default function AdminModelsPage() {
       supportsTools: row.supportsTools,
       supportsStreaming: row.supportsStreaming,
       maxOutputTokens: row.maxOutputTokens === null ? "" : String(row.maxOutputTokens),
+      // Carried so an edit does not reset provenance: absent would mean "unknown" on save
+      // and silently un-verify a row the operator had already checked.
+      source: (row.source === "official" || row.source === "trusted" ? row.source : "unknown") as ModelSource,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -381,6 +400,7 @@ export default function AdminModelsPage() {
           supportsTools: form.supportsTools,
           maxOutputTokens: form.maxOutputTokens.trim() === "" ? null : Number(form.maxOutputTokens.trim()),
           supportsStreaming: form.supportsStreaming,
+          source: form.source,
         }),
       });
       if (!res.ok) {
@@ -429,6 +449,23 @@ export default function AdminModelsPage() {
         {field("Provider", "provider", "OpenRouter")}
         {field("Context length", "contextLength", "262144", contextHint())}
         {field("Max output tokens", "maxOutputTokens", "4096", "Optional. Leave empty if unknown.")}
+      </div>
+
+      {/* Provenance sits with the numbers it describes, not in an advanced drawer: the price
+          fields above are the claim, and this is how much of that claim we can back. */}
+      <div className="admin-subfield">
+        <span className="admin-subfield-label">Source</span>
+        <p className="admin-subfield-hint">
+          Where the price and specs above came from. Shown on the public catalogue as
+          Verified / Trusted / Unverified, so an unchecked figure never reads as confirmed.
+        </p>
+        <Select
+          value={form.source}
+          options={SOURCE_OPTIONS}
+          onChange={(v: string) => setForm(f => ({ ...f, source: (v as ModelSource) }))}
+          label="Source of the price and spec figures"
+          width={280}
+        />
       </div>
 
       <div className="admin-subfield">
@@ -549,6 +586,13 @@ export default function AdminModelsPage() {
                 </td>
                 <td><code>{m.upstreamModelId}</code></td>
                 <td>{m.contextLength ? formatContext(m.contextLength) : "—"}</td>
+                {/* Provenance: the operator needs to see at a glance which rows still carry an
+                    unchecked price, without opening each one. */}
+                <td><span className={`src-tag src-${m.source}`} title={
+                  m.source === "official" ? "Read from the vendor's own page"
+                    : m.source === "trusted" ? "Credible third party"
+                      : "Not checked — the price may be wrong"
+                }>{m.source}</span></td>
                 <td><span className="row-actions">
                   {m.lastTestStatus && <span title={`Last test: ${m.lastTestStatus === "ok" ? "OK" : "Failed"}${m.lastTestAt ? " · " + m.lastTestAt : ""}`} className={m.lastTestStatus === "ok" ? "test-status test-ok" : "test-status test-fail"}>{m.lastTestStatus === "ok" ? "✓" : "✗"}</span>}
                   <button className="row-action" type="button" title="Test model" aria-label={`Test ${m.displayName}`} onClick={() => void testModel(m)} disabled={testingId === m.id || busyId === m.id}>{testingId === m.id ? <Loader2 size={14} className="row-spinner"/> : <FlaskConical size={14}/>}</button>
@@ -557,17 +601,17 @@ export default function AdminModelsPage() {
                 </span></td>
               </tr>;
               return <table className="model-table">
-                <thead><tr><th style={{whiteSpace:"nowrap"}}>PROVIDER</th><th style={{whiteSpace:"nowrap"}}>MODEL</th><th style={{whiteSpace:"nowrap"}}>NODE</th><th style={{whiteSpace:"nowrap"}}>STATUS</th><th style={{whiteSpace:"nowrap"}}>PLANS</th><th style={{whiteSpace:"nowrap"}}>CAPABILITIES</th><th style={{whiteSpace:"nowrap"}}>PRICING /1M</th><th style={{whiteSpace:"nowrap"}}>UPSTREAM ID</th><th style={{whiteSpace:"nowrap"}}>CONTEXT</th><th style={{whiteSpace:"nowrap"}}></th></tr></thead>
+                <thead><tr><th style={{whiteSpace:"nowrap"}}>PROVIDER</th><th style={{whiteSpace:"nowrap"}}>MODEL</th><th style={{whiteSpace:"nowrap"}}>NODE</th><th style={{whiteSpace:"nowrap"}}>STATUS</th><th style={{whiteSpace:"nowrap"}}>PLANS</th><th style={{whiteSpace:"nowrap"}}>CAPABILITIES</th><th style={{whiteSpace:"nowrap"}}>PRICING /1M</th><th style={{whiteSpace:"nowrap"}}>UPSTREAM ID</th><th style={{whiteSpace:"nowrap"}}>CONTEXT</th><th style={{whiteSpace:"nowrap"}}>SOURCE</th><th style={{whiteSpace:"nowrap"}}></th></tr></thead>
                 <tbody>
-                  <tr className="model-group-head"><td colSpan={10}>Active · {active.length}</td></tr>
+                  <tr className="model-group-head"><td colSpan={11}>Active · {active.length}</td></tr>
                   {active.length === 0
-                    ? <tr className="model-group-empty"><td colSpan={10}>No active models</td></tr>
+                    ? <tr className="model-group-empty"><td colSpan={11}>No active models</td></tr>
                     : active.map(row)}
                 </tbody>
                 <tbody>
-                  <tr className="model-group-head model-group-head-off"><td colSpan={10}>Inactive · {inactive.length}</td></tr>
+                  <tr className="model-group-head model-group-head-off"><td colSpan={11}>Inactive · {inactive.length}</td></tr>
                   {inactive.length === 0
-                    ? <tr className="model-group-empty"><td colSpan={10}>No inactive models</td></tr>
+                    ? <tr className="model-group-empty"><td colSpan={11}>No inactive models</td></tr>
                     : inactive.map(row)}
                 </tbody>
               </table>;

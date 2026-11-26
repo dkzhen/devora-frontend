@@ -2634,3 +2634,75 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:760px){.payment-notice{width:calc(100% - 46px);margin:12px 23px 0;padding:10px 13px;gap:10px}.payment-notice-label{gap:7px}.payment-notice-divider{height:18px}.payment-notice-viewport::before,.payment-notice-viewport::after{width:22px}.payment-notice-row{gap:10px}}
 
 @media(prefers-reduced-motion:reduce){.payment-notice-track{animation:none!important;transform:none;width:100%}.payment-notice-copy{white-space:normal;overflow-wrap:anywhere}.payment-notice-viewport::before,.payment-notice-viewport::after{display:none}}
+
+/* ── Support threads ──────────────────────────────────────────────────────
+   One ticket = one card. Messages stack inside it, the customer's on the left
+   and the operator's on the right, so a long back-and-forth stays readable
+   without opening a modal. */
+.support-thread-list{margin-top:16px;display:flex;flex-direction:column;gap:14px}
+.support-ticket{border:1px solid #e5e0d6;background:var(--paper)}
+.support-ticket-head{display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid #eee9df;background:#faf8f2;flex-wrap:wrap}
+.support-ticket-no{font:700 var(--fs-micro) var(--display);letter-spacing:.6px;padding:4px 7px;border:1.5px solid var(--ink);background:var(--mint);white-space:nowrap}
+.support-ticket-title{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.support-ticket-title strong{font:700 var(--fs-small) var(--display);letter-spacing:-.2px;overflow-wrap:anywhere}
+.support-ticket-title small{font-size:var(--fs-micro);color:#898377;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.support-ticket-email{font-weight:700;color:#6f695d;overflow-wrap:anywhere}
+.support-unread{font:700 var(--fs-micro) var(--display);letter-spacing:.4px;padding:2px 6px;border:1.5px solid var(--ink);background:var(--mustard)}
+.support-msgs{display:flex;flex-direction:column;gap:10px;padding:14px}
+.support-msg{max-width:min(100%,640px);padding:10px 12px;border:1px solid #e3ded3;background:#fff}
+.support-msg-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.support-msg-head span{font:700 var(--fs-micro) var(--display);letter-spacing:.5px;text-transform:uppercase;color:#898377;overflow-wrap:anywhere}
+.support-msg-head time{font-size:var(--fs-micro);color:#a29b8e;white-space:nowrap}
+.support-msg p{margin:0;font-size:13px;line-height:1.6;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.support-msg-user{align-self:flex-start;border-left:3px solid #d8d1c5}
+.support-msg-admin{align-self:flex-end;border:1px solid var(--ink);background:var(--mint)}
+.support-msg-admin .support-msg-head span{color:#166b52}
+.support-composer{display:flex;flex-direction:column;gap:9px;padding:12px 14px;border-top:1px solid #eee9df;background:#faf8f2}
+.support-composer textarea{width:100%;padding:9px 11px;border:1px solid #d8d1c5;background:#fff;font:var(--fs-small) var(--body);color:var(--ink);resize:vertical;outline:0}
+.support-composer textarea:focus{outline:2px solid var(--mint);outline-offset:1px}
+.support-composer-actions{display:flex;align-items:center;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+.support-inbox-toolbar{margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
+.support-counts{display:flex;gap:7px;flex-wrap:wrap}
+.support-count{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 11px;border:1.5px solid #ded8cc;background:#fffdf8;cursor:pointer;transition:border-color .12s,background .12s}
+.support-count b{font:700 var(--fs-small) var(--display);letter-spacing:-.2px}
+.support-count span{font-size:var(--fs-micro);letter-spacing:.5px;text-transform:uppercase;color:#898377}
+.support-count:hover{border-color:var(--ink)}
+.support-count-on{border-color:var(--ink);background:var(--mint);box-shadow:2px 2px 0 var(--ink)}
+.support-count:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.support-inbox-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media(max-width:760px){.support-msgs{padding:11px}.support-msg{max-width:100%}.support-ticket-head{padding:10px 11px}.support-composer{padding:10px 11px}.support-inbox-filters .search-field{max-width:none;width:100%}.support-composer-actions{justify-content:flex-start}}
+
+/* Provenance legend + notice at the top of the catalogue. Amber, not mint: it is a caution
+   about the data, not a success state. Sits above the toolbar so a visitor reads how much of
+   each row is first-party before comparing a single price.
+   The legend is its own list, not chips inline in the sentence: mixing them into the prose
+   reads as decoration and splits the sentence into fragments. */
+.mp-disclaimer{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;margin:0 0 16px;border:1px solid #e5cf8b;background:#fff8df;color:#675520}
+.mp-disclaimer>svg{flex:0 0 auto;margin-top:2px;color:#8a6a1f}
+.mp-disclaimer-body{display:flex;flex-direction:column;gap:8px;min-width:0}
+.mp-disclaimer p{margin:0;font-size:var(--fs-note);line-height:1.65}
+.mp-disclaimer strong{color:#4f4113}
+.mp-disclaimer-foot{color:#7c6b3c}
+.mp-legend-list{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px 22px}
+.mp-legend-list li{display:flex;align-items:center;gap:6px;font-size:var(--fs-note)}
+.mp-legend-list li svg{flex:0 0 auto}
+@media(max-width:760px){.mp-disclaimer{padding:10px 11px;gap:8px}.mp-disclaimer p,.mp-legend-list li{font-size:11px;line-height:1.6}.mp-legend-list{flex-direction:column;gap:5px}}
+
+/* Provenance mark: a small shield at the bottom-right of the provider logo, with the wording
+   in the tooltip. Anchored to the fixed 30px mark rather than to the name, because a long
+   model name used to push a trailing glyph onto a second line.
+   No chip — a paper-coloured disc behind the glyph only masks the logo underneath, so the
+   two marks read as one element rather than as a badge on top of a badge. */
+.mp-provider-wrap{position:relative;display:inline-flex;flex:0 0 auto}
+.mp-source-mark{position:absolute;right:-7px;bottom:-7px;display:inline-flex;align-items:center;justify-content:center;padding:1px;border-radius:50%;background:var(--paper);line-height:0;cursor:help}
+.mp-item-free .mp-source-mark{background:var(--paper)}
+.mp-source-official{color:#168b6e}
+.mp-source-trusted{color:#8a5a00}
+.mp-source-unknown{color:#b3aca0}
+
+/* Provenance tag in the admin models table. Text, not an icon: the operator is scanning for
+   which rows still carry an unchecked price, and the word is faster to scan than a glyph. */
+.src-tag{font:700 var(--fs-micro) var(--display);letter-spacing:.3px;padding:3px 6px;border:1.5px solid #ded8cc;white-space:nowrap}
+.src-official{border-color:#168b6e;background:#e4f5ee;color:#166b52}
+.src-trusted{border-color:#c9c2b5;background:#f4f1e9;color:#5d594f}
+.src-unknown{border-color:#e0dacd;background:#fffdf8;color:#a29b8e}
