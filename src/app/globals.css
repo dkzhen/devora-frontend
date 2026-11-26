@@ -2706,3 +2706,55 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .src-official{border-color:#168b6e;background:#e4f5ee;color:#166b52}
 .src-trusted{border-color:#c9c2b5;background:#f4f1e9;color:#5d594f}
 .src-unknown{border-color:#e0dacd;background:#fffdf8;color:#a29b8e}
+
+
+/* ── Node layout (which upstream serves which models) ──────────────────────
+   Quiet on purpose: it sits inside the package popup above a chip list, so it is
+   context rather than the headline. Hairlines and tinted pills instead of boxes,
+   and the models run inline per provider so fourteen providers do not turn into
+   fourteen stacked mini-cards. */
+.node-map{border:1px solid #ece7dc;border-radius:8px;background:#fffdf8;overflow:hidden}
+.node-map-head{width:100%;display:flex;align-items:center;gap:8px;padding:10px 13px;background:#fbf9f4;border:0;cursor:pointer;color:var(--ink);text-align:left}
+.node-map-head:hover{background:#f6f3ea}
+.node-map-head:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
+.node-map-head>svg:first-child{color:#a29b8e;flex:0 0 auto}
+.node-map-title{font:700 10.5px var(--display);letter-spacing:1.1px;text-transform:uppercase;color:#6f695d}
+.node-map-summary{margin-left:auto;font-size:10.5px;letter-spacing:.2px;color:#a29b8e;white-space:nowrap}
+.node-map-chevron{flex:0 0 auto;color:#a29b8e;transition:transform .18s ease}
+.node-map-chevron-open{transform:rotate(180deg)}
+.node-map-body{padding:4px 13px 12px;border-top:1px solid #f1ede4}
+.node-group{padding:9px 0 2px}
+.node-group+.node-group{border-top:1px solid #f4f0e8}
+.node-group-head{display:flex;align-items:baseline;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+.node-group-head>code{font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2px;color:#3a352b;background:#f2efe6;padding:2px 7px;border-radius:4px}
+.node-group-count{font-size:10.5px;letter-spacing:.2px;color:#a29b8e}
+.node-map-note{margin:9px 0 0;padding-top:9px;border-top:1px solid #f4f0e8;font-size:10.5px;line-height:1.55;color:#a29b8e}
+@media(max-width:760px){.node-map-summary{display:none}.node-step-label{font-size:11.5px}}
+/* Timeline rows: dot + rule, one per model. Circle is 22px so the 13px provider mark inside
+   sits comfortable, and the rule is drawn per row so it breaks at the first and last dot. */
+.node-timeline{list-style:none;margin:0;padding:0 0 0 1px}
+.node-step{position:relative;display:flex;align-items:center;gap:10px;padding:3px 0}
+.node-step::before{content:"";position:absolute;left:10px;top:0;bottom:0;width:1px;background:#e8e3d7}
+.node-step:first-child::before{top:50%}
+.node-step:last-child::before{bottom:50%}
+.node-step:only-child::before{display:none}
+.node-step-dot{position:relative;z-index:1;width:22px;height:22px;flex:0 0 auto;display:grid;place-items:center;border-radius:50%;border:1px solid #e5e0d6;background:#fffdf8}
+.node-step-dot img{width:13px;height:13px;object-fit:contain}
+.node-step-label{font-size:12.5px;line-height:1.4;color:#3a352b;overflow-wrap:anywhere}
+.node-more{align-self:flex-start;margin:6px 0 0 32px;padding:3px 9px;border:1px dashed #d8d1c5;border-radius:5px;background:none;font:600 10.5px var(--display);letter-spacing:.3px;color:#6f695d;cursor:pointer}
+.node-more:hover{border-style:solid;border-color:var(--ink);color:var(--ink);background:#f8f6f0}
+.node-more:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+/* Browse-card model marks: the same 28px circular provider chip the active-plan row uses,
+   but stacked with a negative offset so three marks read as "several providers" without
+   needing the row to be understood one circle at a time. The paper ring is what keeps two
+   overlapping logos legible — without it the second file hides the first edge. */
+.pkg-model-marks{flex-wrap:nowrap;overflow:visible;align-items:center;gap:0}
+/* Overlap comes only from the sibling rule: the first chip has no preceding chip, so it keeps
+   a clean edge next to the count without needing :first-child (which broke once the count
+   span was added in front of the stack). */
+.pkg-model-marks .model-chip-mini{flex:0 0 auto;position:relative;box-shadow:0 0 0 2px var(--paper);transition:transform .12s,border-color .12s}
+.pkg-model-marks .model-chip-mini + .model-chip-mini{margin-left:-8px}
+.pkg-model-marks .model-chip-mini:hover{z-index:2;transform:translateY(-1px);border-color:var(--ink)}
+.pkg-model-count{flex:0 0 auto;margin-right:14px;font:700 12px var(--display);letter-spacing:-.2px;color:#6f695d}
+.pkg-model-marks .models-more{flex:0 0 auto;margin-left:10px}
+@media(max-width:760px){.pkg-model-marks{flex-wrap:wrap;row-gap:6px}}

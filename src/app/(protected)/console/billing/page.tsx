@@ -16,6 +16,7 @@ import { CLERK_ENABLED } from "@/lib/clerk-config";
 import { PackageActions } from "@/components/package-actions";
 import { CryptoPayOptions, type CryptoOption } from "@/components/topup-dialog";
 import { ProviderMark } from "@/components/provider-mark";
+import { ModelNodeMap } from "@/components/model-node-map";
 import { Modal } from "@/components/modal";
 import { PaymentExpiryNotice } from "@/components/payment-expiry-notice";
 
@@ -46,7 +47,7 @@ type Subscription = {
    * against an older backend must degrade rather than crash. Reading `.length` on a response that
    * had not been redeployed is exactly what broke this page once.
    */
-  models?: { name: string; provider: string }[];
+  models?: { id?: string; name: string; provider: string }[];
   /** Live but fully spent — the allowance is gone while the window is still open. */
   exhausted: boolean;
 };
@@ -67,7 +68,7 @@ type PlanPackage = {
   baseConcurrency: number | null;
   throttledConcurrency: number | null;
   modelCount: number;
-  models?: { name: string; provider: string }[];
+  models?: { id?: string; name: string; provider: string }[];
 };
 
 type PricingPlan = {
@@ -240,7 +241,7 @@ function pageWindow(current: number, total: number): (number | "gap")[] {
  * Promo: shows package value (tokens/credits) vs what pay-as-you-go would cost.
  */
 function PackageShareCard({ sub, unlimited, used, cap, pct, throttled, exhausted, models, price }: {
-  sub: Subscription; unlimited: boolean; used: number; cap: number | null; pct: number | null; throttled: boolean; exhausted: boolean; models: { provider: string; name: string }[]; price: number;
+  sub: Subscription; unlimited: boolean; used: number; cap: number | null; pct: number | null; throttled: boolean; exhausted: boolean; models: { id?: string; provider: string; name: string }[]; price: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -547,7 +548,7 @@ export default function BillingPage() {
   const [pubStatus, setPubStatus] = useState<Status>("loading");
   // QRIS purchase modal state.
   const [qrOpen, setQrOpen] = useState(false);
-  const [modelPopup, setModelPopup] = useState<{ models: { name: string; provider: string }[]; name: string } | null>(null);
+  const [modelPopup, setModelPopup] = useState<{ models: { id?: string; name: string; provider: string }[]; name: string } | null>(null);
   const [detailPopup, setDetailPopup] = useState<{ plan: PricingPlan; lang: "en" | "id" } | null>(null);
   const [cancelReason, setCancelReason] = useState<{ orderId: string; reason: string } | null>(null);
   const [qrOrder, setQrOrder] = useState<{
@@ -1364,17 +1365,26 @@ export default function BillingPage() {
 
             {pkg.models && pkg.models.length > 0 && <div className="pkg-models">
               <span className="pkg-models-label">Models</span>
-              <div className="model-chips model-chips-mini">
-                {pkg.models.slice(0, 5).map(m =>
-                  <span className="model-chip" key={`${m.provider}/${m.name}`} title={`${m.provider} · ${m.name}`}>
-                    <ProviderMark provider={m.provider} size={16}/>
-                    <span>{m.name}</span>
+              {/* Icons only, in one row. The browse card is a comparison surface: five wrapped
+                  model names changed the card's height from package to package, and the marks
+                  answer "is this the provider mix I want" far faster. Same circular chip the
+                  active-plan row uses, overlapped like a stack so three marks read as "several
+                  providers" at a glance. Names live in the tooltip; Details opens the full list. */}
+              <div className="model-chips model-chips-mini pkg-model-marks">
+                {/* Count first, so the stack never implies "this package covers three models"
+                    when it covers twenty. */}
+                <span className="pkg-model-count">{pkg.models.length}</span>
+                {pkg.models.slice(0, 3).map((m, i) =>
+                  <span className="model-chip-mini" key={`${m.provider}/${m.name}-${i}`} title={`${m.provider} · ${m.name}`}>
+                    <ProviderMark provider={m.provider} size={18}/>
                   </span>)}
-                {pkg.models.length > 5 && <button
-                  className="models-more" type="button"
+                {/* Always present, even when the package lists one model: it is the only way
+                    into the full list, so showing it conditionally would strand the popup. */}
+                <button
+                  className="models-more pkg-models-details" type="button"
                   onClick={() => setModelPopup({ models: pkg.models!, name: p.displayName })}>
-                  +{pkg.models.length - 5} more
-                </button>}
+                  Details
+                </button>
               </div>
             </div>}
 
@@ -1617,12 +1627,17 @@ export default function BillingPage() {
       subtitle="Every model this package covers."
       footer={<button className="button button-ink compact-button" type="button" onClick={() => setModelPopup(null)}><Check size={15}/> Done</button>}
     >
-      {modelPopup && <div className="model-chips" style={{ gap: 7 }}>
-        {modelPopup.models.map(m => <span className="model-chip" key={`${m.provider}/${m.name}`}>
-          <ProviderMark provider={m.provider} size={16}/>
-          <span>{m.name}</span>
-        </span>)}
-      </div>}
+      {modelPopup && <>
+        {/* Node layout first: the chips below answer "which models", this answers "served from
+            where" — and two chips next to each other can sit on different upstreams. */}
+        <ModelNodeMap models={modelPopup.models} label="Node layout"/>
+        <div className="model-chips" style={{ gap: 7, marginTop: 12 }}>
+          {modelPopup.models.map(m => <span className="model-chip" key={`${m.provider}/${m.name}`}>
+            <ProviderMark provider={m.provider} size={16}/>
+            <span>{m.name}</span>
+          </span>)}
+        </div>
+      </>}
     </Modal>
 
     {/* Package detail popup — EN/ID toggle, shows full package info. */}
