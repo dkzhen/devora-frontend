@@ -53,9 +53,12 @@ type PaymentMethod = {
 };
 
 /** A handful of sensible sizes. The field takes any whole number of credits. */
-const MIN_TOPUP = 5_000;
+// Public floor is 10 000 credits; an operator account can still top up 1 000. The presets are
+// the public ladder, so none of them may sit below the floor — a preset that errors on click
+// is worse than one fewer preset.
+const MIN_TOPUP = 10_000;
 const MIN_TOPUP_SUPERUSER = 1_000;
-const PRESETS = [5_000, 10_000, 25_000, 50_000, 100_000];
+const PRESETS = [10_000, 25_000, 50_000, 100_000];
 const SUPERUSER_PRESETS = [1_000, ...PRESETS];
 
 /** The gateway rate-limits status reads to one per 4 seconds, so polling faster only 429s. */
