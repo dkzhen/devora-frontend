@@ -21,13 +21,16 @@ export const metadata: Metadata = {
     siteName: "Devora",
     locale: "en_US",
     type: "website",
-    images: [{ url: "/favicon-512x512.png", width: 512, height: 512, alt: "Devora" }],
+    // 1200x630 banner, not the 512px icon: unfurlers crop to 1.91:1, so a square icon gets
+    // letterboxed into a thumbnail. Rebuild with `python3 scripts/build-og-image.py`.
+    images: [{ url: "/og-devora.png", width: 1200, height: 630, alt: "Devora — one workspace for AI infrastructure" }],
   },
   twitter: {
-    card: "summary",
+    // `summary_large_image` is what gives the wide card; `summary` renders a small square.
+    card: "summary_large_image",
     title: "Devora — one platform, more ways to build",
     description: "Your AI stack, billing, and workspace tools. All in one place.",
-    images: ["/favicon-512x512.png"],
+    images: ["/og-devora.png"],
   },
   robots: {
     index: true,
